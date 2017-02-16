@@ -1,1 +1,3 @@
 # qfolder
+
+Directorio distribuido

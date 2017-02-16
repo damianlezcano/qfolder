@@ -1,0 +1,78 @@
+||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+
+                            QFOLDER v1.0
+
+||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+
+Parámetros
+----------
+
+-Dapp.name ->
+ 
+   Nombre de usuario. Por defecto "Sin Nombre"
+
+-Dapp.hosts ->
+
+   Listado de host a los que desea conectar. 
+   
+   Por ejemplo: 
+   
+     -Dapp.hosts=http://192.168.1.1:9876
+     -Dapp.hosts=http://192.168.1.1:9876,10.1.1.1:9889
+
+-Dapp.rest.port -> 
+
+   Puerto de conexion. Por defecto "9876"
+   
+-Dapp.rest.bind.address -> 
+
+   Direccion binding. Por defecto "0.0.0.0"
+   
+-Dapp.rest.thread.pool.max -> 
+
+   Cantidad maxima de conexiones simultaneas. Por defecto "10"
+
+-Dapp.data.path=./data -> 
+
+   Directorio donde se almacenaran los archivos. Por defecto "./data"
+
+-Dapp.shell.exec -> 
+
+   Comando a ejecutar para abrir los archivos. 
+   
+   Por defecto:
+   
+     o- Linux=xdg-open
+     o- Windows7=cmd /C start /wait
+
+-Dapp.shell.notify ->
+
+   Comando a ejecutar para notificar los eventos en los archivos. 
+   
+   Por defecto:
+
+     o- Desktop Pantheon=notify-send {0} {1}
+     o- Desktop Unity=notify-send -i face-laugh {0} {1}
+
+-Dapp.shell.browser ->
+	
+   Muestra la aplicacion en modo compacto segun el navegador elejido (chrome o iexplorer). 
+   Si se especifica un valor, sobrescribe la propiedad "-Dapp.shell.browser.exec" si fue asignada.
+   Si no se especifica nada, y en la propiedad "-Dapp.shell.brower.exec" tampoco, entonces no se hace nada. 
+   
+   Por Ejemplo:
+   
+     -Dapp.shell.browser=chrome
+     -Dapp.shell.browser=iexplorer
+     -Dapp.shell.browser=default          * En este caso lo abre en el navegador predeterminado sin modo Kies
+ 
+   Comando a ejecutar para abrir el navegador en modo compacto. Si no existe ninguno definido, no se hace nada.
+     
+-Dapp.shell.browser.exec ->
+ 
+   Comando a ejecutar para abrir el navegador en modo compacto. Si no existe ninguno definido, no se hace nada. 
+   
+   Por Ejemplo:
+   
+     -Dapp.shell.browser.exec=google-chrome --app={0}
+     -Dapp.shell.browser.exec=iexplore.exe -k {0}
