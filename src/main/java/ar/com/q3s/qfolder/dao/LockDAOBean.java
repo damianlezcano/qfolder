@@ -14,7 +14,7 @@ import ar.com.q3s.qfolder.util.PropertyUtils;
 
 public class LockDAOBean implements LockDAO {
 
-	private final String path = PropertyUtils.getProperty("app.data.path");
+	private final String path = PropertyUtils.getDataPath();
 	
 	@Override
 	public QLock get(String name) throws Exception {

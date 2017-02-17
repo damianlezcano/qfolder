@@ -31,8 +31,9 @@ import org.jboss.resteasy.specimpl.MultivaluedMapImpl;
 import ar.com.q3s.qfolder.dao.FileDAO;
 import ar.com.q3s.qfolder.dao.LockDAO;
 import ar.com.q3s.qfolder.exception.CommandNotFoundException;
-import ar.com.q3s.qfolder.model.QLock;
 import ar.com.q3s.qfolder.model.QFile;
+import ar.com.q3s.qfolder.model.QLock;
+import ar.com.q3s.qfolder.util.ExecutorUtils;
 import ar.com.q3s.qfolder.util.PropertyUtils;
 
 public class FileBOBean implements FileBO {
@@ -61,7 +62,7 @@ public class FileBOBean implements FileBO {
 			throw new Exception("El archivo ya esta siendo usado por " + l.getUser() + " a las " + l.getDateAsString());
 		}
 		QLock lock = new QLock();
-		lock.setUser(PropertyUtils.getProperty("app.name"));
+		lock.setUser(PropertyUtils.getName());
 		lock.setDate(new Date());
 		lockDAO.put(name, lock);
 		return dao.get(name);
@@ -78,8 +79,7 @@ public class FileBOBean implements FileBO {
 	public QFile open(String host, String filename) throws Exception {
 		try {
 			String url = host + "/api/file/get/" + filename;
-			File temp = new File(System.getProperty("java.io.tmpdir") + File.separator + filename);
-			System.out.println("##### open " + url);
+			File temp = new File(PropertyUtils.getTempPath(filename));
 			// --------------------
 			Client client =  new ResteasyClientBuilder()
 		    .establishConnectionTimeout(2, TimeUnit.SECONDS)
@@ -111,7 +111,6 @@ public class FileBOBean implements FileBO {
 	}
 
 	private void put(String host,String filename,File file) {
-		System.out.println("##### update " + host + "/api/file/put [" + filename + "]");
 		ResteasyClient client = new ResteasyClientBuilder().build();
 	    ResteasyWebTarget target = client.target(host + "/api/file/put");
 	    MultivaluedMap<String,Object> mm=new MultivaluedMapImpl<String,Object>();
@@ -127,17 +126,10 @@ public class FileBOBean implements FileBO {
 	}
 	
 	private void open(File file) throws Exception{
-        try {
-    		String command = PropertyUtils.getProperty("app.shell.file.exec");
-    		if(command == null) throw new CommandNotFoundException("No existe el comando para este sistema operativo: " + PropertyUtils.getSystemName());
-    		//--------------------------------------------------------
-            Process p = Runtime.getRuntime().exec(command.trim() + " " + file);
-            
-            byte[] bo = new byte[100];
-            p.getInputStream().read(bo);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+		String command = PropertyUtils.getShellFileExec();
+		if(command == null) throw new CommandNotFoundException("No existe el comando para este sistema operativo: " + PropertyUtils.getSystemName());
+		//--------------------------------------------------------
+        ExecutorUtils.exec(command.trim() + " " + file);
 	}
 	
 	private void copyFileUsingStream(File source, File dest) throws IOException {
@@ -159,7 +151,7 @@ public class FileBOBean implements FileBO {
 	
 	private void notifyDesktop(String filename) {
 		try {
-			String comm1 = PropertyUtils.getProperty("app.shell.notify.exec." + PropertyUtils.getSystemName() + "." + PropertyUtils.getDesktop());
+			String comm1 = PropertyUtils.getShellNotifyExec();
 			String comm2 = MessageFormat.format(comm1, "Actualizacion", filename);
 			Runtime.getRuntime().exec(comm2);
 		} catch (Exception e) {

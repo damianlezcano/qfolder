@@ -57,14 +57,13 @@ public class FileDAOBean implements FileDAO {
 	}
 
 	private String buildPath() {
-		String dataPath = PropertyUtils.getProperty("app.data.path");
+		String dataPath = PropertyUtils.getDataPath();
 		String spath = FileDAOBean.class.getProtectionDomain().getCodeSource().getLocation().getPath();
 		if(spath.indexOf(".jar") > 0){
 			dataPath = String.format("%s%s%s",(spath.substring(0,spath.lastIndexOf(File.separator))),File.separator,dataPath);
 		}else{
 			dataPath = "/home/damian/dev/workspace/qfolder" + File.separator + dataPath;
 		}
-		System.out.println(dataPath);
 		return dataPath;
 	}
 	

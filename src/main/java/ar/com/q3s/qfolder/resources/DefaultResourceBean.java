@@ -4,7 +4,6 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.InetAddress;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -27,6 +26,7 @@ import org.json.simple.JSONObject;
 import ar.com.q3s.qfolder.bo.FileBO;
 import ar.com.q3s.qfolder.bo.HostBO;
 import ar.com.q3s.qfolder.model.QFile;
+import ar.com.q3s.qfolder.util.NetworkUtils;
 import ar.com.q3s.qfolder.util.PropertyUtils;
  
 @Path("/api")
@@ -42,8 +42,8 @@ public class DefaultResourceBean {
     public Response status() {
     	JSONObject obj = new JSONObject();
     	try {
-    		obj.put("username", PropertyUtils.getProperty("app.name"));
-    		obj.put("hostname", InetAddress.getLocalHost().getHostName());
+    		obj.put("username", PropertyUtils.getName());
+    		obj.put("hostname", NetworkUtils.getLocalHostName());
     		obj.put("os", PropertyUtils.getSystemName());
     		obj.put("size", fileBO.size());
 		} catch (Exception e) {
@@ -119,19 +119,6 @@ public class DefaultResourceBean {
 	public Response getAllHosts(@QueryParam("name") String name) throws Exception {
 		hostBO.add(name);
 		return Response.ok().build();
-//        ResteasyClient client = new ResteasyClientBuilder().build();
-//        ResteasyWebTarget target = client.target(name + "/api/uuid");
-//        
-//		String remoteId = target.request().get(String.class);
-//		String localId = hostBO.uuid();
-//		
-//		if(localId.equals(remoteId)){
-//			return Response.serverError().build();
-//		}else{
-//			hostBO.add(name);
-//			return Response.ok().build();			
-//		}
-        
 	}
 	
 	@GET

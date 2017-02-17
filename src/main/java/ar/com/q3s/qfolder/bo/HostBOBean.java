@@ -13,7 +13,7 @@ public class HostBOBean implements HostBO {
 
 	public void init() throws Exception {
 		add("");
-		String property = PropertyUtils.getProperty("app.hosts");
+		String property = PropertyUtils.getHosts();
 		if(property != null){
 			for (String item : Arrays.asList(property.split(","))) {
 				add(item);				

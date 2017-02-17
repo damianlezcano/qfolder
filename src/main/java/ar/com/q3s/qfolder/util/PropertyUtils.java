@@ -1,5 +1,6 @@
 package ar.com.q3s.qfolder.util;
 
+import java.io.File;
 import java.io.InputStream;
 import java.util.Properties;
 
@@ -39,6 +40,54 @@ public class PropertyUtils {
 	
 	public static String getDesktop(){
 		return System.getenv("XDG_CURRENT_DESKTOP");
+	}
+
+	public static String getHosts() {
+		return getProperty("app.hosts");
+	}
+
+	public static String getName() {
+		return getProperty("app.name");
+	}
+
+	public static String getShellFileExec() {
+		return getProperty("app.shell.file.exec");
+	}
+
+	public static String getShellNotifyExec() {
+		return getProperty("app.shell.notify.exec." + PropertyUtils.getSystemName() + "." + PropertyUtils.getDesktop());
+	}
+
+	public static String getPort() {
+		return getProperty("app.rest.port");
+	}
+
+	public static String getBindAddress() {
+		return getProperty("app.rest.bind.address");
+	}
+
+	public static String getThreadPoolNumber() {
+		return getProperty("app.rest.thread.pool");
+	}
+
+	public static String getDataPath() {
+		return getProperty("app.data.path");
+	}
+
+	public static String getShellBrowserName() {
+		return getProperty("app.shell.browser");
+	}
+
+	public static String getShellBrowserExec() {
+		return getProperty("app.shell.browser.exec");
+	}
+
+	public static String getTempPath() {
+		return System.getProperty("java.io.tmpdir");
+	}
+
+	public static String getTempPath(String filename) {
+		return getTempPath() + File.separator + filename;
 	}
 	
 }

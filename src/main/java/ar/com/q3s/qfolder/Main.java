@@ -38,9 +38,9 @@ public class Main {
 	
 	public Main() 
 	{
-		this.port = Integer.valueOf(PropertyUtils.getProperty("app.rest.port"));
-		this.bindInterface = PropertyUtils.getProperty("app.rest.bind.address");
-		this.threadMax = Integer.valueOf(PropertyUtils.getProperty("app.rest.thread.pool"));
+		this.port = Integer.valueOf(PropertyUtils.getPort());
+		this.bindInterface = PropertyUtils.getBindAddress();
+		this.threadMax = Integer.valueOf(PropertyUtils.getThreadPoolNumber());
 	}
 
 	public void start() throws Exception {

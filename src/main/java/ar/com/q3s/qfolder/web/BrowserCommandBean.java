@@ -11,8 +11,8 @@ public class BrowserCommandBean implements Command {
 	public void invoke() {
 		try {
 			String uri = NetworkUtils.buildUri();
-			String browserName = PropertyUtils.getProperty("app.shell.browser");
-			String browserExec = PropertyUtils.getProperty("app.shell.browser.exec");
+			String browserName = PropertyUtils.getShellBrowserName();
+			String browserExec = PropertyUtils.getShellBrowserExec();
 			if(browserName != null && browserExec != null){
 				System.err.println("### ERR: No se puede definir las dos propiedades a la vez (app.shell.browser | app.shell.browser.exec)");
 				return;

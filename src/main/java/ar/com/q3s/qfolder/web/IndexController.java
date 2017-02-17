@@ -16,8 +16,8 @@ import org.springframework.web.servlet.ModelAndView;
 import ar.com.q3s.qfolder.bo.FileBO;
 import ar.com.q3s.qfolder.bo.HostBO;
 import ar.com.q3s.qfolder.model.QFile;
-import ar.com.q3s.qfolder.model.QHost;
 import ar.com.q3s.qfolder.util.NetworkUtils;
+import ar.com.q3s.qfolder.util.PropertyUtils;
 
 @Controller
 public class IndexController {
@@ -41,6 +41,7 @@ public class IndexController {
 	@RequestMapping("/unity")
 	public ModelAndView unity() throws Exception{
 		Map<String,Object> map = new HashMap<String,Object>();
+		map.put("username", PropertyUtils.getName());
 		map.put("ip", NetworkUtils.buildUri());
 		map.put("uuid", hostBO.uuid());
 		return new ModelAndView("unity",map);

@@ -7,10 +7,12 @@ function loadPage(){
 	    	var remoteHost = data[key];
 	    	//procesar host
 	    	var status = sync(processHost,[remoteHost])
-	    	//registrar los archivos
-	    	sync(registrarHost,[remoteHost,localHost])
-	    	//asignar texto a encabezado
-	    	header.push(status.username);
+	    	if(status != ""){
+		    	//registrar los archivos
+		    	sync(registrarHost,[remoteHost,localHost])
+		    	//asignar texto a encabezado
+		    	header.push(status.username);
+	    	}
 	    }
     	$("a.link-panel-header").text("Todo (" + header.length + ") -> " + header)
 	});	
@@ -18,18 +20,21 @@ function loadPage(){
 
 function processHost(host){
 	var status = sync(getStatusHost,[host])
-	sync(processFiles,[host,status]);
+	if(status != ""){
+		sync(processFiles,[host,status]);
+	}
 	return status;
 }
 
 function processFiles(host,status){
 	$.get(host + "/api/file/all", function(data) {
 	    for (var key in data) {
+	    	var realhost = host == "" ? $("#ip").text() : host;
 	    	var filename = data[key].name;
 	    	var extension = filename.split(".")[1];
 	    	var size = data[key].size;
 	    	//---------------------------------
-	    	var item = sync(createItem,[host,filename,extension,size,status.username,status.hostname,status.os]);
+	    	var item = sync(createItem,[realhost,filename,extension,size,status.username,status.hostname,status.os]);
 	        $("#elements").append(item);
 	    }
 	});
@@ -40,7 +45,7 @@ function getStatusHost(host){
 	$.get(host + "/api/status", function(data) {
 		str = data
 	});
-	return JSON.parse(str);
+	return "" == str ? "" : JSON.parse(str);
 }
 
 function registrarHost(source,destination){
