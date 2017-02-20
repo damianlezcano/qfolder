@@ -30,16 +30,16 @@ import org.jboss.resteasy.specimpl.MultivaluedMapImpl;
 
 import ar.com.q3s.qfolder.dao.FileDAO;
 import ar.com.q3s.qfolder.dao.LockDAO;
-import ar.com.q3s.qfolder.exception.CommandNotFoundException;
+import ar.com.q3s.qfolder.exec.Executor;
 import ar.com.q3s.qfolder.model.QFile;
 import ar.com.q3s.qfolder.model.QLock;
-import ar.com.q3s.qfolder.util.ExecutorUtils;
 import ar.com.q3s.qfolder.util.PropertyUtils;
 
 public class FileBOBean implements FileBO {
 
 	private FileDAO dao;
 	private LockDAO lockDAO;
+	private Executor executor;
 	
 	@Override
 	public Set<QFile> getAll() throws Exception {
@@ -97,7 +97,9 @@ public class FileBOBean implements FileBO {
 			response.close(); // You should close connections!
 			File dest = new File(temp.toURI().toURL().getPath());
 			copyFileUsingStream(remoteFile, dest);
-			open(dest);
+			
+			executor.open(dest.toString());
+			
 			put(host,filename, dest);
 			
 			QFile qfile = new QFile();
@@ -123,13 +125,6 @@ public class FileBOBean implements FileBO {
 	    mdo.getFormData().get("uploadedFile").getHeaders().put("Content-Disposition",contDis);
 	    GenericEntity<MultipartFormDataOutput> entity = new GenericEntity<MultipartFormDataOutput>(mdo) {};
 	    target.request().header("Authorization", "Basic test123").post( Entity.entity(entity, MediaType.MULTIPART_FORM_DATA_TYPE));
-	}
-	
-	private void open(File file) throws Exception{
-		String command = PropertyUtils.getShellFileExec();
-		if(command == null) throw new CommandNotFoundException("No existe el comando para este sistema operativo: " + PropertyUtils.getSystemName());
-		//--------------------------------------------------------
-        ExecutorUtils.exec(command.trim() + " " + file);
 	}
 	
 	private void copyFileUsingStream(File source, File dest) throws IOException {
@@ -183,6 +178,14 @@ public class FileBOBean implements FileBO {
 
 	public void setLockDAO(LockDAO lockDAO) {
 		this.lockDAO = lockDAO;
+	}
+
+	public Executor getExecutor() {
+		return executor;
+	}
+
+	public void setExecutor(Executor executor) {
+		this.executor = executor;
 	}
 
 }

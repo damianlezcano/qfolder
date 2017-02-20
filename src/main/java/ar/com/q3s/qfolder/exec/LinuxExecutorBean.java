@@ -1,4 +1,4 @@
-package ar.com.q3s.qfolder.util;
+package ar.com.q3s.qfolder.exec;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -11,11 +11,6 @@ public class LinuxExecutorBean implements Executor {
 	private final static String COMMAND_MIME_APPLICATION = "xdg-mime query default %s";
 	private final static String COMMAND_MIME_TYPE = "xdg-mime query filetype %s";
 	private final static String COMMAND_DEFAULT_MIME_APPLICATION = "xdg-mime query default text/plain";
-	
-	public static void main(String[] args) throws InterruptedException {
-		Executor executor = new LinuxExecutorBean();
-		executor.open(args[0]);
-	}
 	
 	public void open(String fullname) throws InterruptedException{
 		String mimeType = getMimeType(fullname);
@@ -76,6 +71,11 @@ public class LinuxExecutorBean implements Executor {
 		if(result.isEmpty()){
 			command = COMMAND_DEFAULT_MIME_APPLICATION;
 			result = executeCommand(command);
+		}else{
+			int fis = result.lastIndexOf(File.separator);
+			if(fis != -1){
+				result = result.substring(fis+1);
+			}
 		}
 		return result;
 	}
@@ -93,10 +93,8 @@ public class LinuxExecutorBean implements Executor {
 		try {
 			p = Runtime.getRuntime().exec(command);
 			p.waitFor();
-			BufferedReader reader =
-                            new BufferedReader(new InputStreamReader(p.getInputStream()));
-
-                        String line = "";
+			BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()));
+            String line = "";
 			while ((line = reader.readLine())!= null) {
 				output.append(line + "\n");
 			}

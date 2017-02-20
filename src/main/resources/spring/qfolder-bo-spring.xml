@@ -11,10 +11,13 @@
 	<bean id="file.bo" class="ar.com.q3s.qfolder.bo.FileBOBean" init-method="depuration">
 		<property name="dao" ref="file.dao"/>
 		<property name="lockDAO" ref="lock.dao"/>
+		<property name="executor" ref="executor.factory"/>
 	</bean>
 
 	<bean id="host.bo" class="ar.com.q3s.qfolder.bo.HostBOBean" init-method="init">
 		<property name="dao" ref="host.dao"/>
 	</bean>
+	
+	<bean id="executor.factory" class="ar.com.q3s.qfolder.exec.ExecutorFactoryBean" factory-method="create"/>
 		
 </beans>

@@ -30,7 +30,7 @@ public class IndexController {
 
 	@RequestMapping("/")
 	public ModelAndView root() throws Exception{
-		return new ModelAndView("unity");
+		return unity();
 	}
 	
 	@RequestMapping("/split")
@@ -68,7 +68,6 @@ public class IndexController {
 	}
 	
 	//------------------------------------
-
 
 	public FileBO getFileBO() {
 		return fileBO;

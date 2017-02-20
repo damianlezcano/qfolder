@@ -1,4 +1,4 @@
-package ar.com.q3s.qfolder.util;
+package ar.com.q3s.qfolder.exec;
 
 public interface Executor {
 

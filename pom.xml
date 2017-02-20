@@ -44,11 +44,6 @@
 		</dependency>
 		<dependency>
 			<groupId>org.jboss.resteasy</groupId>
-			<artifactId>resteasy-spring</artifactId>
-			<version>${jboss.resteasy.version}</version>
-		</dependency>
-		<dependency>
-			<groupId>org.jboss.resteasy</groupId>
 			<artifactId>resteasy-jaxb-provider</artifactId>
 			<version>${jboss.resteasy.version}</version>
 		</dependency>
@@ -57,11 +52,6 @@
 	        <artifactId>resteasy-multipart-provider</artifactId>
 	        <version>${jboss.resteasy.version}</version>
 	    </dependency>
-        <dependency><!-- For better I/O control -->
-            <groupId>commons-io</groupId>
-            <artifactId>commons-io</artifactId>
-            <version>2.4</version>
-        </dependency>
 		<!-- SPRING DEPENDENCIES -->
 		<dependency>
 			<groupId>org.springframework</groupId>
@@ -87,11 +77,6 @@
 		<dependency>
 			<groupId>org.eclipse.jetty</groupId>
 			<artifactId>jetty-webapp</artifactId>
-			<version>${jetty.version}</version>
-		</dependency>
-		<dependency>
-			<groupId>org.eclipse.jetty</groupId>
-			<artifactId>jetty-servlets</artifactId>
 			<version>${jetty.version}</version>
 		</dependency>
 		<!-- JSP and JSTL SUPPORT -->
@@ -121,11 +106,6 @@
 			<artifactId>log4j</artifactId>
 			<version>1.2.14</version>
 			<scope>compile</scope>
-		</dependency>
-		<dependency>
-		    <groupId>org.apache.commons</groupId>
-		    <artifactId>commons-exec</artifactId>
-		    <version>1.3</version>
 		</dependency>
 		<!-- test -->
 		<dependency>
