@@ -86,9 +86,7 @@ public class LinuxExecutorBean implements Executor {
 	}
 
 	private String executeCommand(String command) {
-
 		StringBuffer output = new StringBuffer();
-
 		Process p;
 		try {
 			p = Runtime.getRuntime().exec(command);
