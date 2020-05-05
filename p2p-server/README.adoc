@@ -1,0 +1,31 @@
+= Reactive Server Sent Events with Spring 5
+Mario Gray <mgray@pivotal.io>
+:Author Initials: MVG
+:toc:
+:icons:
+:numbered:
+:imagesdir: ./graphics
+:website: https://docs.spring.io/spring/docs/5.0.0.BUILD-SNAPSHOT/spring-framework-reference/html/web-reactive.html
+:note: Drain the [BAYEUX]
+
+== This Demo
+
+== SSE(Push) Server
+
+== References/Readling List
+
+* Spring WebFlux guide
+** https://docs.spring.io/spring/docs/5.0.0.BUILD-SNAPSHOT/spring-framework-reference/html/web-reactive.html
+** https://docs.spring.io/spring/docs/current/spring-framework-reference/web-reactive.html
+
+* Articles
+** https://ordina-jworks.github.io/reactive/2016/12/12/Reactive-Programming-Spring-Reactor.html
+
+* W3C Proposals
+** https://tools.ietf.org/html/rfc6455
+
+* Theory
+** http://reactivex.io/documentation/operators.html
+** https://github.com/Reactive-Extensions/RxJS/blob/master/doc/api/core/operators/debounce.md
+
+
