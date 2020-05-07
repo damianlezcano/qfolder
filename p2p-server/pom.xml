@@ -8,7 +8,7 @@
     <version>0.0.1-SNAPSHOT</version>
     <packaging>jar</packaging>
 
-    <name>spring-sockets</name>
+    <name>p2p-server</name>
     <description>Spring Server Sent Events Demonstration</description>
 
     <parent>

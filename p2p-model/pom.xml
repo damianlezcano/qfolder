@@ -8,7 +8,7 @@
     <version>0.0.1-SNAPSHOT</version>
     <packaging>jar</packaging>
 
-    <name>spring-sse-client</name>
+    <name>p2p-model</name>
     <description>Demo SSE WebClient</description>
 
 <!--     <parent> -->
@@ -52,6 +52,12 @@
 			<artifactId>jackson-databind</artifactId>
 			<version>2.9.4</version>
 		</dependency>
+<!--        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <version>2.2.6.RELEASE</version>
+            <scope>provided</scope>
+        </dependency>-->
     </dependencies>
 
     <build>

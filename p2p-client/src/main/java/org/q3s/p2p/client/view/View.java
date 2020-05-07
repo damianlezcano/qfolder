@@ -13,6 +13,7 @@ import java.io.File;
 import java.util.UUID;
 import javax.swing.JDialog;
 import javax.swing.JFileChooser;
+import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPasswordField;
 import javax.swing.UIManager;
@@ -46,6 +47,7 @@ public class View extends javax.swing.JFrame {
         jLabel1 = new javax.swing.JLabel();
         jLabel4 = new javax.swing.JLabel();
         jButton6 = new javax.swing.JButton();
+        jLabel16 = new javax.swing.JLabel();
         jPanelCreateWorkspace = new javax.swing.JPanel();
         jLabel5 = new javax.swing.JLabel();
         jTextField5 = new javax.swing.JTextField();
@@ -57,6 +59,7 @@ public class View extends javax.swing.JFrame {
         jPasswordField2 = new javax.swing.JPasswordField();
         jButton4 = new javax.swing.JButton();
         jButton5 = new javax.swing.JButton();
+        jLabel17 = new javax.swing.JLabel();
         jPanelProxy = new javax.swing.JPanel();
         jLabel11 = new javax.swing.JLabel();
         jCheckBox2 = new javax.swing.JCheckBox();
@@ -110,11 +113,6 @@ public class View extends javax.swing.JFrame {
         });
 
         jButton2.setText("Unirse");
-        jButton2.addActionListener(new java.awt.event.ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent evt) {
-                jButton2ActionPerformed(evt);
-            }
-        });
 
         jLabel1.setHorizontalAlignment(javax.swing.SwingConstants.CENTER);
         jLabel1.setIcon(new javax.swing.ImageIcon(getClass().getResource("/group.png"))); // NOI18N
@@ -122,11 +120,6 @@ public class View extends javax.swing.JFrame {
         jLabel4.setForeground(new java.awt.Color(0, 102, 255));
         jLabel4.setText("Crear espacio de trabajo");
         jLabel4.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
-        jLabel4.addMouseListener(new java.awt.event.MouseAdapter() {
-            public void mouseClicked(java.awt.event.MouseEvent evt) {
-                onJLabel4Click(evt);
-            }
-        });
 
         jButton6.setIcon(new javax.swing.ImageIcon(getClass().getResource("/proxy.png"))); // NOI18N
         jButton6.setToolTipText("Configurar Proxy");
@@ -135,6 +128,10 @@ public class View extends javax.swing.JFrame {
                 jButton6ActionPerformed(evt);
             }
         });
+
+        jLabel16.setFont(new java.awt.Font("Lucida Grande", 2, 12)); // NOI18N
+        jLabel16.setForeground(new java.awt.Color(204, 51, 0));
+        jLabel16.setHorizontalAlignment(javax.swing.SwingConstants.CENTER);
 
         javax.swing.GroupLayout jPanelJoinLayout = new javax.swing.GroupLayout(jPanelJoin);
         jPanelJoin.setLayout(jPanelJoinLayout);
@@ -154,6 +151,10 @@ public class View extends javax.swing.JFrame {
                 .addGap(249, 249, 249)
                 .addComponent(jButton2, javax.swing.GroupLayout.DEFAULT_SIZE, 125, Short.MAX_VALUE)
                 .addGap(256, 256, 256))
+            .addGroup(jPanelJoinLayout.createSequentialGroup()
+                .addGap(88, 88, 88)
+                .addComponent(jLabel16, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                .addGap(86, 86, 86))
         );
         jPanelJoinLayout.setVerticalGroup(
             jPanelJoinLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
@@ -166,7 +167,9 @@ public class View extends javax.swing.JFrame {
                         .addComponent(jTextField2, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
                         .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                         .addComponent(jButton2)
-                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED, 85, Short.MAX_VALUE)
+                        .addGap(12, 12, 12)
+                        .addComponent(jLabel16, javax.swing.GroupLayout.PREFERRED_SIZE, 35, javax.swing.GroupLayout.PREFERRED_SIZE)
+                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED, 38, Short.MAX_VALUE)
                         .addComponent(jLabel4)
                         .addContainerGap())
                     .addGroup(javax.swing.GroupLayout.Alignment.TRAILING, jPanelJoinLayout.createSequentialGroup()
@@ -181,31 +184,21 @@ public class View extends javax.swing.JFrame {
         jLabel7.setText(" Nombre del espacio de trabajo");
 
         jCheckBox1.setText("Hablitiar contraseña");
-        jCheckBox1.setEnabled(false);
 
-        jPasswordField1.setText("jPasswordField1");
         jPasswordField1.setEnabled(false);
 
         jLabel8.setText("Ingrese una contraseña");
 
         jLabel9.setText("Repita la contraseña");
 
-        jPasswordField2.setText("jPasswordField1");
         jPasswordField2.setEnabled(false);
 
         jButton4.setText("Crear");
-        jButton4.addActionListener(new java.awt.event.ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent evt) {
-                jButton4ActionPerformed(evt);
-            }
-        });
 
         jButton5.setText("Volver");
-        jButton5.addActionListener(new java.awt.event.ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent evt) {
-                jButton5ActionPerformed(evt);
-            }
-        });
+
+        jLabel17.setFont(new java.awt.Font("Lucida Grande", 2, 12)); // NOI18N
+        jLabel17.setForeground(new java.awt.Color(153, 0, 0));
 
         javax.swing.GroupLayout jPanelCreateWorkspaceLayout = new javax.swing.GroupLayout(jPanelCreateWorkspace);
         jPanelCreateWorkspace.setLayout(jPanelCreateWorkspaceLayout);
@@ -235,7 +228,10 @@ public class View extends javax.swing.JFrame {
                                 .addGap(41, 41, 41)
                                 .addGroup(jPanelCreateWorkspaceLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
                                     .addComponent(jPasswordField2, javax.swing.GroupLayout.Alignment.TRAILING)
-                                    .addComponent(jPasswordField1, javax.swing.GroupLayout.Alignment.TRAILING))))))
+                                    .addComponent(jPasswordField1, javax.swing.GroupLayout.Alignment.TRAILING)))))
+                    .addGroup(jPanelCreateWorkspaceLayout.createSequentialGroup()
+                        .addGap(193, 193, 193)
+                        .addComponent(jLabel17, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)))
                 .addGap(37, 37, 37))
         );
         jPanelCreateWorkspaceLayout.setVerticalGroup(
@@ -260,7 +256,9 @@ public class View extends javax.swing.JFrame {
                 .addGroup(jPanelCreateWorkspaceLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
                     .addComponent(jLabel9)
                     .addComponent(jPasswordField2, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE))
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED, 58, Short.MAX_VALUE)
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
+                .addComponent(jLabel17)
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED, 31, Short.MAX_VALUE)
                 .addGroup(jPanelCreateWorkspaceLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
                     .addComponent(jButton4)
                     .addComponent(jButton5))
@@ -383,13 +381,10 @@ public class View extends javax.swing.JFrame {
 
         jTable4.setModel(new javax.swing.table.DefaultTableModel(
             new Object [][] {
-                {null, null, null, null},
-                {null, null, null, null},
-                {null, null, null, null},
-                {null, null, null, null}
+
             },
             new String [] {
-                "Title 1", "Title 2", "Title 3", "Title 4"
+                "Archivo", "Tamaño", "Fecha Modificacion", "Propietario"
             }
         ));
         jTable4.setToolTipText("Ctrl + F para buscar");
@@ -469,12 +464,20 @@ public class View extends javax.swing.JFrame {
         jTable2.setForeground(new java.awt.Color(153, 153, 153));
         jTable2.setModel(new javax.swing.table.DefaultTableModel(
             new Object [][] {
-                {"cuentas.xml", "0.35mb"}
+                {null, null, null}
             },
             new String [] {
-                "Archivo", "Tamaño"
+                "Archivo", "Tamaño", "Fecha Modificacion"
             }
-        ));
+        ) {
+            Class[] types = new Class [] {
+                java.lang.String.class, java.lang.String.class, java.lang.Object.class
+            };
+
+            public Class getColumnClass(int columnIndex) {
+                return types [columnIndex];
+            }
+        });
         jTable2.setEnabled(false);
         jScrollPane4.setViewportView(jTable2);
 
@@ -482,13 +485,21 @@ public class View extends javax.swing.JFrame {
 
         jTable3.setModel(new javax.swing.table.DefaultTableModel(
             new Object [][] {
-                {"notas.txt", "0.1mb"},
-                {"foto1.png", "3mb"}
+                {null, null, null},
+                {null, null, null}
             },
             new String [] {
-                "Archivo", "Tamaño"
+                "Archivo", "Tamaño", "Fecha Modificacion"
             }
-        ));
+        ) {
+            Class[] types = new Class [] {
+                java.lang.String.class, java.lang.String.class, java.lang.Object.class
+            };
+
+            public Class getColumnClass(int columnIndex) {
+                return types [columnIndex];
+            }
+        });
         jTable3.setShowGrid(true);
         jScrollPane5.setViewportView(jTable3);
 
@@ -506,7 +517,7 @@ public class View extends javax.swing.JFrame {
 
         jLabel2.setText(" Nombre Usuario");
 
-        jTextField3.setText("Damian");
+        jTextField3.setText("Sin nombre");
 
         jLabel3.setText(" Directorio a compartir");
 
@@ -620,7 +631,7 @@ public class View extends javax.swing.JFrame {
             .addGroup(jLayeredPaneLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
                 .addGroup(jLayeredPaneLayout.createSequentialGroup()
                     .addContainerGap()
-                    .addComponent(jTabbedPane, javax.swing.GroupLayout.PREFERRED_SIZE, 369, Short.MAX_VALUE)
+                    .addComponent(jTabbedPane, javax.swing.GroupLayout.DEFAULT_SIZE, 369, Short.MAX_VALUE)
                     .addContainerGap()))
             .addGroup(jLayeredPaneLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
                 .addGroup(jLayeredPaneLayout.createSequentialGroup()
@@ -660,43 +671,6 @@ public class View extends javax.swing.JFrame {
         // TODO add your handling code here:
     }//GEN-LAST:event_jButton1ActionPerformed
 
-    private void jButton2ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton2ActionPerformed
-        JPasswordField pf = new JPasswordField();
-        //Create OptionPane & Dialog
-        JOptionPane pane = new JOptionPane(pf,JOptionPane.INFORMATION_MESSAGE,JOptionPane.OK_OPTION);
-        JDialog dialog = pane.createDialog(this,"Clave de Acceso");
-        //Add a listener to the dialog to request focus of Password Field
-        dialog.addComponentListener(new ComponentListener(){
-            @Override
-            public void componentShown(ComponentEvent e) {
-                pf.requestFocusInWindow();
-            }
-            @Override public void componentHidden(ComponentEvent e) {}
-            @Override public void componentResized(ComponentEvent e) {}
-            @Override public void componentMoved(ComponentEvent e) {}
-            });
-
-        dialog.setVisible(true);
-        
-        int okCxl = (int)pane.getValue();
-        
-        if (okCxl == JOptionPane.OK_OPTION) {
-            String password = new String(pf.getPassword());
-            if("1".equals(password)){
-                jPanelCreateWorkspace.setVisible(false);
-                jPanelJoin.setVisible(false);
-                jTabbedPane.setVisible(true);
-                jPanelProxy.setVisible(false);
-                jTextField6.setText(jTextField2.getText());
-                
-                this.setTitle("Conectado al grupo 'redhat' (Descargando 'notas.xls' - 67%)");
-                        
-            }else{
-                JOptionPane.showMessageDialog(this, "La clave que fue ingresada no es correcta","Clave incorrecta",JOptionPane.ERROR_MESSAGE);
-            }
-        }
-    }//GEN-LAST:event_jButton2ActionPerformed
-
     private void jTextField2ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jTextField2ActionPerformed
         // TODO add your handling code here:
     }//GEN-LAST:event_jTextField2ActionPerformed
@@ -710,31 +684,6 @@ public class View extends javax.swing.JFrame {
                jTextField4.setText(file.getAbsolutePath());
             }
     }//GEN-LAST:event_jButton3ActionPerformed
-
-    private void onJLabel4Click(java.awt.event.MouseEvent evt) {//GEN-FIRST:event_onJLabel4Click
-        jPanelCreateWorkspace.setVisible(true);
-        jPanelJoin.setVisible(false);
-        jTabbedPane.setVisible(false);
-        jPanelProxy.setVisible(false);
-        this.setTitle("Crear espacio de trabajo");
-    }//GEN-LAST:event_onJLabel4Click
-
-    private void jButton4ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton4ActionPerformed
-        jTextField2.setText(UUID.randomUUID().toString());
-        jPanelCreateWorkspace.setVisible(false);
-        jPanelJoin.setVisible(true);
-        jTabbedPane.setVisible(false);
-        jPanelProxy.setVisible(false);
-        this.setTitle("Bienvenidos");
-    }//GEN-LAST:event_jButton4ActionPerformed
-
-    private void jButton5ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton5ActionPerformed
-        jPanelCreateWorkspace.setVisible(false);
-        jPanelJoin.setVisible(true);
-        jTabbedPane.setVisible(false);
-        jPanelProxy.setVisible(false);
-        this.setTitle("Bienvenidos");
-    }//GEN-LAST:event_jButton5ActionPerformed
 
     private void Jabel6ActionPerformed(java.awt.event.MouseEvent evt) {//GEN-FIRST:event_Jabel6ActionPerformed
         jTextField4.setText("./data");
@@ -1226,6 +1175,22 @@ public class View extends javax.swing.JFrame {
     public void setjTextField9(javax.swing.JTextField jTextField9) {
         this.jTextField9 = jTextField9;
     }
+
+    public void setjLabel16(JLabel jLabel16) {
+        this.jLabel16 = jLabel16;
+    }
+
+    public JLabel getjLabel16() {
+        return jLabel16;
+    }
+
+    public void setjLabel17(JLabel jLabel17) {
+        this.jLabel17 = jLabel17;
+    }
+
+    public JLabel getjLabel17() {
+        return jLabel17;
+    }
     
     // Variables declaration - do not modify//GEN-BEGIN:variables
     private javax.swing.JButton jButton1;
@@ -1246,6 +1211,8 @@ public class View extends javax.swing.JFrame {
     private javax.swing.JLabel jLabel13;
     private javax.swing.JLabel jLabel14;
     private javax.swing.JLabel jLabel15;
+    private javax.swing.JLabel jLabel16;
+    private javax.swing.JLabel jLabel17;
     private javax.swing.JLabel jLabel2;
     private javax.swing.JLabel jLabel3;
     private javax.swing.JLabel jLabel4;

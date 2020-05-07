@@ -1,31 +1,25 @@
 package org.q3s.p2p.model;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
+import java.util.HashMap;
+import java.util.Map;
 
-public class User {
+public class Workspace {
 
     private String id;
     private String name;
+    private String password;
     private long date;
 
-    private String password;
-    
-    public User() {
+    public Workspace() {
         super();
     }
 
-    public User(String id) {
+    public Workspace(String id) {
         super();
         this.id = id;
     }
 
-    public User(String id, String name) {
-        super();
-        this.id = id;
-        this.name = name;
-    }
-
-    public User(String uuid, String id, String name) {
+    public Workspace(String id, String name) {
         super();
         this.id = id;
         this.name = name;
@@ -43,11 +37,11 @@ public class User {
             return false;
         }
 
-        if (!(obj instanceof User)) {
+        if (!(obj instanceof Workspace)) {
             return false;
         }
 
-        User usr = (User) obj;
+        Workspace usr = (Workspace) obj;
 
         if (usr.id == null) {
             return false;
@@ -56,8 +50,8 @@ public class User {
         return usr.id.equals(id);
     }
 
-    public static User build(String id) {
-        return new User(id);
+    public static Workspace build(String id) {
+        return new Workspace(id);
     }
 
     @Override
@@ -88,7 +82,7 @@ public class User {
     public void setDate(long date) {
         this.date = date;
     }
-    
+
     public String getPassword() {
         return password;
     }
@@ -96,22 +90,17 @@ public class User {
     public void setPassword(String password) {
         this.password = password;
     }
-    
-    public User buildRemoveDate() {
-        long f = 1000 * 10;
-        this.date = System.currentTimeMillis() + f;
-        return this;
-    }
 
-    @JsonIgnore
-    public boolean isReconnect() {
-        if (this.date != 0l) {
-            long current = System.currentTimeMillis();
-            if (this.date > current) {
-                return true;
-            }
-        }
-        return false;
+    public Map<String, String> buildRequestParam(){
+         Map<String, String> params = new HashMap<String, String>();
+         params.put("name", name);
+         params.put("date", String.valueOf(date));
+         params.put("password", password);
+         return params;
+    }
+    
+    public boolean requiredCredential(){
+        return (password != null && !password.isEmpty());
     }
 
 }
