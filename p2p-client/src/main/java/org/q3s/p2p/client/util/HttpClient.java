@@ -7,14 +7,13 @@ package org.q3s.p2p.client.util;
 
 import java.util.Map;
 import java.util.Map.Entry;
-import javax.xml.bind.DatatypeConverter;
-import org.q3s.p2p.model.User;
+import org.q3s.p2p.model.Event;
+
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -66,4 +65,8 @@ public class HttpClient {
         restTemplate.postForEntity(url, obj, String.class);
     }
 
+    public void post(String url, Event event) {
+        restTemplate.postForEntity(url, event, Event.class);
+    }
+    
 }

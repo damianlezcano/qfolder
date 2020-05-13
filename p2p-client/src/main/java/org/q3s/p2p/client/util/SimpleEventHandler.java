@@ -44,7 +44,7 @@ public class SimpleEventHandler implements EventHandler {
     @Override
     public void onError(Throwable t) {
         try {
-            controller.notify("Wk no existe, desconectar");
+//            controller.notify("Wk no existe, desconectar");
         } catch (Exception e) {
         }
         

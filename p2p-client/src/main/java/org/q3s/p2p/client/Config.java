@@ -58,4 +58,8 @@ public class Config {
     public static String buildWkSendRefuseUserUrl(Workspace wk, User user) {
         return String.format("%s/%s/%s/%s", URL_SERVER,wk.getId(),WK_REFUSE_USER,user.getId());
     }
+
+    public static String buildWkNewUserNotifyFilesUri(Workspace wk) {
+        return String.format("%s/%s", URL_SERVER,wk.getId());
+    }
 }

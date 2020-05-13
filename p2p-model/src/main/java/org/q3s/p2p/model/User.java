@@ -1,6 +1,7 @@
 package org.q3s.p2p.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import java.util.List;
 
 public class User {
 
@@ -8,6 +9,8 @@ public class User {
     private String name;
     private long date;
 
+    private List<QFile> files;
+    
     private String password;
     
     public User() {
@@ -96,6 +99,14 @@ public class User {
     public void setPassword(String password) {
         this.password = password;
     }
+
+    public List<QFile> getFiles() {
+        return files;
+    }
+
+    public void setFiles(List<QFile> files) {
+        this.files = files;
+    }
     
     public User buildRemoveDate() {
         long f = 1000 * 10;
@@ -112,6 +123,16 @@ public class User {
             }
         }
         return false;
+    }
+
+    public User clone(List<QFile> files) {
+        User u = new User();
+        u.setId(id);
+        u.setName(name);
+        u.setPassword(password);
+        u.setDate(date);
+        u.setFiles(files);
+        return u;
     }
 
 }

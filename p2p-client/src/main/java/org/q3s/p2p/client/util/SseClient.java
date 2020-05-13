@@ -11,8 +11,10 @@ import java.time.Duration;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.q3s.p2p.client.Config;
 import org.q3s.p2p.client.view.Controller;
+import org.q3s.p2p.model.Event;
 import org.q3s.p2p.model.User;
 import org.q3s.p2p.model.Workspace;
+import org.q3s.p2p.model.util.EventUtils;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -32,8 +34,8 @@ public class SseClient extends Thread {
     private Controller controller;
     private Logger log;
     
-    private int connectTimeoutMillis = 1000000;
-    private int readTimeoutMillis = 1000000;
+    private int connectTimeoutMillis = 100000;
+    private int readTimeoutMillis = 100000;
     
     private RestTemplate restTemplate = new RestTemplateBuilder()
         .setConnectTimeout(Duration.ofMillis(connectTimeoutMillis))
@@ -79,15 +81,19 @@ public class SseClient extends Thread {
                         try {
                             while ((line = bufferedReader.readLine()) != null) {
                                 if (!line.isEmpty()) {
-                                    controller.notify(line);
+                                    System.out.println(">>>>>>> SseClient -> " + line);
+                                    Event event = EventUtils.toObjectBase64(line);
+                                    controller.notify(event);
                                 }
                             }
                         } catch (Exception e) {
+                            e.printStackTrace();
                             System.out.println("SSECLient ERROR 1");
                         }
                         return response;
                     });
             } catch (Exception e) {
+                e.printStackTrace();
                 System.out.println("SSECLient ERROR 2");
             }
             reconnect = true;
