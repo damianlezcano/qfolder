@@ -5,10 +5,9 @@
  */
 package org.q3s.p2p.client.view;
 
+import org.q3s.p2p.client.view.components.TabListFile;
 import java.awt.event.ComponentEvent;
 import java.awt.event.ComponentListener;
-import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
@@ -30,10 +29,13 @@ import org.q3s.p2p.model.Workspace;
 import org.q3s.p2p.model.util.UUIDUtils;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.awt.Component;
+import java.io.File;
 import java.util.ArrayList;
-import org.q3s.p2p.model.util.EventUtils;
+import javax.swing.ImageIcon;
+import javax.swing.JFileChooser;
+import org.q3s.p2p.client.view.components.FileTableModel;
 import org.q3s.p2p.model.Event;
-
 
 /**
  *
@@ -44,6 +46,8 @@ public class Controller {
     private Workspace wk;
     private User user = User.build(UUIDUtils.generate());
 
+    private List<User> remoteUsers = new ArrayList<User>();
+
     private ObjectMapper objectMapper = new ObjectMapper();
 
     private HttpClient httpClient = new HttpClient();
@@ -53,7 +57,9 @@ public class Controller {
     private View view = new View();
 
     private Logger log;
-    
+
+    private boolean configChange = false;
+
     public void start() {
 
         System.out.println("# User ID : " + user.getId());
@@ -97,25 +103,62 @@ public class Controller {
                 jCheckBox1ActionPerformed(evt);
             }
         });
-        
-        view.getjTabbedPane().setTitleAt(1, String.format("Yo (%s)", hostname));
-        
-        view.getjPanel4().setVisible(false);
 
+        view.getjTextField3().addKeyListener(new java.awt.event.KeyAdapter() {
+            public void keyReleased(java.awt.event.KeyEvent evt) {
+                jTextField3KeyReleased(evt);
+            }
+        });
+
+        view.getjTabbedPane().addMouseListener(new java.awt.event.MouseAdapter() {
+            public void mouseClicked(java.awt.event.MouseEvent evt) {
+                jTabbedPaneMouseClicked(evt);
+            }
+        });
+
+        view.getjButton3().addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                jButton3ActionPerformed(evt);
+            }
+        });
+
+        loadLocalGeneralTab();
+        view.pack();
         view.setVisible(true);
         view.mostarJoinPanel();
     }
 
-    private String getLocalHostName() {
-        String hostname = "Unknown";
-        try {
-            InetAddress addr;
-            addr = InetAddress.getLocalHost();
-            hostname = addr.getHostName();
-        } catch (UnknownHostException ex) {
-            System.out.println("Hostname can not be resolved");
+    private void jButton3ActionPerformed(java.awt.event.ActionEvent evt) {
+        JFileChooser fileChooser = new JFileChooser();
+        fileChooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        int option = fileChooser.showOpenDialog(view);
+        if (option == JFileChooser.APPROVE_OPTION) {
+            File file = fileChooser.getSelectedFile();
+            view.getjTextField4().setText(file.getAbsolutePath());
+
+            List<QFile> files = FileUtils.files(view.getjTextField4().getText());
+            Event e = new Event("Notifico Cambio en los archivos", user.clone(files));
+            httpClient.post(Config.buildWkBroadcastUri(wk), e);
         }
-        return hostname;
+    }
+
+    private void jTabbedPaneMouseClicked(java.awt.event.MouseEvent evt) {
+        if (configChange) {
+            Event e = new Event("Cambio de nombre", user);
+            httpClient.post(Config.buildWkBroadcastUri(wk), e);
+            configChange = false;
+        }
+    }
+
+    private void jTextField3KeyReleased(java.awt.event.KeyEvent evt) {
+        int idx = searchTabById(user.getId());
+        user.setName(view.getjTextField3().getText());
+        view.getjTabbedPane().setTitleAt(idx, String.format("Yo (%s)", user.getName()));
+        configChange = true;
+    }
+
+    private String getLocalHostName() {
+        return System.getenv("USER");
     }
 
     /*
@@ -258,21 +301,40 @@ public class Controller {
             view.setTitle("Conectado al grupo '" + wk.getName() + "'");
 
             List<QFile> files = FileUtils.files(view.getjTextField4().getText());
-            
-            Event e = new Event("Soy nuevo, notifico mis archivos",user.clone(files));
-            httpClient.post(Config.buildWkNewUserNotifyFilesUri(wk), e);
 
-        } else if ("Soy nuevo, notifico mis archivos".equals(event.getName())) {
-            
-            if(event.getUser().equals(user)){
+            Event e = new Event("Gracias por la bienvenida, notifico mis archivos", user.clone(files));
+            httpClient.post(Config.buildWkBroadcastUri(wk), e);
+
+        } else if ("Gracias por la bienvenida, notifico mis archivos".equals(event.getName())) {
+            if (event.getUser().equals(user)) {
                 // renderizo archivos locales
-            }else{
-//            List<QFile> remoteFiles = (List<QFile>) jsonUtils.object(event.getName(), Event.class);
-            List<QFile> files = FileUtils.files(view.getjTextField4().getText());
-//            String jsonBase64 = jsonUtils.jsonBase64("Bienvenido usuario, te notifico mis archivos",files);
-//            httpClient.post(Config.buildWkNewUserNotifyFilesUri(wk), jsonBase64);
+                String username = String.format("Yo (%s)", user.getName());
+                loadLocalUserTab(username, event.getUser());
+            } else {
+                loadRemoteUserTab(event.getUser().getName(), event.getUser());
+                List<QFile> files = FileUtils.files(view.getjTextField4().getText());
+                Event e = new Event("Estos son mis archivos", user.clone(files));
+                httpClient.post(Config.buildWkToUserUri(wk, event.getUser()), e);
             }
-
+            addUserToRemoteList(event.getUser());
+        } else if ("Estos son mis archivos".equals(event.getName())) {
+            loadRemoteUserTab(event.getUser().getName(), event.getUser());
+            addUserToRemoteList(event.getUser());
+        } else if ("Notifico Cambio en los archivos".equals(event.getName())) {
+            if (event.getUser().equals(user)) {
+                //loadLocalUserTab(event.getUser().getName(), event.getUser());
+                addUserToRemoteList(event.getUser());
+            } else {
+                //loadRemoteUserTab(event.getUser().getName(), event.getUser());
+                addUserToRemoteList(event.getUser());
+            }
+        } else if ("Cambio de nombre".equals(event.getName())) {
+            if (!event.getUser().equals(user)) {
+                int idx = searchTabById(event.getUser().getId());
+                int idxUser = remoteUsers.indexOf(event.getUser());
+                remoteUsers.get(idxUser).setName(event.getUser().getName());
+                view.getjTabbedPane().setTitleAt(idx, event.getUser().getName());
+            }
         } else if ("Credenciales incorrectas".equals(event.getName())) {
             mostrarErrorEnPantallaLogin("Credenciales incorrectas");
         } else if ("Aprobar al usuario".equals(event.getName())) {
@@ -293,6 +355,78 @@ public class Controller {
             }
             mostrarErrorEnPantallaLogin("Has sido rechazado tu ingreso por los usuarios");
         }
+    }
+
+    private void addUserToRemoteList(User user) {
+        int idx = remoteUsers.indexOf(user);
+        if(idx != -1){
+            User us = remoteUsers.get(idx);
+            us.copy(user);
+        }else{
+            remoteUsers.add(user);
+        }
+    }
+
+    private void loadLocalGeneralTab() {
+        String username = "General";
+        TabListFile jPanel2 = new TabListFile();
+        jPanel2.setName(username);
+        view.getjTabbedPane().insertTab(username, null, jPanel2, "Vista unificada de Archivos", 0); // NOI18N
+        FileTableModel ftm = new FileTableModel(remoteUsers);
+        jPanel2.getjTable1().setModel(ftm);
+        jPanel2.getjTable1().getColumnModel().getColumn(0).setWidth(30);
+        jPanel2.getjTable1().getColumnModel().getColumn(0).setMinWidth(30);
+        jPanel2.getjTable1().getColumnModel().getColumn(0).setMaxWidth(30);
+        jPanel2.getjTable1().getColumnModel().getColumn(2).setWidth(100);
+        jPanel2.getjTable1().getColumnModel().getColumn(2).setMinWidth(100);
+        jPanel2.getjTable1().getColumnModel().getColumn(2).setMaxWidth(100);
+        jPanel2.getjTable1().getColumnModel().getColumn(3).setWidth(150);
+        jPanel2.getjTable1().getColumnModel().getColumn(3).setMinWidth(150);
+        jPanel2.getjTable1().getColumnModel().getColumn(3).setMaxWidth(150);
+        jPanel2.getjTable1().getColumnModel().getColumn(4).setWidth(150);
+        jPanel2.getjTable1().getColumnModel().getColumn(4).setMinWidth(150);
+        jPanel2.getjTable1().getColumnModel().getColumn(4).setMaxWidth(150);
+    }
+
+    private void loadRemoteUserTab(String username, User user) {
+        loadUserTab(username, user, user.getId(), "/status-ok.png", 2);
+    }
+
+    private void loadLocalUserTab(String username, User user) {
+        loadUserTab(username, user, "Tus archivos locales", "/home.png", 1);
+    }
+
+    private void loadUserTab(String username, User user, String tooltip, String iconpath, int iconidx) {
+        TabListFile jPanel2 = new TabListFile();
+        jPanel2.setName(user.getId());
+        ImageIcon icon = new javax.swing.ImageIcon(getClass().getResource(iconpath));
+        view.getjTabbedPane().insertTab(username, icon, jPanel2, tooltip, iconidx); // NOI18N
+        FileTableModel ftm = new FileTableModel(user);
+        jPanel2.getjTable1().setModel(ftm);
+        jPanel2.getjTable1().getColumnModel().getColumn(0).setWidth(30);
+        jPanel2.getjTable1().getColumnModel().getColumn(0).setMinWidth(30);
+        jPanel2.getjTable1().getColumnModel().getColumn(0).setMaxWidth(30);
+        jPanel2.getjTable1().getColumnModel().getColumn(2).setWidth(100);
+        jPanel2.getjTable1().getColumnModel().getColumn(2).setMinWidth(100);
+        jPanel2.getjTable1().getColumnModel().getColumn(2).setMaxWidth(100);
+        jPanel2.getjTable1().getColumnModel().getColumn(3).setWidth(150);
+        jPanel2.getjTable1().getColumnModel().getColumn(3).setMinWidth(150);
+        jPanel2.getjTable1().getColumnModel().getColumn(3).setMaxWidth(150);
+        jPanel2.getjTable1().getColumnModel().getColumn(4).setWidth(0);
+        jPanel2.getjTable1().getColumnModel().getColumn(4).setMinWidth(0);
+        jPanel2.getjTable1().getColumnModel().getColumn(4).setMaxWidth(0);
+    }
+
+    private int searchTabById(String id) {
+        Component[] cos = view.getjTabbedPane().getComponents();
+        for (int i = 0; i < cos.length; i++) {
+            if (cos[i] instanceof TabListFile) {
+                if (cos[i].getName().endsWith(id)) {
+                    return view.getjTabbedPane().indexOfComponent(cos[i]);
+                }
+            }
+        }
+        return -1;
     }
 
 }

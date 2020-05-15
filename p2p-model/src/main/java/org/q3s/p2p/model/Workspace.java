@@ -56,7 +56,7 @@ public class Workspace {
 
     @Override
     public String toString() {
-        return id + name;
+        return String.format("wk: %s", id);
     }
 
     public String getId() {

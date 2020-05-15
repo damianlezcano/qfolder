@@ -75,6 +75,8 @@ public class MessageProcessor {
         } else {
             for (Consumer<String> emitter : approved.get(wk).values()) {
                 LOG.info("# withoutAuth -> " + user.getId() + " - " + emitter);
+                User us = getUserInProgress(user.getId());
+                us.copy(user);
                 emitter.accept(new Event("Aprobar al usuario",user).toJsonBase64());
             }
         }
@@ -105,8 +107,8 @@ public class MessageProcessor {
     }
 
     public void sendToUser(String wkId, String userId, Event event) {
-        User user = User.build(userId);
-        Consumer<String> emitter = inProgress.get(user);
+        Workspace wk = getWorkspaceInApprobalById(wkId);
+        Consumer<String> emitter = getEmitterApprovalByUserId(wk,userId);
         emitter.accept(event.toJsonBase64());
     }
 
@@ -143,6 +145,16 @@ public class MessageProcessor {
         return null;
     }
 
+    private Consumer<String> getEmitterApprovalByUserId(Workspace wk, String userId) {
+        User user = User.build(userId);
+        for (Entry<User, Consumer<String>> entry : approved.get(wk).entrySet()) {
+            if (user.equals(entry.getKey())) {
+                return entry.getValue();
+            }
+        }
+        return null;
+    }
+    
     public void disposeApproval(String wkId, String userId) {
         Workspace wk = getWorkspaceInApprobalById(wkId);
         User user = User.build(userId);
@@ -152,6 +164,16 @@ public class MessageProcessor {
     public void disposeInProgress(String userId) {
         User user = User.build(userId);
         this.inProgress.remove(user);
+    }
+
+    private User getUserInProgress(String userId) {
+        User user = User.build(userId);
+        for (Entry<User, Consumer<String>> entry : inProgress.entrySet()) {
+            if (user.equals(entry.getKey())) {
+            return entry.getKey();
+            }
+        }
+        return null;
     }
 
 }

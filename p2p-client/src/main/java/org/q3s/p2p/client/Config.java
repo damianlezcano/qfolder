@@ -59,7 +59,11 @@ public class Config {
         return String.format("%s/%s/%s/%s", URL_SERVER,wk.getId(),WK_REFUSE_USER,user.getId());
     }
 
-    public static String buildWkNewUserNotifyFilesUri(Workspace wk) {
+    public static String buildWkBroadcastUri(Workspace wk) {
         return String.format("%s/%s", URL_SERVER,wk.getId());
+    }
+    
+    public static String buildWkToUserUri(Workspace wk, User user){
+        return String.format("%s/%s/%s", URL_SERVER,wk.getId(),user.getId());
     }
 }

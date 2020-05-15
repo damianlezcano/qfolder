@@ -50,11 +50,15 @@ public class HttpClient {
     }
 
     public String get(String url) throws Exception {
-        HttpHeaders httpHeaders = new HttpHeaders();
-        httpHeaders.set("Accept", MediaType.APPLICATION_JSON_VALUE);
-        HttpEntity<?> httpEntity = new HttpEntity<>(httpHeaders);
-        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, httpEntity, String.class);
-        return response.getBody().trim();
+        try {
+            HttpHeaders httpHeaders = new HttpHeaders();
+            httpHeaders.set("Accept", MediaType.APPLICATION_JSON_VALUE);
+            HttpEntity<?> httpEntity = new HttpEntity<>(httpHeaders);
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, httpEntity, String.class);
+            return response.getBody().trim();            
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     public RestTemplate getRestTemplate() {

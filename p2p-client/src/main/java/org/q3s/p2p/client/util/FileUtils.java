@@ -13,11 +13,13 @@ public class FileUtils {
         File folder = new File(path);
         File[] files = folder.listFiles();
         for (File file : files) {
-            QFile f = new QFile();
-            f.setName(file.getName());
-            f.setDate(file.lastModified());
-            f.setSize(file.length());
-            res.add(f);
+            if(file.isFile() && !file.isHidden()){
+                QFile f = new QFile();
+                f.setName(file.getName());
+                f.setDate(file.lastModified());
+                f.setSize(file.length());
+                res.add(f);
+            }
         }
         return res;
     }

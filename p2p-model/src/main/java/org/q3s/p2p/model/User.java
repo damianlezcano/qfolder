@@ -1,6 +1,7 @@
 package org.q3s.p2p.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import java.util.ArrayList;
 import java.util.List;
 
 public class User {
@@ -65,7 +66,7 @@ public class User {
 
     @Override
     public String toString() {
-        return id + name;
+        return String.format("user: %s", id);
     }
 
     public String getId() {
@@ -101,8 +102,26 @@ public class User {
     }
 
     public List<QFile> getFiles() {
-        return files;
+        List<QFile> f = new ArrayList<QFile>();
+        if(files != null){
+            for (QFile file : files) {
+                file.setOwner(this);
+                f.add(file);
+            }
+        }
+        return f;
     }
+    
+//    public Object[][] filesToArray(){
+//        Object[][] arr = new Object[files.size()][3];
+//        for (int i = 0; i < files.size(); i++) {
+//            QFile file = files.get(i);
+//            arr[i][0] = file.getName();
+//            arr[i][1] = file.getSize();
+//            arr[i][2] = file.getDate();
+//        }
+//        return arr;
+//    }
 
     public void setFiles(List<QFile> files) {
         this.files = files;
@@ -124,7 +143,25 @@ public class User {
         }
         return false;
     }
-
+    
+    public void copy(User user){
+        if(user.getId() != null){
+            this.id = user.getId();
+        }
+        if(user.getName() != null){
+            this.name = user.getName();
+        }
+        if(user.getDate() != 0){
+            this.date = user.getDate();
+        }
+        if(user.getFiles() != null && !user.getFiles().isEmpty()){
+            this.files = user.getFiles();
+        }
+        if(user.getPassword() != null){
+            this.password = user.getPassword();
+        }
+    }
+    
     public User clone(List<QFile> files) {
         User u = new User();
         u.setId(id);

@@ -66,21 +66,6 @@ public class View extends javax.swing.JFrame {
         jLabel15 = new javax.swing.JLabel();
         jCheckBox3 = new javax.swing.JCheckBox();
         jTabbedPane = new javax.swing.JTabbedPane();
-        jPanel1 = new javax.swing.JPanel();
-        jScrollPane1 = new javax.swing.JScrollPane();
-        jTable4 = new javax.swing.JTable();
-        jPanel4 = new javax.swing.JPanel();
-        jTextField1 = new javax.swing.JTextField();
-        jButton1 = new javax.swing.JButton();
-        jPanel2 = new javax.swing.JPanel();
-        jScrollPane3 = new javax.swing.JScrollPane();
-        jTable1 = new javax.swing.JTable();
-        jPanel5 = new javax.swing.JPanel();
-        jTextField10 = new javax.swing.JTextField();
-        jScrollPane4 = new javax.swing.JScrollPane();
-        jTable2 = new javax.swing.JTable();
-        jScrollPane5 = new javax.swing.JScrollPane();
-        jTable3 = new javax.swing.JTable();
         jScrollPane2 = new javax.swing.JScrollPane();
         jList2 = new javax.swing.JList<>();
         jPanel3 = new javax.swing.JPanel();
@@ -371,129 +356,6 @@ public class View extends javax.swing.JFrame {
 
         jTabbedPane.setOpaque(true);
 
-        jTable4.setToolTipText("Ctrl + F para buscar");
-        jScrollPane1.setViewportView(jTable4);
-
-        jPanel4.setLayout(new javax.swing.BoxLayout(jPanel4, javax.swing.BoxLayout.LINE_AXIS));
-
-        jTextField1.setBackground(new java.awt.Color(255, 255, 204));
-        jTextField1.setToolTipText("Enter para buscar\nEsc para cerrar");
-        jPanel4.add(jTextField1);
-
-        jButton1.setText("Filtrar");
-        jButton1.addActionListener(new java.awt.event.ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent evt) {
-                jButton1ActionPerformed(evt);
-            }
-        });
-        jPanel4.add(jButton1);
-
-        javax.swing.GroupLayout jPanel1Layout = new javax.swing.GroupLayout(jPanel1);
-        jPanel1.setLayout(jPanel1Layout);
-        jPanel1Layout.setHorizontalGroup(
-            jPanel1Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addComponent(jScrollPane1, javax.swing.GroupLayout.DEFAULT_SIZE, 609, Short.MAX_VALUE)
-            .addComponent(jPanel4, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-        );
-        jPanel1Layout.setVerticalGroup(
-            jPanel1Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGroup(jPanel1Layout.createSequentialGroup()
-                .addComponent(jScrollPane1, javax.swing.GroupLayout.DEFAULT_SIZE, 318, Short.MAX_VALUE)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(jPanel4, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
-                .addContainerGap())
-        );
-
-        jTabbedPane.addTab("General", null, jPanel1, "Vista unificada de archivos");
-
-        jTable1.setShowGrid(false);
-        jScrollPane3.setViewportView(jTable1);
-
-        jTextField10.setText("jTextField10");
-
-        javax.swing.GroupLayout jPanel5Layout = new javax.swing.GroupLayout(jPanel5);
-        jPanel5.setLayout(jPanel5Layout);
-        jPanel5Layout.setHorizontalGroup(
-            jPanel5Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGroup(jPanel5Layout.createSequentialGroup()
-                .addContainerGap()
-                .addComponent(jTextField10, javax.swing.GroupLayout.DEFAULT_SIZE, 597, Short.MAX_VALUE)
-                .addContainerGap())
-        );
-        jPanel5Layout.setVerticalGroup(
-            jPanel5Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGroup(javax.swing.GroupLayout.Alignment.TRAILING, jPanel5Layout.createSequentialGroup()
-                .addGap(0, 5, Short.MAX_VALUE)
-                .addComponent(jTextField10, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE))
-        );
-
-        javax.swing.GroupLayout jPanel2Layout = new javax.swing.GroupLayout(jPanel2);
-        jPanel2.setLayout(jPanel2Layout);
-        jPanel2Layout.setHorizontalGroup(
-            jPanel2Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addComponent(jPanel5, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-            .addGroup(jPanel2Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                .addComponent(jScrollPane3, javax.swing.GroupLayout.DEFAULT_SIZE, 609, Short.MAX_VALUE))
-        );
-        jPanel2Layout.setVerticalGroup(
-            jPanel2Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGroup(javax.swing.GroupLayout.Alignment.TRAILING, jPanel2Layout.createSequentialGroup()
-                .addContainerGap(322, Short.MAX_VALUE)
-                .addComponent(jPanel5, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
-                .addContainerGap())
-            .addGroup(jPanel2Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                .addGroup(jPanel2Layout.createSequentialGroup()
-                    .addComponent(jScrollPane3, javax.swing.GroupLayout.PREFERRED_SIZE, 322, javax.swing.GroupLayout.PREFERRED_SIZE)
-                    .addGap(0, 37, Short.MAX_VALUE)))
-        );
-
-        jTabbedPane.addTab("Yo (Damian)", new javax.swing.ImageIcon(getClass().getResource("/home.png")), jPanel2, "Tus archivos locales"); // NOI18N
-
-        jTable2.setBackground(java.awt.SystemColor.window);
-        jTable2.setForeground(new java.awt.Color(153, 153, 153));
-        jTable2.setModel(new javax.swing.table.DefaultTableModel(
-            new Object [][] {
-                {null, null, null}
-            },
-            new String [] {
-                "Archivo", "Tamaño", "Fecha Modificacion"
-            }
-        ) {
-            Class[] types = new Class [] {
-                java.lang.String.class, java.lang.String.class, java.lang.Object.class
-            };
-
-            public Class getColumnClass(int columnIndex) {
-                return types [columnIndex];
-            }
-        });
-        jTable2.setEnabled(false);
-        jScrollPane4.setViewportView(jTable2);
-
-        jTabbedPane.addTab("Mario", new javax.swing.ImageIcon(getClass().getResource("/status-fail.png")), jScrollPane4, "Última vez hace 20 min (Doble click para cerrar)"); // NOI18N
-
-        jTable3.setModel(new javax.swing.table.DefaultTableModel(
-            new Object [][] {
-                {null, null, null},
-                {null, null, null}
-            },
-            new String [] {
-                "Archivo", "Tamaño", "Fecha Modificacion"
-            }
-        ) {
-            Class[] types = new Class [] {
-                java.lang.String.class, java.lang.String.class, java.lang.Object.class
-            };
-
-            public Class getColumnClass(int columnIndex) {
-                return types [columnIndex];
-            }
-        });
-        jTable3.setShowGrid(true);
-        jScrollPane5.setViewportView(jTable3);
-
-        jTabbedPane.addTab("Pedro", new javax.swing.ImageIcon(getClass().getResource("/status-ok.png")), jScrollPane5); // NOI18N
-
         jList2.setBackground(new java.awt.Color(255, 255, 241));
         jList2.setModel(new javax.swing.AbstractListModel<String>() {
             String[] strings = { "18:40:05 - Usuario Aprobado", "18:40:05 - Reconexion", "18:40:05 - Usuario \"pedro\" pidio descargar archivo \"cuentas.xls\"", "18:40:05 - Usuario \"pedro\" confirmo que ya tiene el archivo \"cuentas.xml\"" };
@@ -514,11 +376,6 @@ public class View extends javax.swing.JFrame {
         jTextField4.setOpaque(true);
 
         jButton3.setIcon(new javax.swing.ImageIcon(getClass().getResource("/folder.png"))); // NOI18N
-        jButton3.addActionListener(new java.awt.event.ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent evt) {
-                jButton3ActionPerformed(evt);
-            }
-        });
 
         jLabel6.setForeground(new java.awt.Color(51, 102, 255));
         jLabel6.setText("Restaurar configuración inicial");
@@ -620,7 +477,7 @@ public class View extends javax.swing.JFrame {
             .addGroup(jLayeredPaneLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
                 .addGroup(jLayeredPaneLayout.createSequentialGroup()
                     .addContainerGap()
-                    .addComponent(jTabbedPane, javax.swing.GroupLayout.PREFERRED_SIZE, 369, Short.MAX_VALUE)
+                    .addComponent(jTabbedPane)
                     .addContainerGap()))
             .addGroup(jLayeredPaneLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
                 .addGroup(jLayeredPaneLayout.createSequentialGroup()
@@ -656,23 +513,9 @@ public class View extends javax.swing.JFrame {
         pack();
     }// </editor-fold>//GEN-END:initComponents
 
-    private void jButton1ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton1ActionPerformed
-        // TODO add your handling code here:
-    }//GEN-LAST:event_jButton1ActionPerformed
-
     private void jTextField2ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jTextField2ActionPerformed
         // TODO add your handling code here:
     }//GEN-LAST:event_jTextField2ActionPerformed
-
-    private void jButton3ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton3ActionPerformed
-            JFileChooser fileChooser = new JFileChooser();
-            fileChooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-            int option = fileChooser.showOpenDialog(this);
-            if(option == JFileChooser.APPROVE_OPTION){
-               File file = fileChooser.getSelectedFile();
-               jTextField4.setText(file.getAbsolutePath());
-            }
-    }//GEN-LAST:event_jButton3ActionPerformed
 
     private void Jabel6ActionPerformed(java.awt.event.MouseEvent evt) {//GEN-FIRST:event_Jabel6ActionPerformed
         jTextField4.setText("./data");
@@ -707,14 +550,6 @@ public class View extends javax.swing.JFrame {
         jPanelJoin.setVisible(true);
         jTabbedPane.setVisible(false);
         jPanelProxy.setVisible(false);
-    }
-    
-    public javax.swing.JButton getjButton1() {
-        return jButton1;
-    }
-
-    public void setjButton1(javax.swing.JButton jButton1) {
-        this.jButton1 = jButton1;
     }
 
     public javax.swing.JButton getjButton2() {
@@ -933,36 +768,12 @@ public class View extends javax.swing.JFrame {
         this.jList2 = jList2;
     }
 
-    public javax.swing.JPanel getjPanel1() {
-        return jPanel1;
-    }
-
-    public void setjPanel1(javax.swing.JPanel jPanel1) {
-        this.jPanel1 = jPanel1;
-    }
-
-    public javax.swing.JPanel getjPanel2() {
-        return jPanel2;
-    }
-
-    public void setjPanel2(javax.swing.JPanel jPanel2) {
-        this.jPanel2 = jPanel2;
-    }
-
     public javax.swing.JPanel getjPanel3() {
         return jPanel3;
     }
 
     public void setjPanel3(javax.swing.JPanel jPanel3) {
         this.jPanel3 = jPanel3;
-    }
-
-    public javax.swing.JPanel getjPanel4() {
-        return jPanel4;
-    }
-
-    public void setjPanel4(javax.swing.JPanel jPanel4) {
-        this.jPanel4 = jPanel4;
     }
 
     public javax.swing.JPanel getjPanelCreateWorkspace() {
@@ -1013,14 +824,6 @@ public class View extends javax.swing.JFrame {
         this.jPasswordField4 = jPasswordField4;
     }
 
-    public javax.swing.JScrollPane getjScrollPane1() {
-        return jScrollPane1;
-    }
-
-    public void setjScrollPane1(javax.swing.JScrollPane jScrollPane1) {
-        this.jScrollPane1 = jScrollPane1;
-    }
-
     public javax.swing.JScrollPane getjScrollPane2() {
         return jScrollPane2;
     }
@@ -1029,76 +832,12 @@ public class View extends javax.swing.JFrame {
         this.jScrollPane2 = jScrollPane2;
     }
 
-    public javax.swing.JScrollPane getjScrollPane3() {
-        return jScrollPane3;
-    }
-
-    public void setjScrollPane3(javax.swing.JScrollPane jScrollPane3) {
-        this.jScrollPane3 = jScrollPane3;
-    }
-
-    public javax.swing.JScrollPane getjScrollPane4() {
-        return jScrollPane4;
-    }
-
-    public void setjScrollPane4(javax.swing.JScrollPane jScrollPane4) {
-        this.jScrollPane4 = jScrollPane4;
-    }
-
-    public javax.swing.JScrollPane getjScrollPane5() {
-        return jScrollPane5;
-    }
-
-    public void setjScrollPane5(javax.swing.JScrollPane jScrollPane5) {
-        this.jScrollPane5 = jScrollPane5;
-    }
-
     public javax.swing.JTabbedPane getjTabbedPane() {
         return jTabbedPane;
     }
 
     public void setjTabbedPane(javax.swing.JTabbedPane jTabbedPane) {
         this.jTabbedPane = jTabbedPane;
-    }
-
-    public javax.swing.JTable getjTable1() {
-        return jTable1;
-    }
-
-    public void setjTable1(javax.swing.JTable jTable1) {
-        this.jTable1 = jTable1;
-    }
-
-    public javax.swing.JTable getjTable2() {
-        return jTable2;
-    }
-
-    public void setjTable2(javax.swing.JTable jTable2) {
-        this.jTable2 = jTable2;
-    }
-
-    public javax.swing.JTable getjTable3() {
-        return jTable3;
-    }
-
-    public void setjTable3(javax.swing.JTable jTable3) {
-        this.jTable3 = jTable3;
-    }
-
-    public javax.swing.JTable getjTable4() {
-        return jTable4;
-    }
-
-    public void setjTable4(javax.swing.JTable jTable4) {
-        this.jTable4 = jTable4;
-    }
-
-    public javax.swing.JTextField getjTextField1() {
-        return jTextField1;
-    }
-
-    public void setjTextField1(javax.swing.JTextField jTextField1) {
-        this.jTextField1 = jTextField1;
     }
 
     public javax.swing.JTextField getjTextField2() {
@@ -1180,9 +919,9 @@ public class View extends javax.swing.JFrame {
     public JLabel getjLabel17() {
         return jLabel17;
     }
+
     
     // Variables declaration - do not modify//GEN-BEGIN:variables
-    private javax.swing.JButton jButton1;
     private javax.swing.JButton jButton2;
     private javax.swing.JButton jButton3;
     private javax.swing.JButton jButton4;
@@ -1212,29 +951,15 @@ public class View extends javax.swing.JFrame {
     private javax.swing.JLabel jLabel9;
     private javax.swing.JLayeredPane jLayeredPane;
     private javax.swing.JList<String> jList2;
-    private javax.swing.JPanel jPanel1;
-    private javax.swing.JPanel jPanel2;
     private javax.swing.JPanel jPanel3;
-    private javax.swing.JPanel jPanel4;
-    private javax.swing.JPanel jPanel5;
     private javax.swing.JPanel jPanelCreateWorkspace;
     private javax.swing.JPanel jPanelJoin;
     private javax.swing.JPanel jPanelProxy;
     private javax.swing.JPasswordField jPasswordField1;
     private javax.swing.JPasswordField jPasswordField2;
     private javax.swing.JPasswordField jPasswordField4;
-    private javax.swing.JScrollPane jScrollPane1;
     private javax.swing.JScrollPane jScrollPane2;
-    private javax.swing.JScrollPane jScrollPane3;
-    private javax.swing.JScrollPane jScrollPane4;
-    private javax.swing.JScrollPane jScrollPane5;
     private javax.swing.JTabbedPane jTabbedPane;
-    private javax.swing.JTable jTable1;
-    private javax.swing.JTable jTable2;
-    private javax.swing.JTable jTable3;
-    private javax.swing.JTable jTable4;
-    private javax.swing.JTextField jTextField1;
-    private javax.swing.JTextField jTextField10;
     private javax.swing.JTextField jTextField2;
     private javax.swing.JTextField jTextField3;
     private javax.swing.JTextField jTextField4;

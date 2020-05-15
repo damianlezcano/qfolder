@@ -82,7 +82,6 @@ public class MessageController {
 
     @PostMapping(path = "/{wk}")
     public void sendToWk(@PathVariable("wk") String wkId, @RequestBody Event event) throws IOException {
-        System.out.println("# senToWk:" + event);
     	processor.sendToWk(wkId,event);
     } 
 }

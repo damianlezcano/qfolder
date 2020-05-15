@@ -3,19 +3,29 @@
  * To change this template file, choose Tools | Templates
  * and open the template in the editor.
  */
-package org.q3s.p2p.client.view;
+package org.q3s.p2p.client.view.components;
+
+import java.awt.Component;
+import java.awt.event.KeyEvent;
+import javax.swing.JFrame;
+import javax.swing.JTable;
+import javax.swing.RowFilter;
+import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableModel;
+import javax.swing.table.TableRowSorter;
 
 /**
  *
  * @author damianlezcano
  */
-public class JPanelListFile extends javax.swing.JPanel {
+public class TabListFile extends javax.swing.JPanel {
 
     /**
      * Creates new form JPanelListFile
      */
-    public JPanelListFile() {
+    public TabListFile() {
         initComponents();
+        jPanel1.setVisible(false);
     }
 
     /**
@@ -32,7 +42,19 @@ public class JPanelListFile extends javax.swing.JPanel {
         jPanel1 = new javax.swing.JPanel();
         jTextField1 = new javax.swing.JTextField();
 
+        jTable1.setAutoCreateRowSorter(true);
+        jTable1.addKeyListener(new java.awt.event.KeyAdapter() {
+            public void keyReleased(java.awt.event.KeyEvent evt) {
+                jTable1KeyReleased(evt);
+            }
+        });
         jScrollPane1.setViewportView(jTable1);
+
+        jTextField1.addKeyListener(new java.awt.event.KeyAdapter() {
+            public void keyReleased(java.awt.event.KeyEvent evt) {
+                jTextField1KeyReleased(evt);
+            }
+        });
 
         javax.swing.GroupLayout jPanel1Layout = new javax.swing.GroupLayout(jPanel1);
         jPanel1.setLayout(jPanel1Layout);
@@ -55,16 +77,56 @@ public class JPanelListFile extends javax.swing.JPanel {
                 .addContainerGap()
                 .addComponent(jPanel1, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
                 .addContainerGap())
-            .addComponent(jScrollPane1, javax.swing.GroupLayout.DEFAULT_SIZE, 476, Short.MAX_VALUE)
+            .addComponent(jScrollPane1, javax.swing.GroupLayout.DEFAULT_SIZE, 375, Short.MAX_VALUE)
         );
         layout.setVerticalGroup(
             layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
             .addGroup(layout.createSequentialGroup()
-                .addComponent(jScrollPane1, javax.swing.GroupLayout.DEFAULT_SIZE, 187, Short.MAX_VALUE)
+                .addComponent(jScrollPane1, javax.swing.GroupLayout.DEFAULT_SIZE, 114, Short.MAX_VALUE)
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                 .addComponent(jPanel1, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE))
         );
     }// </editor-fold>//GEN-END:initComponents
+
+    private void jTable1KeyReleased(java.awt.event.KeyEvent evt) {//GEN-FIRST:event_jTable1KeyReleased
+        if (evt.isControlDown() && evt.getKeyCode() == KeyEvent.VK_F) {
+            jPanel1.setVisible(true);
+            //getJFrame().pack();
+            jTextField1.requestFocus();
+            jTable1.setRowSorter(null);
+        }
+    }//GEN-LAST:event_jTable1KeyReleased
+
+    private void jTextField1KeyReleased(java.awt.event.KeyEvent evt) {//GEN-FIRST:event_jTextField1KeyReleased
+        if (evt.getKeyCode() == KeyEvent.VK_ESCAPE) {
+            //borrarFiltro();
+            jPanel1.setVisible(false);
+            jTextField1.setText("");
+            //getJFrame().pack();
+            jTable1.requestFocus();
+        } 
+        TableRowSorter<TableModel> sorter = new TableRowSorter<TableModel>((jTable1.getModel())); 
+        sorter.setRowFilter(RowFilter.regexFilter(jTextField1.getText()));
+        jTable1.setRowSorter(sorter);
+    }//GEN-LAST:event_jTextField1KeyReleased
+
+    
+//    public JFrame getJFrame() {
+//        Component co = super.getParent();
+//        do {
+//            if (co instanceof JFrame) {
+//                return (JFrame) co;
+//            } else if (co == null) {
+//                return null;
+//            } else {
+//                co = co.getParent();
+//            }
+//        } while (true);
+//    }
+
+    public JTable getjTable1() {
+        return jTable1;
+    }
 
 
     // Variables declaration - do not modify//GEN-BEGIN:variables

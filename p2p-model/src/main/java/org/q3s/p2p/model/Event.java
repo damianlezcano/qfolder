@@ -89,5 +89,10 @@ public class Event {
     public Event build(String json){
         return EventUtils.toObject(json);
     }
+
+    @Override
+    public String toString() {
+        return String.format("%s - %s - event: %s",wk,user,name);
+    }
     
 }
