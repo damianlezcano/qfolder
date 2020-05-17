@@ -5,12 +5,13 @@
  */
 package org.q3s.p2p.client.view.components;
 
-import java.awt.Component;
+import java.awt.Color;
+import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
-import javax.swing.JFrame;
+import javax.swing.JMenuItem;
+import javax.swing.JPopupMenu;
 import javax.swing.JTable;
 import javax.swing.RowFilter;
-import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableModel;
 import javax.swing.table.TableRowSorter;
 
@@ -26,8 +27,38 @@ public class TabListFile extends javax.swing.JPanel {
     public TabListFile() {
         initComponents();
         jPanel1.setVisible(false);
+        
+        JPopupMenu popupMenu = new JPopupMenu();
+        JMenuItem menuItemAdd = new JMenuItem("Abrir");
+        JMenuItem menuItemRemove = new JMenuItem("Descargar");
+
+        menuItemAdd.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                openMenuItemActionPerformed(evt);
+            }
+        });
+
+        menuItemRemove.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                downloadMenuItemActionPerformed(evt);
+            }
+        });
+        
+        popupMenu.add(menuItemAdd);
+        popupMenu.add(menuItemRemove);
+                
+        jTable1.setComponentPopupMenu(popupMenu);
+        
     }
 
+    private void openMenuItemActionPerformed(ActionEvent evt) {
+        System.out.println("abrir");
+    }
+
+    private void downloadMenuItemActionPerformed(ActionEvent evt) {
+        System.out.println("descargar");  
+    }
+    
     /**
      * This method is called from within the constructor to initialize the form.
      * WARNING: Do NOT modify this code. The content of this method is always
@@ -43,6 +74,7 @@ public class TabListFile extends javax.swing.JPanel {
         jTextField1 = new javax.swing.JTextField();
 
         jTable1.setAutoCreateRowSorter(true);
+        jTable1.setBackground(new java.awt.Color(255, 255, 242));
         jTable1.addKeyListener(new java.awt.event.KeyAdapter() {
             public void keyReleased(java.awt.event.KeyEvent evt) {
                 jTable1KeyReleased(evt);
@@ -128,6 +160,24 @@ public class TabListFile extends javax.swing.JPanel {
         return jTable1;
     }
 
+    private boolean offline = false;
+    
+    public void disabled(){
+        Color backgroud = Color.decode("#dedede");
+        jTable1.setBackground(backgroud);
+        offline = true;
+    }
+
+    public void enabled(){
+        jTable1.setBackground(null);
+        offline = false;
+    }
+
+    public boolean isOffline() {
+        return offline;
+    }
+    
+    
 
     // Variables declaration - do not modify//GEN-BEGIN:variables
     private javax.swing.JPanel jPanel1;

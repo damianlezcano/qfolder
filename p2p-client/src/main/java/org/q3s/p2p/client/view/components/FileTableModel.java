@@ -69,24 +69,29 @@ public class FileTableModel extends AbstractTableModel {
 //        return arr;
 //    }
     // These are easy methods
+    @Override
     public int getColumnCount() {
         return columnNames.length;
     }  // A constant for this model
 
+    @Override
     public int getRowCount() {
         return files().size();
     }  // # of files in dir
 
     // Information about each column
+    @Override
     public String getColumnName(int col) {
         return columnNames[col];
     }
 
+    @Override
     public Class getColumnClass(int col) {
         return columnClasses[col];
     }
 
     // The method that must actually return the value of each cell
+    @Override
     public Object getValueAt(int row, int col) {
         QFile f = files().get(row);
         switch (col) {
@@ -108,7 +113,5 @@ public class FileTableModel extends AbstractTableModel {
     public List<User> getUsers() {
         return users;
     }
-
-    
     
 }

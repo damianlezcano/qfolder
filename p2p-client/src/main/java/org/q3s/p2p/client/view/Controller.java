@@ -5,37 +5,43 @@
  */
 package org.q3s.p2p.client.view;
 
-import org.q3s.p2p.client.view.components.TabListFile;
+import java.awt.Component;
 import java.awt.event.ComponentEvent;
 import java.awt.event.ComponentListener;
+import java.io.File;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 
 import javax.swing.DefaultListModel;
+import javax.swing.ImageIcon;
 import javax.swing.JCheckBox;
 import javax.swing.JDialog;
+import javax.swing.JFileChooser;
+import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPasswordField;
+import javax.swing.JPopupMenu;
+import javax.swing.JTabbedPane;
+import javax.swing.JTable;
+import javax.swing.event.ChangeEvent;
+import javax.swing.event.ChangeListener;
 
 import org.q3s.p2p.client.Config;
 import org.q3s.p2p.client.util.FileUtils;
 import org.q3s.p2p.client.util.HttpClient;
 import org.q3s.p2p.client.util.Logger;
 import org.q3s.p2p.client.util.SseClient;
+import org.q3s.p2p.client.view.components.FileTableModel;
+import org.q3s.p2p.client.view.components.TabListFile;
+import org.q3s.p2p.model.Event;
 import org.q3s.p2p.model.QFile;
 import org.q3s.p2p.model.User;
 import org.q3s.p2p.model.Workspace;
 import org.q3s.p2p.model.util.UUIDUtils;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.awt.Component;
-import java.io.File;
-import java.util.ArrayList;
-import javax.swing.ImageIcon;
-import javax.swing.JFileChooser;
-import org.q3s.p2p.client.view.components.FileTableModel;
-import org.q3s.p2p.model.Event;
 
 /**
  *
@@ -110,9 +116,12 @@ public class Controller {
             }
         });
 
-        view.getjTabbedPane().addMouseListener(new java.awt.event.MouseAdapter() {
-            public void mouseClicked(java.awt.event.MouseEvent evt) {
-                jTabbedPaneMouseClicked(evt);
+        view.getjTabbedPane().addChangeListener(new ChangeListener() {
+            @Override
+            public void stateChanged(ChangeEvent e) {
+                if (e.getSource() instanceof JTabbedPane) {
+                    jTabbedPaneChangeListener(e);
+                }
             }
         });
 
@@ -121,6 +130,28 @@ public class Controller {
                 jButton3ActionPerformed(evt);
             }
         });
+        
+        view.getjTabbedPane().addMouseListener(new java.awt.event.MouseAdapter() {
+	        @Override
+	        public void mouseClicked(java.awt.event.MouseEvent evt) {
+	             if (evt.getClickCount()==2) {
+	                 // && view.getjTabbedPane().indexAtLocation(evt.getX(), evt.getY()) == 3
+	                 //deteced doubleclick on tab with index 3
+	                 JTabbedPane tp = (JTabbedPane)evt.getSource();
+	                 Component co = tp.getSelectedComponent();
+	                 if(co instanceof TabListFile){
+	                     TabListFile tlf = (TabListFile) co;
+	                     if(tlf.isOffline()){
+	                         tp.removeTabAt(tp.getSelectedIndex());
+	                     }
+	                 }
+	             }
+	        }
+	    });
+        
+
+        
+        
 
         loadLocalGeneralTab();
         view.pack();
@@ -142,7 +173,7 @@ public class Controller {
         }
     }
 
-    private void jTabbedPaneMouseClicked(java.awt.event.MouseEvent evt) {
+    private void jTabbedPaneChangeListener(ChangeEvent evt) {
         if (configChange) {
             Event e = new Event("Cambio de nombre", user);
             httpClient.post(Config.buildWkBroadcastUri(wk), e);
@@ -287,7 +318,26 @@ public class Controller {
                 //envio datos del usuario
                 httpClient.post(Config.buildWkConnectWithAuthUri(wk), user);
             }
+            
+        } else if ("Credenciales incorrectas".equals(event.getName())) {
+            mostrarErrorEnPantallaLogin("Credenciales incorrectas");
+        } else if ("Aprobar al usuario".equals(event.getName())) {
 
+            User to = event.getUser();
+
+            int opt = JOptionPane.showConfirmDialog(view, "Permitir el acceso al usuario '" + to.getName() + "'", "Aviso!", JOptionPane.WARNING_MESSAGE, JOptionPane.YES_NO_OPTION);
+
+            if (opt == 0) {
+                httpClient.get(Config.buildWkSendApprovedUserUrl(wk, to));
+            } else {
+                httpClient.get(Config.buildWkSendRefuseUserUrl(wk, to));
+            }
+        } else if ("Usuario rechazado!".equals(event.getName())) {
+            try {
+                sseClient.interrupt();
+            } catch (Throwable e) {
+            }
+            mostrarErrorEnPantallaLogin("Has sido rechazado tu ingreso por los usuarios"); 
         } else if ("Bienvenido usuario al grupo!".equals(event.getName())) {
             view.getjPanelCreateWorkspace().setVisible(false);
             view.getjPanelJoin().setVisible(false);
@@ -304,6 +354,8 @@ public class Controller {
 
             Event e = new Event("Gracias por la bienvenida, notifico mis archivos", user.clone(files));
             httpClient.post(Config.buildWkBroadcastUri(wk), e);
+            
+            ping();
 
         } else if ("Gracias por la bienvenida, notifico mis archivos".equals(event.getName())) {
             if (event.getUser().equals(user)) {
@@ -328,6 +380,7 @@ public class Controller {
                 //loadRemoteUserTab(event.getUser().getName(), event.getUser());
                 addUserToRemoteList(event.getUser());
             }
+            refreshTables();
         } else if ("Cambio de nombre".equals(event.getName())) {
             if (!event.getUser().equals(user)) {
                 int idx = searchTabById(event.getUser().getId());
@@ -335,25 +388,14 @@ public class Controller {
                 remoteUsers.get(idxUser).setName(event.getUser().getName());
                 view.getjTabbedPane().setTitleAt(idx, event.getUser().getName());
             }
-        } else if ("Credenciales incorrectas".equals(event.getName())) {
-            mostrarErrorEnPantallaLogin("Credenciales incorrectas");
-        } else if ("Aprobar al usuario".equals(event.getName())) {
-
-            User to = event.getUser();
-
-            int opt = JOptionPane.showConfirmDialog(view, "Permitir el acceso al usuario '" + to.getName() + "'", "Aviso!", JOptionPane.WARNING_MESSAGE, JOptionPane.YES_NO_OPTION);
-
-            if (opt == 0) {
-                httpClient.get(Config.buildWkSendApprovedUserUrl(wk, to));
-            } else {
-                httpClient.get(Config.buildWkSendRefuseUserUrl(wk, to));
-            }
-        } else if ("Usuario rechazado!".equals(event.getName())) {
-            try {
-                sseClient.interrupt();
-            } catch (Throwable e) {
-            }
-            mostrarErrorEnPantallaLogin("Has sido rechazado tu ingreso por los usuarios");
+        } else if ("Usuario desconectado".equals(event.getName())) {
+            int idx = searchTabById(event.getUser().getId());
+            ImageIcon icon = new javax.swing.ImageIcon(getClass().getResource("/status-fail.png"));
+            view.getjTabbedPane().setIconAt(idx, icon);
+            view.getjTabbedPane().setToolTipTextAt(idx, "Última vez conectado " + new Date() + " (Doble click para cerrar)");
+            TabListFile tlf = findTableByUserId(event.getUser().getId());
+            
+            tlf.disabled();
         }
     }
 
@@ -429,4 +471,41 @@ public class Controller {
         return -1;
     }
 
+    private void refreshTables() {
+        Component[] cos = view.getjTabbedPane().getComponents();
+        for (int i = 0; i < cos.length; i++) {
+            if (cos[i] instanceof TabListFile) {
+                TabListFile tlf = (TabListFile)cos[i];
+                JTable table = tlf.getjTable1();
+                FileTableModel dm = (FileTableModel)table.getModel();
+                dm.fireTableDataChanged();
+            }
+        }
+    }
+
+    private TabListFile findTableByUserId(String id) {
+        Component[] cos = view.getjTabbedPane().getComponents();
+        for (int i = 0; i < cos.length; i++) {
+            if (cos[i] instanceof TabListFile) {
+                if (cos[i].getName().endsWith(id)) {
+                    return (TabListFile)cos[i];
+                }
+            }
+        }
+        return null;
+    }
+    
+    private void ping() {
+        new Thread(new Runnable() {
+            public void run() {
+                try {
+                    do {                        
+                        httpClient.get(Config.buildPingUserUrl(wk, user));
+                        Thread.sleep(2000);
+                    } while (true);
+                } catch (Exception ex) {}
+            }
+        }).start();
+    }
+    
 }

@@ -14,7 +14,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.RestController;
 
-import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 
 @RestController
@@ -32,25 +31,13 @@ public class MessageController {
     @GetMapping(path = "/{wk}/connect", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<String> connect(@PathVariable("wk") String wkId, @RequestParam("user") String userId) {
         return Flux.create(sink -> {
-        	sink.onDispose(new Disposable() {
-                @Override
-                public void dispose() {
-                    processor.disposeInProgress(userId);
-                }
-            });
-            processor.connect(sink::next,wkId, userId);
+            processor.connect(sink::next,wkId,userId);
         });
     }
     
     @GetMapping(path = "/{wk}/reconnect", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<String> reconnect(@PathVariable("wk") String wkId, @RequestParam("user") String userId) throws Exception {
         return Flux.create(sink -> {
-        	sink.onDispose(new Disposable() {
-                @Override
-                public void dispose() {
-                    processor.disposeApproval(wkId, userId);
-                }
-            });
             processor.reconnect(sink::next,wkId, userId);
         });
     }
@@ -73,6 +60,11 @@ public class MessageController {
     @GetMapping(path = "/{wk}/refuse/{user}")
     public void refuse(@PathVariable("wk") String wkId, @PathVariable("user") String userId) throws IOException {
     	processor.refuse(wkId,userId);
+    }
+
+    @GetMapping(path = "/{wk}/ping/{user}")
+    public void ping(@PathVariable("wk") String wkId, @PathVariable("user") String userId) throws IOException {
+    	processor.ping(wkId,userId);
     }
     
     @PostMapping(path = "/{wk}/{user}")
