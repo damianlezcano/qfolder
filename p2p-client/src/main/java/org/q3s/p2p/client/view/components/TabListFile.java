@@ -8,6 +8,7 @@ package org.q3s.p2p.client.view.components;
 import java.awt.Color;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
+
 import javax.swing.JMenuItem;
 import javax.swing.JPopupMenu;
 import javax.swing.JTable;
@@ -15,12 +16,23 @@ import javax.swing.RowFilter;
 import javax.swing.table.TableModel;
 import javax.swing.table.TableRowSorter;
 
+import org.q3s.p2p.client.Config;
+import org.q3s.p2p.client.util.HttpClient;
+import org.q3s.p2p.model.Event;
+import org.q3s.p2p.model.QFile;
+import org.q3s.p2p.model.User;
+import org.q3s.p2p.model.Workspace;
+
 /**
  *
  * @author damianlezcano
  */
 public class TabListFile extends javax.swing.JPanel {
 
+	private Workspace wk;
+	private User user;
+	private HttpClient httpClient;
+	
     /**
      * Creates new form JPanelListFile
      */
@@ -50,13 +62,29 @@ public class TabListFile extends javax.swing.JPanel {
         jTable1.setComponentPopupMenu(popupMenu);
         
     }
+    
+    /**
+     * @param wk
+     * @param user el que notifica
+     * @param httpClient
+     */
+    public TabListFile(Workspace wk, User user, HttpClient httpClient) {
+    	this();
+    	this.wk = wk;
+    	this.user = user;
+    	this.httpClient = httpClient;
+    }
 
     private void openMenuItemActionPerformed(ActionEvent evt) {
         System.out.println("abrir");
     }
 
     private void downloadMenuItemActionPerformed(ActionEvent evt) {
-        System.out.println("descargar");  
+        System.out.println("descargar");
+        FileTableModel ftm = (FileTableModel) jTable1.getModel();
+        QFile qFile = (QFile) ftm.getValueAt(jTable1.getSelectedRow(), -1);
+        Event event = new Event("Quiero descargar el archivo", user,qFile);
+        httpClient.post(Config.buildWkToUserUri(wk, qFile.getOwner()), event);
     }
     
     /**

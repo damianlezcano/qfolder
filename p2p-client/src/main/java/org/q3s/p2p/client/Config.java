@@ -33,6 +33,14 @@ public class Config {
     public static int HTTP_CLIENT_CONNECT_READ_TIMEOUT = 1000;
     public static int HTTP_CLIENT_CONNECT_REQUEST_TIMEOUT = 1000;
 
+    public static String TEMP_PATH = "temp";
+    public static String SUFFIX_PART = ".part";
+    public static String SUFFIX_PENDING = ".pending";
+    public static String SUFFIX_ENCODE = ".enc";
+    public static String SUFFIX_DECODE = ".dec";
+    
+    public static String PREFFIX_ENCODE = "file";
+    
     public static String buildWkCreateUri() {
         return String.format("%s/%s", URL_SERVER,WK_CREATE);
     }

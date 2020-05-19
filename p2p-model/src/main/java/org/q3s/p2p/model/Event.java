@@ -18,6 +18,7 @@ public class Event {
     private User user;
     private Workspace wk;
     
+    private QFile file;
     
     public Event(){}
     
@@ -33,6 +34,17 @@ public class Event {
     public Event(String name,User user){
         this.name = name;
         this.user = user;
+    }
+    
+    public Event(String name,User user, QFile file){
+        this.name = name;
+        this.user = user;
+        this.file = file;
+    }
+
+    public Event(String name, QFile file){
+        this.name = name;
+        this.file = file;
     }
     
     public Event(String name,Workspace wk, User user){
@@ -94,5 +106,13 @@ public class Event {
     public String toString() {
         return String.format("%s - %s - event: %s",wk,user,name);
     }
+
+	public QFile getFile() {
+		return file;
+	}
+
+	public void setFile(QFile file) {
+		this.file = file;
+	}
     
 }

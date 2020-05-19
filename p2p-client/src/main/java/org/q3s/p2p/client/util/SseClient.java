@@ -9,13 +9,13 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicBoolean;
+
 import org.q3s.p2p.client.Config;
 import org.q3s.p2p.client.view.Controller;
 import org.q3s.p2p.model.Event;
 import org.q3s.p2p.model.User;
 import org.q3s.p2p.model.Workspace;
 import org.q3s.p2p.model.util.EventUtils;
-import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -37,10 +37,10 @@ public class SseClient extends Thread {
     private int connectTimeoutMillis = 100000;
     private int readTimeoutMillis = 100000;
     
-    private RestTemplate restTemplate = new RestTemplateBuilder()
+    private RestTemplate restTemplate = new RestTemplate() /*new RestTemplateBuilder()
         .setConnectTimeout(Duration.ofMillis(connectTimeoutMillis))
         .setReadTimeout(Duration.ofMillis(readTimeoutMillis))
-        .build();
+        .build()*/;
     
     private AtomicBoolean interrupt = new AtomicBoolean(false); 
  
@@ -78,17 +78,17 @@ public class SseClient extends Thread {
                     response -> {
                         BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(response.getBody()));
                         String line;
-                        try {
-                            while ((line = bufferedReader.readLine()) != null) {
-                                if (!line.isEmpty()) {
-                                    System.out.println(">>>>>>> SseClient -> " + line);
+                        while ((line = bufferedReader.readLine()) != null) {
+                            if (!line.isEmpty()) {
+                            	try {
+//                                    System.out.println(">>>>>>> SseClient -> " + line);
                                     Event event = EventUtils.toObjectBase64(line);
                                     controller.notify(event);
-                                }
+                            	} catch (Exception e) {
+                            		e.printStackTrace();
+                            		System.out.println("SSECLient ERROR 1");
+                            	}
                             }
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                            System.out.println("SSECLient ERROR 1");
                         }
                         return response;
                     });

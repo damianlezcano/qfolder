@@ -9,6 +9,8 @@ import java.awt.Component;
 import java.awt.event.ComponentEvent;
 import java.awt.event.ComponentListener;
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
@@ -19,10 +21,8 @@ import javax.swing.ImageIcon;
 import javax.swing.JCheckBox;
 import javax.swing.JDialog;
 import javax.swing.JFileChooser;
-import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPasswordField;
-import javax.swing.JPopupMenu;
 import javax.swing.JTabbedPane;
 import javax.swing.JTable;
 import javax.swing.event.ChangeEvent;
@@ -41,8 +41,6 @@ import org.q3s.p2p.model.User;
 import org.q3s.p2p.model.Workspace;
 import org.q3s.p2p.model.util.UUIDUtils;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-
 /**
  *
  * @author damianlezcano
@@ -53,8 +51,6 @@ public class Controller {
     private User user = User.build(UUIDUtils.generate());
 
     private List<User> remoteUsers = new ArrayList<User>();
-
-    private ObjectMapper objectMapper = new ObjectMapper();
 
     private HttpClient httpClient = new HttpClient();
 
@@ -148,12 +144,7 @@ public class Controller {
 	             }
 	        }
 	    });
-        
 
-        
-        
-
-        loadLocalGeneralTab();
         view.pack();
         view.setVisible(true);
         view.mostarJoinPanel();
@@ -167,9 +158,10 @@ public class Controller {
             File file = fileChooser.getSelectedFile();
             view.getjTextField4().setText(file.getAbsolutePath());
 
-            List<QFile> files = FileUtils.files(view.getjTextField4().getText());
-            Event e = new Event("Notifico Cambio en los archivos", user.clone(files));
-            httpClient.post(Config.buildWkBroadcastUri(wk), e);
+//            List<QFile> files = FileUtils.files(view.getjTextField4().getText());
+//            Event e = new Event(, user.clone(files));
+//            httpClient.post(Config.buildWkBroadcastUri(wk), e);
+            refreshLocalFilesAndNotify("Notifico Cambio en los archivos");
         }
     }
 
@@ -339,6 +331,7 @@ public class Controller {
             }
             mostrarErrorEnPantallaLogin("Has sido rechazado tu ingreso por los usuarios"); 
         } else if ("Bienvenido usuario al grupo!".equals(event.getName())) {
+        	loadLocalGeneralTab();
             view.getjPanelCreateWorkspace().setVisible(false);
             view.getjPanelJoin().setVisible(false);
             view.getjTabbedPane().setVisible(true);
@@ -350,12 +343,9 @@ public class Controller {
 
             view.setTitle("Conectado al grupo '" + wk.getName() + "'");
 
-            List<QFile> files = FileUtils.files(view.getjTextField4().getText());
-
-            Event e = new Event("Gracias por la bienvenida, notifico mis archivos", user.clone(files));
-            httpClient.post(Config.buildWkBroadcastUri(wk), e);
+            refreshLocalFilesAndNotify("Gracias por la bienvenida, notifico mis archivos");
             
-            ping();
+            ping();//TODO: borrar cuando se resuelva el issue SSE con webflux
 
         } else if ("Gracias por la bienvenida, notifico mis archivos".equals(event.getName())) {
             if (event.getUser().equals(user)) {
@@ -396,10 +386,102 @@ public class Controller {
             TabListFile tlf = findTableByUserId(event.getUser().getId());
             
             tlf.disabled();
+        } else if ("Quiero descargar el archivo".equals(event.getName())) {
+    		String filename = event.getFile().getName();
+        	String filepath = view.getjTextField4().getText();
+        	String fullname = filepath + File.separator  + filename;
+        	//-----------------------------------------------------------
+        	QFile qfile = event.getFile();
+    		String content = FileUtils.encoder(fullname);
+    		Path path = FileUtils.saveInTempDirectory(filename, content);
+        	String md5 = FileUtils.md5(path.toString());
+        	qfile.setMD5(md5);
+        	
+        	File fus = md5Folder(event.getFile().getMD5(),"out");
+        	
+        	int parts = FileUtils.splitFile(path.toString(), 512, fus.getAbsolutePath());
+        	
+        	qfile.setParts(parts);
+            Event e = new Event("Envio el detalle de las partes del archivo", user, qfile);
+            httpClient.post(Config.buildWkToUserUri(wk, event.getUser()), e);  
+        } else if ("Envio el detalle de las partes del archivo".equals(event.getName())) {
+			File fus = md5Folder(event.getFile().getMD5(),"in");
+	    	for (int i = 0; i < event.getFile().getParts(); i++) {
+				File t = new File(fus.getAbsolutePath() + File.separator + i + Config.SUFFIX_PENDING);
+				t.createNewFile();
+			}
+	    	retriveAnyPendingFileAndRequest(event,fus);	    	
+        } else if ("Dame la parte numero".equals(event.getName())) {
+        	System.out.println("parte nro: " + event.getFile().getParts());
+        	QFile file = event.getFile();
+        	File md5Dir = md5Folder(file.getMD5(), "out");
+        	String md5Part = md5Dir.getAbsolutePath() + File.separator + file.getParts() + Config.SUFFIX_PART;
+        	String content = FileUtils.read(md5Part);
+        	file.setContent(content);
+            Event e = new Event("Esta es la parte que me pedistes", user, file);
+            httpClient.post(Config.buildWkToUserUri(wk, event.getUser()), e);
+        } else if ("Esta es la parte que me pedistes".equals(event.getName())) {
+        	QFile file = event.getFile();
+        	File md5Dir = md5Folder(file.getMD5(), "in");
+        	FileUtils.save(md5Dir.getAbsolutePath() + File.separator + Config.PREFFIX_ENCODE + Config.SUFFIX_ENCODE, file.getContent().getBytes());
+        	String md5Part = md5Dir.getAbsolutePath() + File.separator + file.getParts();
+        	FileUtils.remove(md5Part + Config.SUFFIX_PENDING);
+        	retriveAnyPendingFileAndRequest(event, md5Dir);
         }
     }
 
-    private void addUserToRemoteList(User user) {
+	private void refreshLocalFilesAndNotify(String msg) {
+		List<QFile> files = FileUtils.files(view.getjTextField4().getText());
+		Event e = new Event(msg, user.clone(files));
+		httpClient.post(Config.buildWkBroadcastUri(wk), e);
+	}
+
+    private void retriveAnyPendingFileAndRequest(Event event, File md5Dir) throws Exception {
+    	File file = md5Folder(event.getFile().getMD5(), "in");
+		int part = FileUtils.anyPending(file.getAbsolutePath());
+		if(part == -1) {
+			System.out.println("UNIR / abrir o enviar a carpeta destiino");
+			String from = md5Dir.getAbsolutePath() + File.separator + Config.PREFFIX_ENCODE;
+			String to = view.getjTextField4().getText() + File.separator + event.getFile().getName();
+			byte[] dec = FileUtils.decode(from + Config.SUFFIX_ENCODE);
+			FileUtils.save(from + Config.SUFFIX_DECODE,dec);
+			FileUtils.move(from + Config.SUFFIX_DECODE, to);
+			refreshLocalFilesAndNotify("Notifico Cambio en los archivos");
+		}else {
+			event.getFile().setParts(part);
+            Event e = new Event("Dame la parte numero", user, event.getFile());
+            httpClient.post(Config.buildWkToUserUri(wk, event.getUser()), e);
+		}
+	}
+
+	private File md5Folder(String md5,String inOut) {
+		File temp = new File(Config.TEMP_PATH);
+		
+		if(!temp.exists()) {
+			temp.mkdir();
+		}
+		
+		File fwk = new File(temp.getAbsolutePath() + File.separator + wk.getId());
+		
+		if(!fwk.exists()) {
+			fwk.mkdir();
+		}
+		
+		File fot = new File(fwk.getAbsolutePath() + File.separator + inOut);
+		
+		if(!fot.exists()) {
+			fot.mkdir();
+		}
+		
+		File fus = new File(fot.getAbsolutePath() + File.separator + md5);
+		
+		if(!fus.exists()) {
+			fus.mkdir();
+		}
+		return fus;
+	}
+	
+	private void addUserToRemoteList(User user) {
         int idx = remoteUsers.indexOf(user);
         if(idx != -1){
             User us = remoteUsers.get(idx);
@@ -411,7 +493,7 @@ public class Controller {
 
     private void loadLocalGeneralTab() {
         String username = "General";
-        TabListFile jPanel2 = new TabListFile();
+        TabListFile jPanel2 = new TabListFile(wk,user,httpClient);
         jPanel2.setName(username);
         view.getjTabbedPane().insertTab(username, null, jPanel2, "Vista unificada de Archivos", 0); // NOI18N
         FileTableModel ftm = new FileTableModel(remoteUsers);
@@ -439,7 +521,7 @@ public class Controller {
     }
 
     private void loadUserTab(String username, User user, String tooltip, String iconpath, int iconidx) {
-        TabListFile jPanel2 = new TabListFile();
+        TabListFile jPanel2 = new TabListFile(wk,this.user,httpClient);
         jPanel2.setName(user.getId());
         ImageIcon icon = new javax.swing.ImageIcon(getClass().getResource(iconpath));
         view.getjTabbedPane().insertTab(username, icon, jPanel2, tooltip, iconidx); // NOI18N

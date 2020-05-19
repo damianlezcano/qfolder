@@ -5,12 +5,14 @@
  */
 package org.q3s.p2p.client.view.components;
 
-import javax.swing.table.*;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.stream.Collectors;
+
 import javax.swing.ImageIcon;
+import javax.swing.table.AbstractTableModel;
+
 import org.q3s.p2p.model.QFile;
 import org.q3s.p2p.model.User;
 
@@ -95,7 +97,9 @@ public class FileTableModel extends AbstractTableModel {
     public Object getValueAt(int row, int col) {
         QFile f = files().get(row);
         switch (col) {
-            case 0:
+        	case -1:
+        		return f;
+        	case 0:
                 return icon;
             case 1:
                 return f.getName();
