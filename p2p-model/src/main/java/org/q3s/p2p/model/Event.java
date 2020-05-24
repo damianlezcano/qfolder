@@ -5,7 +5,6 @@
  */
 package org.q3s.p2p.model;
 
-import java.io.IOException;
 import org.q3s.p2p.model.util.EventUtils;
 
 /**
@@ -17,7 +16,7 @@ public class Event {
     private String name;
     private User user;
     private Workspace wk;
-    
+    private String response;
     private QFile file;
     
     public Event(){}
@@ -26,6 +25,11 @@ public class Event {
         this.name = name;
     }
 
+    public Event(String name,String response){
+        this.name = name;
+        this.response = response;
+    }
+    
     public Event(String name,Workspace wk){
         this.name = name;
         this.wk = wk;
@@ -80,6 +84,14 @@ public class Event {
 
     public void setWk(Workspace wk) {
         this.wk = wk;
+    }
+
+    public String getResponse() {
+        return response;
+    }
+
+    public void setResponse(String response) {
+        this.response = response;
     }
     
     public String toJson() {

@@ -1,0 +1,136 @@
+En VM con Windows (carlos)
+==========================
+
+[abrir terminal en C:\sap\src\main\java]
+
+> SET JAVA_HOME=C:\Program Files\Java\jdk1.8.0_241
+
+> set PATH=C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\Windows\System32\OpenSSH\;C:\Program Files\Citrix\System32\;C:\Program Files\Citrix\ICAService\;C:\Users\SE31504\AppData\Local\Microsoft\WindowsApps;C:\Users\SE31504\Downloads\oc\;%JAVA_HOME%\bin;
+
+> javac Decode.java
+
+> java Decode carbon.zip
+
+[este comando lo que hace es deserealizar los archivos .enc que se pasan como parametro, en este caso son el proyecto carbon con las librearias de sap]
+
+[accedemos al proyecto descromprimido]
+
+javac -classpath ..\..\..\lib\sapjco3.jar StepByStepClient.java
+
+java -cp ..\..\..\lib\sapjco3.jar;. -DDESTINATION_NAME1="test" -DDESTINATION_NAME2="test" -DJCO_ASHOST="sldbuetmld201.grupo.ypf.com" -DJCO_SYSNR="01" -DJCO_CLIENT="300" -DJCO_USER="XLD2300BZTLK" -DJCO_PASSWD="Dh_u4g66" -DJCO_LANG="ES" -DJCO_POOL_CAPACITY="1" -DJCO_PEAK_LIMIT="10" -DJCO_GROUP="middleware" -DJCO_GWHOST="sldbuetmld201" -DJCO_GWSERV="sapgw01" -DJCO_MSHOST="sldbuetmld201" -DJCO_MSSERV="3600" -DJCO_R3NAME="LD2" StepByStepClient
+
+
+
+
+
+
+
+
+
+
+
+En VM con Windows (benja)
+==========================
+
+# C:\Users\se31373\workspace\ypf-poc-integration\carbon
+
+> SET JAVA_HOME=C:\Users\se31373\jdk\java-se-8u40-ri
+
+> set PATH=C:\Users\se31373\AppData\Local\Microsoft\WindowsApps;C:\Users\se31373\AppData\Local\Programs\Fiddler;C:\Users\se31373\maven\apache-maven-3.6.3\bin;C:\Users\se31373\Downloads\librerias sap\sapjco30P_20-10005324\sapjco3-NTintel-3.0.20;C:\Program Files\Git\cmd;C:\Users\se31373\AppData\Local\Microsoft\WindowsApps;C:\Users\se31373\AppData\Local\Programs\Fiddler;C:\Users\se31373\maven\apache-maven-3.6.3\bin;C:\Users\se31373\Downloads\librerias sap\sapjco30P_20-10005324\sapjco3-NTintel-3.0.20;%JAVA_HOME%\bin;
+
+javac -classpath ..\..\..\lib\sapjco3.jar StepByStepClient.java
+
+java -cp ..\..\..\lib\sapjco3.jar;. -DDESTINATION_NAME1="test" -DDESTINATION_NAME2="test" -DJCO_ASHOST="sldbuetmld201.grupo.ypf.com" -DJCO_SYSNR="01" -DJCO_CLIENT="300" -DJCO_USER="XLD2300BZTLK" -DJCO_PASSWD="Dh_u4g66" -DJCO_LANG="ES" -DJCO_POOL_CAPACITY="1" -DJCO_PEAK_LIMIT="10" -DJCO_GROUP="middleware" -DJCO_GWHOST="sldbuetmld201" -DJCO_GWSERV="sapgw01" -DJCO_MSHOST="sldbuetmld201" -DJCO_MSSERV="3600" -DJCO_R3NAME="LD2" StepByStepClient
+
+
+
+
+
+
+
+
+
+Referencias
+==========================
+
+https://github.com/fusesource/sap-quickstarts/blob/master/pom.xml
+https://www.learnjavaonline.org/en/Compiling_and_Running_with_Arguments
+https://github.com/saro-lab/sap-jco-manager/tree/master/lib
+
+
+
+
+
+
+
+
+
+
+En VM con Windows (carlos)
+==========================
+
+[abrir terminal en C:\sap\src\main\java]
+
+> SET JAVA_HOME=C:\Program Files\Java\jdk1.8.0_241
+
+> set PATH=C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\Windows\System32\OpenSSH\;C:\Program Files\Citrix\System32\;C:\Program Files\Citrix\ICAService\;C:\Users\SE31504\AppData\Local\Microsoft\WindowsApps;C:\Users\SE31504\Downloads\oc\;%JAVA_HOME%\bin;
+
+> javac Decode.java
+
+> java Decode carbon.zip
+
+[este comando lo que hace es deserealizar los archivos .enc que se pasan como parametro, en este caso son el proyecto carbon con las librearias de sap]
+
+[accedemos al proyecto descromprimido]
+
+javac -classpath ..\..\..\lib\sapjco3.jar StepByStepClient.java
+
+java -cp ..\..\..\lib\sapjco3.jar;. -DDESTINATION_NAME1="test" -DDESTINATION_NAME2="test" -DJCO_ASHOST="sldbuetmld201.grupo.ypf.com" -DJCO_SYSNR="01" -DJCO_CLIENT="300" -DJCO_USER="XLD2300BZTLK" -DJCO_PASSWD="Dh_u4g66" -DJCO_LANG="ES" -DJCO_POOL_CAPACITY="1" -DJCO_PEAK_LIMIT="10" -DJCO_GROUP="middleware" -DJCO_GWHOST="sldbuetmld201" -DJCO_GWSERV="sapgw01" -DJCO_MSHOST="sldbuetmld201" -DJCO_MSSERV="3600" -DJCO_R3NAME="LD2" StepByStepClient
+
+
+
+
+
+
+
+
+
+
+
+En VM con Windows (benja)
+==========================
+
+# C:\Users\se31373\workspace\ypf-poc-integration\carbon
+
+> SET JAVA_HOME=C:\Users\se31373\jdk\java-se-8u40-ri
+
+> set PATH=C:\Users\se31373\AppData\Local\Microsoft\WindowsApps;C:\Users\se31373\AppData\Local\Programs\Fiddler;C:\Users\se31373\maven\apache-maven-3.6.3\bin;C:\Users\se31373\Downloads\librerias sap\sapjco30P_20-10005324\sapjco3-NTintel-3.0.20;C:\Program Files\Git\cmd;C:\Users\se31373\AppData\Local\Microsoft\WindowsApps;C:\Users\se31373\AppData\Local\Programs\Fiddler;C:\Users\se31373\maven\apache-maven-3.6.3\bin;C:\Users\se31373\Downloads\librerias sap\sapjco30P_20-10005324\sapjco3-NTintel-3.0.20;%JAVA_HOME%\bin;
+
+javac -classpath ..\..\..\lib\sapjco3.jar StepByStepClient.java
+
+java -cp ..\..\..\lib\sapjco3.jar;. -DDESTINATION_NAME1="test" -DDESTINATION_NAME2="test" -DJCO_ASHOST="sldbuetmld201.grupo.ypf.com" -DJCO_SYSNR="01" -DJCO_CLIENT="300" -DJCO_USER="XLD2300BZTLK" -DJCO_PASSWD="Dh_u4g66" -DJCO_LANG="ES" -DJCO_POOL_CAPACITY="1" -DJCO_PEAK_LIMIT="10" -DJCO_GROUP="middleware" -DJCO_GWHOST="sldbuetmld201" -DJCO_GWSERV="sapgw01" -DJCO_MSHOST="sldbuetmld201" -DJCO_MSSERV="3600" -DJCO_R3NAME="LD2" StepByStepClient
+
+
+
+
+
+
+
+
+
+Referencias
+==========================
+
+https://github.com/fusesource/sap-quickstarts/blob/master/pom.xml
+https://www.learnjavaonline.org/en/Compiling_and_Running_with_Arguments
+https://github.com/saro-lab/sap-jco-manager/tree/master/lib
+
+
+
+
+
+
+
+
+
+

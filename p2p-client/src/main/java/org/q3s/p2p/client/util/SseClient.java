@@ -7,8 +7,8 @@ package org.q3s.p2p.client.util;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
-import java.time.Duration;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.logging.Level;
 
 import org.q3s.p2p.client.Config;
 import org.q3s.p2p.client.view.Controller;
@@ -16,11 +16,8 @@ import org.q3s.p2p.model.Event;
 import org.q3s.p2p.model.User;
 import org.q3s.p2p.model.Workspace;
 import org.q3s.p2p.model.util.EventUtils;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
 /**
@@ -33,17 +30,22 @@ public class SseClient extends Thread {
     private Workspace wk;
     private Controller controller;
     private Logger log;
+
+    private int MAX_RETRY_RECONNECT = 3;
+    private long DELAY_RETRY_RECONNECT = 1000;
     
     private int connectTimeoutMillis = 100000;
     private int readTimeoutMillis = 100000;
+
+    private int cdor = 0;
     
     private RestTemplate restTemplate = new RestTemplate() /*new RestTemplateBuilder()
         .setConnectTimeout(Duration.ofMillis(connectTimeoutMillis))
         .setReadTimeout(Duration.ofMillis(readTimeoutMillis))
         .build()*/;
-    
-    private AtomicBoolean interrupt = new AtomicBoolean(false); 
- 
+
+    private AtomicBoolean interrupt = new AtomicBoolean(false);
+
     public void interrupt() {
         interrupt.set(true);
     }
@@ -57,58 +59,52 @@ public class SseClient extends Thread {
 
     public void run() {
         System.out.println("Thread has started");
-        try {
-            if (Config.URL_SERVER == null) {
-                Config.URL_SERVER = get(Config.URL_GITHUB_SERVER_INF);
-            }
-        } catch (Exception e) {
-            System.out.println("SSECLient ERROR 0");
-        }
-
-        boolean reconnect = false;
-        
-        while (!interrupt.get()) {
+        do{
             try {
-                
-                String url = reconnect ? Config.buildWkReconnectUri(wk, user) : Config.buildWkConnectUri(wk, user);
-
+                String url = cdor++ > 0 ? Config.buildWkReconnectUri(wk, user) : Config.buildWkConnectUri(wk, user);
                 restTemplate.execute(url, HttpMethod.GET,
-                    request -> {
-                    },
-                    response -> {
-                        BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(response.getBody()));
-                        String line;
-                        while ((line = bufferedReader.readLine()) != null) {
-                            if (!line.isEmpty()) {
-                            	try {
-//                                    System.out.println(">>>>>>> SseClient -> " + line);
-                                    Event event = EventUtils.toObjectBase64(line);
-                                    controller.notify(event);
-                            	} catch (Exception e) {
-                            		e.printStackTrace();
-                            		System.out.println("SSECLient ERROR 1");
-                            	}
+                        request -> {},
+                        response -> {
+                            BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(response.getBody()));
+                            String line; cdor = 0;
+                            while ((line = bufferedReader.readLine()) != null) {
+                                if(interrupt.get()){
+                                    break;
+                                }else{
+                                    if (!line.isEmpty()) {
+                                        Event event = EventUtils.toObjectBase64(line);
+                                        controller.notify(event);
+                                    }
+                                }
                             }
-                        }
-                        return response;
-                    });
+                            return response;
+                        });
             } catch (Exception e) {
-                e.printStackTrace();
                 System.out.println("SSECLient ERROR 2");
             }
-            reconnect = true;
-        };
-        
+            
+            try {Thread.sleep(DELAY_RETRY_RECONNECT);} catch (InterruptedException ex) {}
+            
+            if(cdor > MAX_RETRY_RECONNECT){
+                Event event = new Event("No es posible establecer una conexion","El servidor no esta disponible. Vuelva a intentarlo mas tarde.");
+                controller.notify(event);            
+            }
+            
+        }while (!interrupt.get() && cdor <= MAX_RETRY_RECONNECT);
+
         System.out.println("Thread has ended");
 
     }
-    
-    public String get(String url) throws Exception {
-        HttpHeaders httpHeaders = new HttpHeaders();
-        httpHeaders.set("Accept", MediaType.APPLICATION_JSON_VALUE);
-        HttpEntity<?> httpEntity = new HttpEntity<>(httpHeaders);
-        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, httpEntity, String.class);
-        return response.getBody().trim();
-    }
 
+    public boolean isClosed(){
+        return interrupt.get();
+    }
+    
+//    public String get(String url) throws Exception {
+//        HttpHeaders httpHeaders = new HttpHeaders();
+//        httpHeaders.set("Accept", MediaType.APPLICATION_JSON_VALUE);
+//        HttpEntity<?> httpEntity = new HttpEntity<>(httpHeaders);
+//        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, httpEntity, String.class);
+//        return response.getBody().trim();
+//    }
 }

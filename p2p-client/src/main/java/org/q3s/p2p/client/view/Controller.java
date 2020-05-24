@@ -9,8 +9,11 @@ import java.awt.Component;
 import java.awt.event.ComponentEvent;
 import java.awt.event.ComponentListener;
 import java.io.File;
-import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
@@ -25,10 +28,10 @@ import javax.swing.JOptionPane;
 import javax.swing.JPasswordField;
 import javax.swing.JTabbedPane;
 import javax.swing.JTable;
-import javax.swing.event.ChangeEvent;
-import javax.swing.event.ChangeListener;
 
 import org.q3s.p2p.client.Config;
+import org.q3s.p2p.client.exec.Executor;
+import org.q3s.p2p.client.exec.ExecutorFactoryBean;
 import org.q3s.p2p.client.util.FileUtils;
 import org.q3s.p2p.client.util.HttpClient;
 import org.q3s.p2p.client.util.Logger;
@@ -52,7 +55,7 @@ public class Controller {
 
     private List<User> remoteUsers = new ArrayList<User>();
 
-    private HttpClient httpClient = new HttpClient();
+    private HttpClient httpClient = new HttpClient(this);
 
     private SseClient sseClient;
 
@@ -62,15 +65,19 @@ public class Controller {
 
     private boolean configChange = false;
 
+    private Executor exec = ExecutorFactoryBean.create();
+
     public void start() {
 
-        System.out.println("# User ID : " + user.getId());
+        removeTemp();
 
         DefaultListModel model = new DefaultListModel();
         view.getjList2().setModel(model);
 
         log = new Logger(model);
 
+        log.info("Usuario ID: " + user.getId());
+        
         String hostname = getLocalHostName();
         view.getjTextField3().setText(hostname);
         view.setTitle(hostname);
@@ -112,12 +119,9 @@ public class Controller {
             }
         });
 
-        view.getjTabbedPane().addChangeListener(new ChangeListener() {
-            @Override
-            public void stateChanged(ChangeEvent e) {
-                if (e.getSource() instanceof JTabbedPane) {
-                    jTabbedPaneChangeListener(e);
-                }
+        view.getjTextField3().addFocusListener(new java.awt.event.FocusAdapter() {
+            public void focusLost(java.awt.event.FocusEvent evt) {
+                jTextField3FocusLost(evt);
             }
         });
 
@@ -126,28 +130,56 @@ public class Controller {
                 jButton3ActionPerformed(evt);
             }
         });
-        
-        view.getjTabbedPane().addMouseListener(new java.awt.event.MouseAdapter() {
-	        @Override
-	        public void mouseClicked(java.awt.event.MouseEvent evt) {
-	             if (evt.getClickCount()==2) {
-	                 // && view.getjTabbedPane().indexAtLocation(evt.getX(), evt.getY()) == 3
-	                 //deteced doubleclick on tab with index 3
-	                 JTabbedPane tp = (JTabbedPane)evt.getSource();
-	                 Component co = tp.getSelectedComponent();
-	                 if(co instanceof TabListFile){
-	                     TabListFile tlf = (TabListFile) co;
-	                     if(tlf.isOffline()){
-	                         tp.removeTabAt(tp.getSelectedIndex());
-	                     }
-	                 }
-	             }
-	        }
-	    });
 
+        view.getjTabbedPane().addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent evt) {
+                if (evt.getClickCount() == 2) {
+                    JTabbedPane tp = (JTabbedPane) evt.getSource();
+                    Component co = tp.getSelectedComponent();
+                    if (co instanceof TabListFile) {
+                        TabListFile tlf = (TabListFile) co;
+                        if (tlf.isOffline()) {
+                            tp.removeTabAt(tp.getSelectedIndex());
+                        }
+                    }
+                }
+            }
+        });
+
+        view.getjLabel6().addMouseListener(new java.awt.event.MouseAdapter() {
+            public void mouseClicked(java.awt.event.MouseEvent evt) {
+                Jabel6ActionPerformed(evt);
+            }
+        });
+        
         view.pack();
         view.setVisible(true);
         view.mostarJoinPanel();
+        
+        httpClient.verifyServiceGithubUp();
+        
+    }
+
+    private void Jabel6ActionPerformed(java.awt.event.MouseEvent evt) {                                       
+        view.getjTextField4().setText("./");
+        refreshLocalFilesAndNotify("Notifico Cambio en los archivos");
+    }  
+    
+    private void jTextField3FocusLost(java.awt.event.FocusEvent evt) {
+        if (configChange) {
+            Event e = new Event("Cambio de nombre", user);
+            httpClient.sendBroadcastWk(wk, e);
+            configChange = false;
+        }
+    }
+
+    private void removeTemp() {
+        try {
+            FileUtils.remove(Paths.get(Config.TEMP_PATH));
+        } catch (Exception e) {
+            System.out.println("Error al borrar el directorio temporal");
+        }
     }
 
     private void jButton3ActionPerformed(java.awt.event.ActionEvent evt) {
@@ -157,19 +189,7 @@ public class Controller {
         if (option == JFileChooser.APPROVE_OPTION) {
             File file = fileChooser.getSelectedFile();
             view.getjTextField4().setText(file.getAbsolutePath());
-
-//            List<QFile> files = FileUtils.files(view.getjTextField4().getText());
-//            Event e = new Event(, user.clone(files));
-//            httpClient.post(Config.buildWkBroadcastUri(wk), e);
             refreshLocalFilesAndNotify("Notifico Cambio en los archivos");
-        }
-    }
-
-    private void jTabbedPaneChangeListener(ChangeEvent evt) {
-        if (configChange) {
-            Event e = new Event("Cambio de nombre", user);
-            httpClient.post(Config.buildWkBroadcastUri(wk), e);
-            configChange = false;
         }
     }
 
@@ -188,36 +208,20 @@ public class Controller {
     * Boton crear workspace
      */
     private void jButton4ActionPerformed(java.awt.event.ActionEvent evt) {
-        try {
-            //Armo entidad wk
-            Workspace wk = new Workspace();
-            wk.setDate(new Date().getTime());
-            wk.setName(view.getjTextField5().getText());
-            if (view.getjCheckBox1().isSelected()) {
-                if (Arrays.equals(view.getjPasswordField1().getPassword(), view.getjPasswordField2().getPassword())) {
-                    wk.setPassword(String.valueOf(view.getjPasswordField1().getPassword()));
-                    view.getjLabel17().setText("");
-                } else {
-                    view.getjLabel17().setText("Las claves no coinciden");
-                    return;
-                }
+        //Armo entidad wk
+        Workspace wk = new Workspace();
+        wk.setDate(new Date().getTime());
+        wk.setName(view.getjTextField5().getText());
+        if (view.getjCheckBox1().isSelected()) {
+            if (Arrays.equals(view.getjPasswordField1().getPassword(), view.getjPasswordField2().getPassword())) {
+                wk.setPassword(String.valueOf(view.getjPasswordField1().getPassword()));
+                view.getjLabel17().setText("");
+            } else {
+                view.getjLabel17().setText("Las claves no coinciden");
+                return;
             }
-            //llamar a github para obtener la URL del servidor
-            if (Config.URL_SERVER == null) {
-                Config.URL_SERVER = httpClient.get(Config.URL_GITHUB_SERVER_INF);
-            }
-
-            //llamamos al servidor de p2p-server para pedir el workpaceId
-            String wkId = httpClient.get(Config.buildWkCreateUri(), wk.buildRequestParam());
-            view.getjTextField2().setText(wkId);
-        } catch (Exception ex) {
-            mostrarErrorEnPantallaLogin("Error al crear el espacio de trabajo: " + ex.getCause().getMessage());
         }
-        view.getjPanelCreateWorkspace().setVisible(false);
-        view.getjPanelJoin().setVisible(true);
-        view.getjTabbedPane().setVisible(false);
-        view.getjPanelProxy().setVisible(false);
-        view.setTitle(view.getjTextField3().getText());
+        httpClient.createWk(wk);
     }
 
     private void jButton5ActionPerformed(java.awt.event.ActionEvent evt) {
@@ -229,33 +233,38 @@ public class Controller {
     }
 
     private void onJLabel4Click(java.awt.event.MouseEvent evt) {
-        view.getjPanelCreateWorkspace().setVisible(true);
-        view.getjPanelJoin().setVisible(false);
-        view.getjTabbedPane().setVisible(false);
-        view.getjPanelProxy().setVisible(false);
-        view.setTitle("Crear espacio de trabajo");
-        mostrarErrorEnPantallaLogin("");
+        if(view.getjLabel4().isEnabled()){
+            view.getjPanelCreateWorkspace().setVisible(true);
+            view.getjPanelJoin().setVisible(false);
+            view.getjTabbedPane().setVisible(false);
+            view.getjPanelProxy().setVisible(false);
+            view.setTitle("Crear espacio de trabajo");
+            mostrarErrorEnPantallaLogin("");
+        }
     }
 
     private void mostrarErrorEnPantallaLogin(String message) {
-        if (view.getjPanelJoin().isVisible()) {
+//        if (view.getjPanelJoin().isVisible()) {
             view.getjLabel16().setText("<html>" + message + "</html>");
-        }
+//        }
     }
 
     private void jButton2ActionPerformed(java.awt.event.ActionEvent evt) {
         String uuid = view.getjTextField2().getText();
-        user.setName(view.getjTextField3().getText());
-        wk = Workspace.build(uuid);
-        if (sseClient != null) {
-            try {
-                sseClient.interrupt();
-            } catch (Throwable e) {
-            }
+        
+        if(uuid.isEmpty()){
+            mostrarErrorEnPantallaLogin("Falta completar el ID del grupo de trabajo");
+        }else{
+            user.setName(view.getjTextField3().getText());
+            wk = Workspace.build(uuid);
+            view.getjTextField2().setEnabled(false);
+            view.getjButton2().setEnabled(false);
+            view.getjLabel4().setEnabled(false);
+            view.getjButton6().setEnabled(false);
+            mostrarErrorEnPantallaLogin("");
+            sseClient = new SseClient(wk, user, this, log);
+            sseClient.start();
         }
-        sseClient = new SseClient(wk, user, this, log);
-        sseClient.start();
-
     }
 
     private void jCheckBox1ActionPerformed(java.awt.event.ActionEvent evt) {
@@ -269,231 +278,290 @@ public class Controller {
         }
     }
 
-    public void notify(Event event) throws Exception {
-        log.info(event.getName());
-        if ("Wk no existe, desconectar".equals(event.getName())) {
-            mostrarErrorEnPantallaLogin("El espacio de trabajo no existe");
-        } else if ("Wk existente, sin credenciales".equals(event.getName())) {
-            //envio datos del usuario
-            httpClient.post(Config.buildWkConnectWithoutAuthUri(wk), user);
-        } else if ("Wk existente, con credenciales".equals(event.getName())) {
-            //Credenciales
-            JPasswordField pf = new JPasswordField();
-            //Create OptionPane & Dialog
-            JOptionPane pane = new JOptionPane(pf, JOptionPane.INFORMATION_MESSAGE, JOptionPane.OK_OPTION);
-            JDialog dialog = pane.createDialog(view, "Clave de Acceso");
-            //Add a listener to the dialog to request focus of Password Field
-            dialog.addComponentListener(new ComponentListener() {
-                @Override
-                public void componentShown(ComponentEvent e) {
-                    pf.requestFocusInWindow();
-                }
+    public void notify(Event event) {
+        try {
+            if(event.getName() != null){
+                log.info(event.getName());
+                if ("Wk no existe, desconectar".equals(event.getName())) {
+                    sseClient.interrupt();
+                    view.getjButton2().setEnabled(true);
+                    view.getjLabel4().setEnabled(true);
+                    view.getjTextField2().setEnabled(true);
+                    view.getjTextField2().setFocusable(true);
+                    view.getjButton6().setEnabled(true);
+                    mostrarErrorEnPantallaLogin("El espacio de trabajo no existe");
+                } else if ("Wk existente, sin credenciales".equals(event.getName())) {
+                    //envio datos del usuario
+                    httpClient.post(Config.buildWkConnectWithoutAuthUri(wk), user);
+                } else if ("Wk existente, con credenciales".equals(event.getName())) {
+                    //Credenciales
+                    JPasswordField pf = new JPasswordField();
+                    //Create OptionPane & Dialog
+                    JOptionPane pane = new JOptionPane(pf, JOptionPane.INFORMATION_MESSAGE, JOptionPane.OK_OPTION);
+                    JDialog dialog = pane.createDialog(view, "Clave de Acceso");
+                    //Add a listener to the dialog to request focus of Password Field
+                    dialog.addComponentListener(new ComponentListener() {
+                        @Override
+                        public void componentShown(ComponentEvent e) {
+                            pf.requestFocusInWindow();
+                        }
 
-                @Override
-                public void componentHidden(ComponentEvent e) {
-                }
+                        @Override
+                        public void componentHidden(ComponentEvent e) {}
 
-                @Override
-                public void componentResized(ComponentEvent e) {
-                }
+                        @Override
+                        public void componentResized(ComponentEvent e) {}
 
-                @Override
-                public void componentMoved(ComponentEvent e) {
-                }
-            });
+                        @Override
+                        public void componentMoved(ComponentEvent e) {}
+                    });
 
-            dialog.setVisible(true);
-            int okCxl = (int) pane.getValue();
-            if (okCxl == JOptionPane.OK_OPTION) {
-                String password = new String(pf.getPassword());
-                user.setPassword(password);
-                //envio datos del usuario
-                httpClient.post(Config.buildWkConnectWithAuthUri(wk), user);
+                    dialog.setVisible(true);
+                    int okCxl = (int) pane.getValue();
+                    if (okCxl == JOptionPane.OK_OPTION) {
+                        String password = new String(pf.getPassword());
+                        user.setPassword(password);
+                        //envio datos del usuario
+                        httpClient.post(Config.buildWkConnectWithAuthUri(wk), user);
+                    }
+
+                } else if ("Credenciales incorrectas".equals(event.getName())) {
+                    mostrarErrorEnPantallaLogin("Credenciales incorrectas");
+                } else if ("Aprobar al usuario".equals(event.getName())) {
+
+                    User to = event.getUser();
+
+                    int opt = JOptionPane.showConfirmDialog(view, "Permitir el acceso al usuario '" + to.getName() + "'", "Aviso!", JOptionPane.WARNING_MESSAGE, JOptionPane.YES_NO_OPTION);
+
+                    if (opt == 0) {
+                        httpClient.get(Config.buildWkSendApprovedUserUrl(wk, to));
+                    } else {
+                        httpClient.get(Config.buildWkSendRefuseUserUrl(wk, to));
+                    }
+                } else if ("Usuario rechazado!".equals(event.getName())) {
+                    sseClient.interrupt();
+                    mostrarErrorEnPantallaLogin("Has sido rechazado tu ingreso por los usuarios");
+                } else if ("Bienvenido usuario al grupo!".equals(event.getName())) {
+                    loadLocalGeneralTab();
+                    view.getjPanelCreateWorkspace().setVisible(false);
+                    view.getjPanelJoin().setVisible(false);
+                    view.getjTabbedPane().setVisible(true);
+                    view.getjPanelProxy().setVisible(false);
+                    view.getjTextField6().setText(view.getjTextField2().getText());
+
+                    wk = event.getWk();
+                    wk.setName(wk.getName());
+
+                    view.setTitle("Conectado al grupo '" + decodeValue(wk.getName()) + "'");
+
+                    refreshLocalFilesAndNotify("Gracias por la bienvenida, notifico mis archivos");
+
+                    ping();//TODO: borrar cuando se resuelva el issue SSE con webflux
+
+                } else if ("Gracias por la bienvenida, notifico mis archivos".equals(event.getName())) {
+                    if (event.getUser().equals(user)) {
+                        // renderizo archivos locales
+                        String username = String.format("Yo (%s)", user.getName());
+                        loadLocalUserTab(username, event.getUser());
+                    } else {
+                        loadRemoteUserTab(event.getUser().getName(), event.getUser());
+                        List<QFile> files = FileUtils.files(view.getjTextField4().getText());
+                        Event e = new Event("Estos son mis archivos", user.clone(files));
+                        httpClient.post(Config.buildWkToUserUri(wk, event.getUser()), e);
+                    }
+                    addUserToRemoteList(event.getUser());
+                } else if ("Estos son mis archivos".equals(event.getName())) {
+                    loadRemoteUserTab(event.getUser().getName(), event.getUser());
+                    addUserToRemoteList(event.getUser());
+                } else if ("Notifico Cambio en los archivos".equals(event.getName())) {
+                    notifyChangeFiles(event);
+                } else if ("Se borro un archivo".equals(event.getName())) {
+                    notifyChangeFiles(event);
+                } else if ("Cambio de nombre".equals(event.getName())) {
+                    if (!event.getUser().equals(user)) {
+                        int idx = searchTabById(event.getUser().getId());
+                        int idxUser = remoteUsers.indexOf(event.getUser());
+                        remoteUsers.get(idxUser).setName(event.getUser().getName());
+                        view.getjTabbedPane().setTitleAt(idx, event.getUser().getName());
+                    }
+                } else if ("Usuario desconectado".equals(event.getName())) {
+                    int idx = searchTabById(event.getUser().getId());
+                    ImageIcon icon = new javax.swing.ImageIcon(getClass().getResource("/status-fail.png"));
+                    view.getjTabbedPane().setIconAt(idx, icon);
+                    view.getjTabbedPane().setToolTipTextAt(idx, "Última vez conectado " + new Date() + " (Doble click para cerrar)");
+                    TabListFile tlf = findTableByUserId(event.getUser().getId());
+                    tlf.disabled();
+                } else if ("Quiero descargar el archivo".equals(event.getName())) {
+                    String filename = event.getFile().getName();
+                    String filepath = view.getjTextField4().getText();
+                    String fullname = filepath + File.separator + filename;
+                    //-----------------------------------------------------------
+                    QFile qfile = event.getFile();
+                    String content = FileUtils.encoder(fullname);
+                    Path path = FileUtils.saveInTempDirectory(filename, content);
+                    String md5 = FileUtils.md5(path.toString());
+                    qfile.setMD5(md5);
+                    File fus = md5Folder(event.getFile().getMD5(), "out");
+                    int parts = FileUtils.splitFile(path.toString(), 512, fus.getAbsolutePath());
+                    qfile.setParts(parts);
+                    Event e = new Event("Envio el detalle de las partes del archivo", user, qfile);
+                    httpClient.post(Config.buildWkToUserUri(wk, event.getUser()), e);
+                } else if ("Envio el detalle de las partes del archivo".equals(event.getName())) {
+                    File fus = md5Folder(event.getFile().getMD5(), "in");
+                    for (int i = 0; i < event.getFile().getParts(); i++) {
+                        File t = new File(fus.getAbsolutePath() + File.separator + i + Config.SUFFIX_PENDING);
+                        t.createNewFile();
+                    }
+                    retriveAnyPendingFileAndRequest(event, fus);
+                } else if ("Dame la parte numero".equals(event.getName())) {
+                    QFile file = event.getFile();
+                    File md5Dir = md5Folder(file.getMD5(), "out");
+                    String md5Part = md5Dir.getAbsolutePath() + File.separator + file.getParts() + Config.SUFFIX_PART;
+                    String content = FileUtils.read(md5Part);
+                    file.setContent(content);
+                    Event e = new Event("Esta es la parte que me pedistes", user, file);
+                    httpClient.post(Config.buildWkToUserUri(wk, event.getUser()), e);
+                } else if ("Esta es la parte que me pedistes".equals(event.getName())) {
+                    QFile file = event.getFile();
+                    File md5Dir = md5Folder(file.getMD5(), "in");
+                    FileUtils.save(md5Dir.getAbsolutePath() + File.separator + Config.PREFFIX_ENCODE + Config.SUFFIX_ENCODE, file.getContent().getBytes());
+                    String md5Part = md5Dir.getAbsolutePath() + File.separator + file.getParts();
+                    FileUtils.remove(Paths.get(md5Part + Config.SUFFIX_PENDING));
+                    retriveAnyPendingFileAndRequest(event, md5Dir);
+                }else if("Error al intentar conectarse con el servidor".equals(event.getName())){
+
+                }else if("URL servicio resuelta".equals(event.getName())){
+                    view.getjButton2().setEnabled(true);
+                    view.getjLabel4().setEnabled(true);
+                    view.getjTextField2().setEnabled(true);
+                    view.getjTextField2().setFocusable(true);
+                    Config.URL_SERVER = event.getResponse();
+                }else if("Error al intentar recuperar la URL del servicio".equals(event.getName())){
+                    mostrarErrorEnPantallaLogin("No es posible verificar la conexion. Verifique su conexion a internet o configure el proxy.");
+                }else if("Workspace creado".equals(event.getName())){
+                    view.getjTextField2().setText(event.getResponse());
+                    view.getjPanelCreateWorkspace().setVisible(false);
+                    view.getjPanelJoin().setVisible(true);
+                    view.getjTabbedPane().setVisible(false);
+                    view.getjPanelProxy().setVisible(false);
+                    view.setTitle(view.getjTextField3().getText());
+                    mostrarErrorEnPantallaLogin("");
+                }else if("Error al crear el workspace".equals(event.getName())){
+                    view.getjPanelCreateWorkspace().setVisible(false);
+                    view.getjPanelJoin().setVisible(true);
+                    view.getjTabbedPane().setVisible(false);
+                    view.getjPanelProxy().setVisible(false);
+                    view.setTitle(user.getName());
+                    mostrarErrorEnPantallaLogin("Error al crear el espacio de trabajo: " + event.getResponse());
+                }else if("No es posible establecer una conexion".equals(event.getName())){
+                    view.getjPanelCreateWorkspace().setVisible(false);
+                    view.getjPanelJoin().setVisible(true);
+                    view.getjTabbedPane().setVisible(false);
+                    view.getjPanelProxy().setVisible(false);
+                    view.setTitle(user.getName());
+                    
+                    view.getjButton2().setEnabled(true);
+                    view.getjLabel4().setEnabled(true);
+                    view.getjTextField2().setEnabled(true);
+                    view.getjTextField2().setFocusable(true);
+                    view.getjButton6().setEnabled(true);
+                    mostrarErrorEnPantallaLogin("No es posible conectarse al grupo de trabajo. Vuelva a intentarlo mas tarde.");
+                }
             }
+        } catch (Exception e) {
             
-        } else if ("Credenciales incorrectas".equals(event.getName())) {
-            mostrarErrorEnPantallaLogin("Credenciales incorrectas");
-        } else if ("Aprobar al usuario".equals(event.getName())) {
+        }
+        
+    }
 
-            User to = event.getUser();
-
-            int opt = JOptionPane.showConfirmDialog(view, "Permitir el acceso al usuario '" + to.getName() + "'", "Aviso!", JOptionPane.WARNING_MESSAGE, JOptionPane.YES_NO_OPTION);
-
-            if (opt == 0) {
-                httpClient.get(Config.buildWkSendApprovedUserUrl(wk, to));
-            } else {
-                httpClient.get(Config.buildWkSendRefuseUserUrl(wk, to));
-            }
-        } else if ("Usuario rechazado!".equals(event.getName())) {
-            try {
-                sseClient.interrupt();
-            } catch (Throwable e) {
-            }
-            mostrarErrorEnPantallaLogin("Has sido rechazado tu ingreso por los usuarios"); 
-        } else if ("Bienvenido usuario al grupo!".equals(event.getName())) {
-        	loadLocalGeneralTab();
-            view.getjPanelCreateWorkspace().setVisible(false);
-            view.getjPanelJoin().setVisible(false);
-            view.getjTabbedPane().setVisible(true);
-            view.getjPanelProxy().setVisible(false);
-            view.getjTextField6().setText(view.getjTextField2().getText());
-
-            wk = event.getWk();
-            wk.setName(wk.getName());
-
-            view.setTitle("Conectado al grupo '" + wk.getName() + "'");
-
-            refreshLocalFilesAndNotify("Gracias por la bienvenida, notifico mis archivos");
-            
-            ping();//TODO: borrar cuando se resuelva el issue SSE con webflux
-
-        } else if ("Gracias por la bienvenida, notifico mis archivos".equals(event.getName())) {
-            if (event.getUser().equals(user)) {
-                // renderizo archivos locales
-                String username = String.format("Yo (%s)", user.getName());
-                loadLocalUserTab(username, event.getUser());
-            } else {
-                loadRemoteUserTab(event.getUser().getName(), event.getUser());
-                List<QFile> files = FileUtils.files(view.getjTextField4().getText());
-                Event e = new Event("Estos son mis archivos", user.clone(files));
-                httpClient.post(Config.buildWkToUserUri(wk, event.getUser()), e);
-            }
+    public static String decodeValue(String value) {
+        try {
+            return URLDecoder.decode(value, StandardCharsets.UTF_8.toString());
+        } catch (UnsupportedEncodingException ex) {
+            throw new RuntimeException(ex.getCause());
+        }
+    }
+    
+    private void notifyChangeFiles(Event event) {
+        if (event.getUser().equals(user)) {
             addUserToRemoteList(event.getUser());
-        } else if ("Estos son mis archivos".equals(event.getName())) {
-            loadRemoteUserTab(event.getUser().getName(), event.getUser());
+        } else {
             addUserToRemoteList(event.getUser());
-        } else if ("Notifico Cambio en los archivos".equals(event.getName())) {
-            if (event.getUser().equals(user)) {
-                //loadLocalUserTab(event.getUser().getName(), event.getUser());
-                addUserToRemoteList(event.getUser());
+        }
+        refreshTables();
+    }
+
+    private void refreshLocalFilesAndNotify(String msg) {
+        List<QFile> files = FileUtils.files(view.getjTextField4().getText());
+        Event e = new Event(msg, user.clone(files));
+        httpClient.post(Config.buildWkBroadcastUri(wk), e);
+    }
+
+    private void retriveAnyPendingFileAndRequest(Event event, File md5Dir) throws Exception {
+        File file = md5Folder(event.getFile().getMD5(), "in");
+        int part = FileUtils.anyPending(file.getAbsolutePath());
+        if (part == -1) {
+            System.out.println("UNIR / abrir o enviar a carpeta destiino");
+            String from = md5Dir.getAbsolutePath() + File.separator + Config.PREFFIX_ENCODE;
+            String to = null;
+            byte[] dec = FileUtils.decode(from + Config.SUFFIX_ENCODE);
+            FileUtils.save(from + Config.SUFFIX_DECODE, dec);
+            if (QFile.OPERATION_DOWNLOAD.equals(event.getFile().getOperation())) {
+                to = view.getjTextField4().getText() + File.separator + event.getFile().getName();
+                FileUtils.move(from + Config.SUFFIX_DECODE, to);
             } else {
-                //loadRemoteUserTab(event.getUser().getName(), event.getUser());
-                addUserToRemoteList(event.getUser());
+                to = md5Dir.getAbsolutePath() + File.separator + event.getFile().getName();
+                FileUtils.move(from + Config.SUFFIX_DECODE, to);
+                exec.open(to);
             }
-            refreshTables();
-        } else if ("Cambio de nombre".equals(event.getName())) {
-            if (!event.getUser().equals(user)) {
-                int idx = searchTabById(event.getUser().getId());
-                int idxUser = remoteUsers.indexOf(event.getUser());
-                remoteUsers.get(idxUser).setName(event.getUser().getName());
-                view.getjTabbedPane().setTitleAt(idx, event.getUser().getName());
-            }
-        } else if ("Usuario desconectado".equals(event.getName())) {
-            int idx = searchTabById(event.getUser().getId());
-            ImageIcon icon = new javax.swing.ImageIcon(getClass().getResource("/status-fail.png"));
-            view.getjTabbedPane().setIconAt(idx, icon);
-            view.getjTabbedPane().setToolTipTextAt(idx, "Última vez conectado " + new Date() + " (Doble click para cerrar)");
-            TabListFile tlf = findTableByUserId(event.getUser().getId());
-            
-            tlf.disabled();
-        } else if ("Quiero descargar el archivo".equals(event.getName())) {
-    		String filename = event.getFile().getName();
-        	String filepath = view.getjTextField4().getText();
-        	String fullname = filepath + File.separator  + filename;
-        	//-----------------------------------------------------------
-        	QFile qfile = event.getFile();
-    		String content = FileUtils.encoder(fullname);
-    		Path path = FileUtils.saveInTempDirectory(filename, content);
-        	String md5 = FileUtils.md5(path.toString());
-        	qfile.setMD5(md5);
-        	
-        	File fus = md5Folder(event.getFile().getMD5(),"out");
-        	
-        	int parts = FileUtils.splitFile(path.toString(), 512, fus.getAbsolutePath());
-        	
-        	qfile.setParts(parts);
-            Event e = new Event("Envio el detalle de las partes del archivo", user, qfile);
-            httpClient.post(Config.buildWkToUserUri(wk, event.getUser()), e);  
-        } else if ("Envio el detalle de las partes del archivo".equals(event.getName())) {
-			File fus = md5Folder(event.getFile().getMD5(),"in");
-	    	for (int i = 0; i < event.getFile().getParts(); i++) {
-				File t = new File(fus.getAbsolutePath() + File.separator + i + Config.SUFFIX_PENDING);
-				t.createNewFile();
-			}
-	    	retriveAnyPendingFileAndRequest(event,fus);	    	
-        } else if ("Dame la parte numero".equals(event.getName())) {
-        	System.out.println("parte nro: " + event.getFile().getParts());
-        	QFile file = event.getFile();
-        	File md5Dir = md5Folder(file.getMD5(), "out");
-        	String md5Part = md5Dir.getAbsolutePath() + File.separator + file.getParts() + Config.SUFFIX_PART;
-        	String content = FileUtils.read(md5Part);
-        	file.setContent(content);
-            Event e = new Event("Esta es la parte que me pedistes", user, file);
+            refreshLocalFilesAndNotify("Notifico Cambio en los archivos");
+        } else {
+            event.getFile().setParts(part);
+            Event e = new Event("Dame la parte numero", user, event.getFile());
             httpClient.post(Config.buildWkToUserUri(wk, event.getUser()), e);
-        } else if ("Esta es la parte que me pedistes".equals(event.getName())) {
-        	QFile file = event.getFile();
-        	File md5Dir = md5Folder(file.getMD5(), "in");
-        	FileUtils.save(md5Dir.getAbsolutePath() + File.separator + Config.PREFFIX_ENCODE + Config.SUFFIX_ENCODE, file.getContent().getBytes());
-        	String md5Part = md5Dir.getAbsolutePath() + File.separator + file.getParts();
-        	FileUtils.remove(md5Part + Config.SUFFIX_PENDING);
-        	retriveAnyPendingFileAndRequest(event, md5Dir);
         }
     }
 
-	private void refreshLocalFilesAndNotify(String msg) {
-		List<QFile> files = FileUtils.files(view.getjTextField4().getText());
-		Event e = new Event(msg, user.clone(files));
-		httpClient.post(Config.buildWkBroadcastUri(wk), e);
-	}
+    private File md5Folder(String md5, String inOut) {
+        File temp = new File(Config.TEMP_PATH);
 
-    private void retriveAnyPendingFileAndRequest(Event event, File md5Dir) throws Exception {
-    	File file = md5Folder(event.getFile().getMD5(), "in");
-		int part = FileUtils.anyPending(file.getAbsolutePath());
-		if(part == -1) {
-			System.out.println("UNIR / abrir o enviar a carpeta destiino");
-			String from = md5Dir.getAbsolutePath() + File.separator + Config.PREFFIX_ENCODE;
-			String to = view.getjTextField4().getText() + File.separator + event.getFile().getName();
-			byte[] dec = FileUtils.decode(from + Config.SUFFIX_ENCODE);
-			FileUtils.save(from + Config.SUFFIX_DECODE,dec);
-			FileUtils.move(from + Config.SUFFIX_DECODE, to);
-			refreshLocalFilesAndNotify("Notifico Cambio en los archivos");
-		}else {
-			event.getFile().setParts(part);
-            Event e = new Event("Dame la parte numero", user, event.getFile());
-            httpClient.post(Config.buildWkToUserUri(wk, event.getUser()), e);
-		}
-	}
+        if (!temp.exists()) {
+            temp.mkdir();
+        }
 
-	private File md5Folder(String md5,String inOut) {
-		File temp = new File(Config.TEMP_PATH);
-		
-		if(!temp.exists()) {
-			temp.mkdir();
-		}
-		
-		File fwk = new File(temp.getAbsolutePath() + File.separator + wk.getId());
-		
-		if(!fwk.exists()) {
-			fwk.mkdir();
-		}
-		
-		File fot = new File(fwk.getAbsolutePath() + File.separator + inOut);
-		
-		if(!fot.exists()) {
-			fot.mkdir();
-		}
-		
-		File fus = new File(fot.getAbsolutePath() + File.separator + md5);
-		
-		if(!fus.exists()) {
-			fus.mkdir();
-		}
-		return fus;
-	}
-	
-	private void addUserToRemoteList(User user) {
+        File fwk = new File(temp.getAbsolutePath() + File.separator + wk.getId());
+
+        if (!fwk.exists()) {
+            fwk.mkdir();
+        }
+
+        File fot = new File(fwk.getAbsolutePath() + File.separator + inOut);
+
+        if (!fot.exists()) {
+            fot.mkdir();
+        }
+
+        File fus = new File(fot.getAbsolutePath() + File.separator + md5);
+
+        if (!fus.exists()) {
+            fus.mkdir();
+        }
+        return fus;
+    }
+
+    private void addUserToRemoteList(User user) {
         int idx = remoteUsers.indexOf(user);
-        if(idx != -1){
+        if (idx != -1) {
             User us = remoteUsers.get(idx);
             us.copy(user);
-        }else{
+        } else {
             remoteUsers.add(user);
         }
     }
 
     private void loadLocalGeneralTab() {
         String username = "General";
-        TabListFile jPanel2 = new TabListFile(wk,user,httpClient);
+        TabListFile jPanel2 = new TabListFile(wk, user, this, 0);
         jPanel2.setName(username);
         view.getjTabbedPane().insertTab(username, null, jPanel2, "Vista unificada de Archivos", 0); // NOI18N
         FileTableModel ftm = new FileTableModel(remoteUsers);
@@ -521,7 +589,8 @@ public class Controller {
     }
 
     private void loadUserTab(String username, User user, String tooltip, String iconpath, int iconidx) {
-        TabListFile jPanel2 = new TabListFile(wk,this.user,httpClient);
+        TabListFile jPanel2 = new TabListFile(wk, this.user, this, iconidx);
+
         jPanel2.setName(user.getId());
         ImageIcon icon = new javax.swing.ImageIcon(getClass().getResource(iconpath));
         view.getjTabbedPane().insertTab(username, icon, jPanel2, tooltip, iconidx); // NOI18N
@@ -557,9 +626,9 @@ public class Controller {
         Component[] cos = view.getjTabbedPane().getComponents();
         for (int i = 0; i < cos.length; i++) {
             if (cos[i] instanceof TabListFile) {
-                TabListFile tlf = (TabListFile)cos[i];
+                TabListFile tlf = (TabListFile) cos[i];
                 JTable table = tlf.getjTable1();
-                FileTableModel dm = (FileTableModel)table.getModel();
+                FileTableModel dm = (FileTableModel) table.getModel();
                 dm.fireTableDataChanged();
             }
         }
@@ -570,24 +639,58 @@ public class Controller {
         for (int i = 0; i < cos.length; i++) {
             if (cos[i] instanceof TabListFile) {
                 if (cos[i].getName().endsWith(id)) {
-                    return (TabListFile)cos[i];
+                    return (TabListFile) cos[i];
                 }
             }
         }
         return null;
     }
-    
+
     private void ping() {
         new Thread(new Runnable() {
             public void run() {
                 try {
-                    do {                        
+                    do {
                         httpClient.get(Config.buildPingUserUrl(wk, user));
                         Thread.sleep(2000);
-                    } while (true);
-                } catch (Exception ex) {}
+                    } while (sseClient.isAlive());
+                } catch (Exception ex) {
+                }
             }
         }).start();
     }
-    
+
+    public void downloadFile(User user2, QFile qFile) {
+        qFile.setOperation(QFile.OPERATION_DOWNLOAD);
+        Event event = new Event("Quiero descargar el archivo", user, qFile);
+        httpClient.post(Config.buildWkToUserUri(wk, qFile.getOwner()), event);
+    }
+
+    public void openFile(User user2, QFile qFile) {
+        qFile.setOperation(QFile.OPERATION_OPEN);
+        Event event = new Event("Quiero descargar el archivo", user, qFile);
+        httpClient.post(Config.buildWkToUserUri(wk, qFile.getOwner()), event);
+    }
+
+    public Component getView() {
+        return view;
+    }
+
+    public void removeFile(User user2, QFile qFile) {
+        try {
+            String filename = qFile.getName();
+            String filepath = view.getjTextField4().getText();
+            String fullname = filepath + File.separator + filename;
+            //-----------------------------------------------------------
+            FileUtils.remove(Paths.get(fullname));
+            refreshLocalFilesAndNotify("Se borro un archivo");
+        } catch (Exception e) {
+            System.out.println("Error al intentar borrar el archivo: " + qFile.getName());
+        }
+    }
+
+    public void refreshFiles(User user2) {
+        refreshLocalFilesAndNotify("Notifico Cambio en los archivos");
+    }
+
 }

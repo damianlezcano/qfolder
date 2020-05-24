@@ -83,6 +83,7 @@ public class View extends javax.swing.JFrame {
         jLayeredPane.setOpaque(true);
 
         jTextField2.setHorizontalAlignment(javax.swing.JTextField.CENTER);
+        jTextField2.setEnabled(false);
         jTextField2.addActionListener(new java.awt.event.ActionListener() {
             public void actionPerformed(java.awt.event.ActionEvent evt) {
                 jTextField2ActionPerformed(evt);
@@ -90,6 +91,7 @@ public class View extends javax.swing.JFrame {
         });
 
         jButton2.setText("Unirse");
+        jButton2.setEnabled(false);
 
         jLabel1.setHorizontalAlignment(javax.swing.SwingConstants.CENTER);
         jLabel1.setIcon(new javax.swing.ImageIcon(getClass().getResource("/group.png"))); // NOI18N
@@ -97,6 +99,7 @@ public class View extends javax.swing.JFrame {
         jLabel4.setForeground(new java.awt.Color(0, 102, 255));
         jLabel4.setText("Crear espacio de trabajo");
         jLabel4.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
+        jLabel4.setEnabled(false);
 
         jButton6.setIcon(new javax.swing.ImageIcon(getClass().getResource("/proxy.png"))); // NOI18N
         jButton6.setToolTipText("Configurar Proxy");
@@ -380,11 +383,6 @@ public class View extends javax.swing.JFrame {
         jLabel6.setForeground(new java.awt.Color(51, 102, 255));
         jLabel6.setText("Restaurar configuración inicial");
         jLabel6.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
-        jLabel6.addMouseListener(new java.awt.event.MouseAdapter() {
-            public void mouseClicked(java.awt.event.MouseEvent evt) {
-                Jabel6ActionPerformed(evt);
-            }
-        });
 
         jTextField6.setEditable(false);
 
@@ -516,10 +514,6 @@ public class View extends javax.swing.JFrame {
     private void jTextField2ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jTextField2ActionPerformed
         // TODO add your handling code here:
     }//GEN-LAST:event_jTextField2ActionPerformed
-
-    private void Jabel6ActionPerformed(java.awt.event.MouseEvent evt) {//GEN-FIRST:event_Jabel6ActionPerformed
-        jTextField4.setText("./data");
-    }//GEN-LAST:event_Jabel6ActionPerformed
 
     private void jButton7ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton7ActionPerformed
         jPanelCreateWorkspace.setVisible(false);

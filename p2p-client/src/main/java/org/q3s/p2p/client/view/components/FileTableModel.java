@@ -8,7 +8,6 @@ package org.q3s.p2p.client.view.components;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
-import java.util.stream.Collectors;
 
 import javax.swing.ImageIcon;
 import javax.swing.table.AbstractTableModel;
@@ -41,35 +40,17 @@ public class FileTableModel extends AbstractTableModel {
     public FileTableModel(List<User> users) {
         this.users = users;
     }
-
+    
     public List<QFile> files() {
-        return users.stream().flatMap(a -> a.getFiles().stream()).collect(Collectors.toList());
+    	List<QFile> list = new ArrayList<QFile>();
+    	if(users != null) {
+    		for (User usr : users) {
+    			list.addAll(usr.getFiles());
+    		}    		
+    	}
+    	return list;
     }
 
-//    public Object[][] filesToArray(List<User> users) {
-//        List<Object[]> r = new ArrayList<Object[]>();
-//        for (User user : users) {
-//            Object[][] uf = filesToArray(user);
-//            r.add(uf);
-//        }
-//        return r.toArray(new Object[][]{});
-//    }    
-//
-//    private Object[][] filesToArray(User user){
-//        List<QFile> f = user.getFiles();
-//        Object[][] arr = new Object[f.size()][3];
-//        for (int i = 0; i < f.size(); i++) {
-//            QFile file = f.get(i);
-//            arr[i][0] = "md5XXX";
-//            
-//            arr[i][1] = file.getName();
-//            arr[i][2] = file.getSize();
-//            arr[i][3] = file.getDate();
-//            
-//            arr[i][4] = user.getName();
-//        }
-//        return arr;
-//    }
     // These are easy methods
     @Override
     public int getColumnCount() {

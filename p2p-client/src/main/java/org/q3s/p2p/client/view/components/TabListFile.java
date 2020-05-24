@@ -8,17 +8,19 @@ package org.q3s.p2p.client.view.components;
 import java.awt.Color;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
+import java.sql.Date;
+import java.util.List;
 
 import javax.swing.JMenuItem;
 import javax.swing.JPopupMenu;
 import javax.swing.JTable;
 import javax.swing.RowFilter;
+import javax.swing.table.TableColumn;
+import javax.swing.table.TableColumnModel;
 import javax.swing.table.TableModel;
 import javax.swing.table.TableRowSorter;
 
-import org.q3s.p2p.client.Config;
-import org.q3s.p2p.client.util.HttpClient;
-import org.q3s.p2p.model.Event;
+import org.q3s.p2p.client.view.Controller;
 import org.q3s.p2p.model.QFile;
 import org.q3s.p2p.model.User;
 import org.q3s.p2p.model.Workspace;
@@ -31,34 +33,56 @@ public class TabListFile extends javax.swing.JPanel {
 
 	private Workspace wk;
 	private User user;
-	private HttpClient httpClient;
+	private Controller controller;
 	
     /**
      * Creates new form JPanelListFile
      */
-    public TabListFile() {
+    public TabListFile(int tabType) {
         initComponents();
+//        jTable1.setDefaultRenderer(Date.class, new TabelaCellRenderer());        
         jPanel1.setVisible(false);
         
         JPopupMenu popupMenu = new JPopupMenu();
-        JMenuItem menuItemAdd = new JMenuItem("Abrir");
-        JMenuItem menuItemRemove = new JMenuItem("Descargar");
 
-        menuItemAdd.addActionListener(new java.awt.event.ActionListener() {
+        JMenuItem menuItemOpen = new JMenuItem("Abrir");
+        menuItemOpen.addActionListener(new java.awt.event.ActionListener() {
             public void actionPerformed(java.awt.event.ActionEvent evt) {
                 openMenuItemActionPerformed(evt);
             }
         });
+        popupMenu.add(menuItemOpen);
 
-        menuItemRemove.addActionListener(new java.awt.event.ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent evt) {
-                downloadMenuItemActionPerformed(evt);
-            }
-        });
+        if(tabType == 2) {
+        	JMenuItem menuItemDownload = new JMenuItem("Descargar");
+	        menuItemDownload.addActionListener(new java.awt.event.ActionListener() {
+	            public void actionPerformed(java.awt.event.ActionEvent evt) {
+	                downloadMenuItemActionPerformed(evt);
+	            }
+	        });
+	        popupMenu.add(menuItemDownload);
+        }        
+
+        if(tabType == 1) {
+        	JMenuItem menuItemRemove = new JMenuItem("Eliminar");
+	        menuItemRemove.addActionListener(new java.awt.event.ActionListener() {
+	            public void actionPerformed(java.awt.event.ActionEvent evt) {
+	                removeMenuItemActionPerformed(evt);
+	            }
+	        });
+	        popupMenu.add(menuItemRemove);
+        }   
+
+        if(tabType == 1) {
+        	JMenuItem menuItemRefresh = new JMenuItem("Actualizar");
+	        menuItemRefresh.addActionListener(new java.awt.event.ActionListener() {
+	            public void actionPerformed(java.awt.event.ActionEvent evt) {
+	                refreshMenuItemActionPerformed(evt);
+	            }
+	        });
+	        popupMenu.add(menuItemRefresh);
+        }   
         
-        popupMenu.add(menuItemAdd);
-        popupMenu.add(menuItemRemove);
-                
         jTable1.setComponentPopupMenu(popupMenu);
         
     }
@@ -68,24 +92,37 @@ public class TabListFile extends javax.swing.JPanel {
      * @param user el que notifica
      * @param httpClient
      */
-    public TabListFile(Workspace wk, User user, HttpClient httpClient) {
-    	this();
+    public TabListFile(Workspace wk, User user, Controller controller, int tabType) {
+    	this(tabType);
     	this.wk = wk;
     	this.user = user;
-    	this.httpClient = httpClient;
+    	this.controller = controller;
     }
 
     private void openMenuItemActionPerformed(ActionEvent evt) {
-        System.out.println("abrir");
+        QFile qFile = getSelectedItem();
+        controller.openFile(user,qFile);
     }
 
     private void downloadMenuItemActionPerformed(ActionEvent evt) {
-        System.out.println("descargar");
-        FileTableModel ftm = (FileTableModel) jTable1.getModel();
-        QFile qFile = (QFile) ftm.getValueAt(jTable1.getSelectedRow(), -1);
-        Event event = new Event("Quiero descargar el archivo", user,qFile);
-        httpClient.post(Config.buildWkToUserUri(wk, qFile.getOwner()), event);
+    	QFile qFile = getSelectedItem();
+    	controller.downloadFile(user,qFile);        	        	
     }
+
+    private void removeMenuItemActionPerformed(ActionEvent evt) {
+    	QFile qFile = getSelectedItem();
+    	controller.removeFile(user,qFile);        	        	
+    }
+
+    private void refreshMenuItemActionPerformed(ActionEvent evt) {
+    	controller.refreshFiles(user);        	        	
+    }
+    
+	private QFile getSelectedItem() {
+		FileTableModel ftm = (FileTableModel) jTable1.getModel();
+        QFile qFile = (QFile) ftm.getValueAt(jTable1.getSelectedRow(), -1);
+		return qFile;
+	}
     
     /**
      * This method is called from within the constructor to initialize the form.
@@ -171,19 +208,6 @@ public class TabListFile extends javax.swing.JPanel {
     }//GEN-LAST:event_jTextField1KeyReleased
 
     
-//    public JFrame getJFrame() {
-//        Component co = super.getParent();
-//        do {
-//            if (co instanceof JFrame) {
-//                return (JFrame) co;
-//            } else if (co == null) {
-//                return null;
-//            } else {
-//                co = co.getParent();
-//            }
-//        } while (true);
-//    }
-
     public JTable getjTable1() {
         return jTable1;
     }

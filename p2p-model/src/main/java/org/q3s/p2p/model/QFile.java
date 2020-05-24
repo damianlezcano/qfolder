@@ -4,13 +4,17 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 
 public class QFile {
 
-    private String md5;
+    public static final String OPERATION_OPEN = "open";
+    public static final String OPERATION_DOWNLOAD = "download";
+    
+	private String md5;
     private String name;
     private long size;
     private long date;
     private int parts;
     
     private String content;
+    private String operation;
     
     @JsonIgnore
     private User owner;
@@ -74,6 +78,14 @@ public class QFile {
 
 	public void setContent(String cont) {
 		this.content = cont;
+	}
+
+	public String getOperation() {
+		return operation;
+	}
+
+	public void setOperation(String operation) {
+		this.operation = operation;
 	}
 	
 }
