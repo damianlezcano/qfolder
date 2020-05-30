@@ -1,3 +1,4 @@
+
 package org.q3s.p2p.model;
 
 import java.util.ArrayList;
@@ -10,7 +11,7 @@ public class User {
     private String id;
     private String name;
     private long date;
-
+    private boolean online = true;
     private List<QFile> files;
     
     private String password;
@@ -172,5 +173,13 @@ public class User {
         u.setFiles(files);
         return u;
     }
+
+	public boolean isOnline() {
+		return online;
+	}
+
+	public void setOnline(boolean online) {
+		this.online = online;
+	}
 
 }

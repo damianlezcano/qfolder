@@ -476,6 +476,9 @@
                 <Property name="text" type="java.lang.String" value="Hablitiar contrase&#xf1;a"/>
                 <Property name="enabled" type="boolean" value="false"/>
               </Properties>
+              <Events>
+                <EventHandler event="actionPerformed" listener="java.awt.event.ActionListener" parameters="java.awt.event.ActionEvent" handler="jCheckBox2ActionPerformed"/>
+              </Events>
             </Component>
             <Component class="javax.swing.JLabel" name="jLabel12">
               <Properties>
@@ -496,17 +499,11 @@
               <Properties>
                 <Property name="text" type="java.lang.String" value="Volver"/>
               </Properties>
-              <Events>
-                <EventHandler event="actionPerformed" listener="java.awt.event.ActionListener" parameters="java.awt.event.ActionEvent" handler="jButton7ActionPerformed"/>
-              </Events>
             </Component>
             <Component class="javax.swing.JButton" name="jButton8">
               <Properties>
-                <Property name="text" type="java.lang.String" value="Crear"/>
+                <Property name="text" type="java.lang.String" value="Aceptar"/>
               </Properties>
-              <Events>
-                <EventHandler event="actionPerformed" listener="java.awt.event.ActionListener" parameters="java.awt.event.ActionEvent" handler="jButton8ActionPerformed"/>
-              </Events>
             </Component>
             <Component class="javax.swing.JTextField" name="jTextField7">
               <Properties>
@@ -525,18 +522,17 @@
             </Component>
             <Component class="javax.swing.JLabel" name="jLabel14">
               <Properties>
-                <Property name="text" type="java.lang.String" value=" HTTP Proxy host"/>
+                <Property name="text" type="java.lang.String" value=" Servidor Proxy"/>
               </Properties>
             </Component>
             <Component class="javax.swing.JLabel" name="jLabel15">
               <Properties>
-                <Property name="text" type="java.lang.String" value=" HTTPs Proxy host"/>
+                <Property name="text" type="java.lang.String" value=" Puerto"/>
               </Properties>
             </Component>
             <Component class="javax.swing.JCheckBox" name="jCheckBox3">
               <Properties>
                 <Property name="text" type="java.lang.String" value="Configurar proxy"/>
-                <Property name="enabled" type="boolean" value="false"/>
               </Properties>
             </Component>
           </SubComponents>

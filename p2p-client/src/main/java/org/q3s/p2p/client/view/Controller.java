@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
+import java.util.Properties;
 
 import javax.swing.DefaultListModel;
 import javax.swing.ImageIcon;
@@ -153,6 +154,30 @@ public class Controller {
             }
         });
         
+        view.getjCheckBox3().addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                jCheckBox3ActionPerformed(evt);
+            }
+        });
+        
+        view.getjButton7().addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                jButton7ActionPerformed(evt);
+            }
+        });
+        
+        view.getjButton8().addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                jButton8ActionPerformed(evt);
+            }
+        });
+        
+        view.getjCheckBox2().addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                jCheckBox2ActionPerformed(evt);
+            }
+        });
+        
         view.pack();
         view.setVisible(true);
         view.mostarJoinPanel();
@@ -160,12 +185,73 @@ public class Controller {
         httpClient.verifyServiceGithubUp();
         
     }
+    
+    private void jCheckBox3ActionPerformed(java.awt.event.ActionEvent evt) {                                           
+        JCheckBox cb = (JCheckBox) evt.getSource();
+        if (cb.isSelected()) {
+            view.getjTextField9().setEnabled(true);
+            view.getjTextField8().setEnabled(true);
+            view.getjCheckBox2().setEnabled(true);
+            if(view.getjCheckBox2().isSelected()){
+                view.getjTextField7().setEnabled(true);
+                view.getjPasswordField4().setEnabled(true);
+            }
+        }else{
+            view.getjTextField9().setEnabled(false);
+            view.getjTextField8().setEnabled(false);
+            view.getjCheckBox2().setEnabled(false);
+            view.getjTextField7().setEnabled(false);
+            view.getjPasswordField4().setEnabled(false);
+        }
+    } 
+    
+    private void jCheckBox2ActionPerformed(java.awt.event.ActionEvent evt) {                                           
+        JCheckBox cb = (JCheckBox) evt.getSource();
+        if (cb.isSelected()) {
+            view.getjTextField7().setEnabled(true);
+            view.getjPasswordField4().setEnabled(true);
+        }else{
+            view.getjTextField7().setEnabled(false);
+            view.getjPasswordField4().setEnabled(false);
+        }
+    } 
+    
+    //Proxy boton volver
+    private void jButton7ActionPerformed(java.awt.event.ActionEvent evt) { 
+        mostrarErrorEnPantallaLogin("");
+        view.getjPanelCreateWorkspace().setVisible(false);
+        view.getjPanelJoin().setVisible(true);
+        view.getjTabbedPane().setVisible(false);
+        view.getjPanelProxy().setVisible(false);
+        view.setTitle(getLocalHostName());
+    } 
+    
+    //Proxy boton aceptar
+    private void jButton8ActionPerformed(java.awt.event.ActionEvent evt) {                                         
+        mostrarErrorEnPantallaLogin("");
+        view.getjPanelCreateWorkspace().setVisible(false);
+        view.getjPanelJoin().setVisible(true);
+        view.getjTabbedPane().setVisible(false);
+        view.getjPanelProxy().setVisible(false);
+        view.setTitle(getLocalHostName());
+        
+        Properties props = System.getProperties();
+        if(view.getjCheckBox3().isSelected()){
+            props.put("http.proxyHost", view.getjTextField9().getText());
+            props.put("http.proxyPort", view.getjTextField8().getText());
+        }else{
+            props.remove("http.proxyHost");
+            props.remove("http.proxyPort");
+        }
+        httpClient.verifyServiceGithubUp();
+    }  
 
     private void Jabel6ActionPerformed(java.awt.event.MouseEvent evt) {                                       
-        view.getjTextField4().setText("./");
+        view.getjTextField4().setText(".");
         refreshLocalFilesAndNotify("Notifico Cambio en los archivos");
     }  
     
+    //Evento pierdo foco cambio de nombre
     private void jTextField3FocusLost(java.awt.event.FocusEvent evt) {
         if (configChange) {
             Event e = new Event("Cambio de nombre", user);
@@ -178,7 +264,7 @@ public class Controller {
         try {
             FileUtils.remove(Paths.get(Config.TEMP_PATH));
         } catch (Exception e) {
-            System.out.println("Error al borrar el directorio temporal");
+            System.err.println("Error al borrar el directorio temporal -> " + e.getMessage());
         }
     }
 
@@ -234,12 +320,12 @@ public class Controller {
 
     private void onJLabel4Click(java.awt.event.MouseEvent evt) {
         if(view.getjLabel4().isEnabled()){
+            mostrarErrorEnPantallaLogin("");
             view.getjPanelCreateWorkspace().setVisible(true);
             view.getjPanelJoin().setVisible(false);
             view.getjTabbedPane().setVisible(false);
             view.getjPanelProxy().setVisible(false);
             view.setTitle("Crear espacio de trabajo");
-            mostrarErrorEnPantallaLogin("");
         }
     }
 
@@ -378,19 +464,25 @@ public class Controller {
                 } else if ("Se borro un archivo".equals(event.getName())) {
                     notifyChangeFiles(event);
                 } else if ("Cambio de nombre".equals(event.getName())) {
+                	int idx = searchTabById(event.getUser().getId());
+                    int idxUser = remoteUsers.indexOf(event.getUser());
+                    remoteUsers.get(idxUser).setName(event.getUser().getName());
+                    refreshTables();
                     if (!event.getUser().equals(user)) {
-                        int idx = searchTabById(event.getUser().getId());
-                        int idxUser = remoteUsers.indexOf(event.getUser());
-                        remoteUsers.get(idxUser).setName(event.getUser().getName());
-                        view.getjTabbedPane().setTitleAt(idx, event.getUser().getName());
+                        view.getjTabbedPane().setTitleAt(idx, event.getUser().getName());                        
                     }
                 } else if ("Usuario desconectado".equals(event.getName())) {
-                    int idx = searchTabById(event.getUser().getId());
-                    ImageIcon icon = new javax.swing.ImageIcon(getClass().getResource("/status-fail.png"));
-                    view.getjTabbedPane().setIconAt(idx, icon);
-                    view.getjTabbedPane().setToolTipTextAt(idx, "Última vez conectado " + new Date() + " (Doble click para cerrar)");
-                    TabListFile tlf = findTableByUserId(event.getUser().getId());
-                    tlf.disabled();
+                	TabListFile tlf = findTableByUserId(event.getUser().getId());
+                	if(tlf.getTabType() == 2) {
+	                	int idx = searchTabById(event.getUser().getId());
+	                    ImageIcon icon = new javax.swing.ImageIcon(getClass().getResource("/status-fail.png"));
+	                    view.getjTabbedPane().setIconAt(idx, icon);
+	                    view.getjTabbedPane().setToolTipTextAt(idx, "Última vez conectado " + new Date() + " (Doble click para cerrar)");
+	                    tlf.disabled();
+	                    int idxUser = remoteUsers.indexOf(event.getUser());
+	                    remoteUsers.get(idxUser).setOnline(false);
+	                    refreshTables();
+                	}
                 } else if ("Quiero descargar el archivo".equals(event.getName())) {
                     String filename = event.getFile().getName();
                     String filepath = view.getjTextField4().getText();
@@ -437,7 +529,7 @@ public class Controller {
                     view.getjTextField2().setFocusable(true);
                     Config.URL_SERVER = event.getResponse();
                 }else if("Error al intentar recuperar la URL del servicio".equals(event.getName())){
-                    mostrarErrorEnPantallaLogin("No es posible verificar la conexion. Verifique su conexion a internet o configure el proxy.");
+                    mostrarErrorEnPantallaLogin("Verifique su conexion a internet o configure el proxy.");
                 }else if("Workspace creado".equals(event.getName())){
                     view.getjTextField2().setText(event.getResponse());
                     view.getjPanelCreateWorkspace().setVisible(false);
@@ -466,6 +558,25 @@ public class Controller {
                     view.getjTextField2().setFocusable(true);
                     view.getjButton6().setEnabled(true);
                     mostrarErrorEnPantallaLogin("No es posible conectarse al grupo de trabajo. Vuelva a intentarlo mas tarde.");
+                }else if("Se perdio la conexion con el servidor".equals(event.getName())){
+                    view.getjPanelCreateWorkspace().setVisible(false);
+                    view.getjPanelJoin().setVisible(true);
+                    view.getjTabbedPane().setVisible(false);
+                    view.getjPanelProxy().setVisible(false);
+                    view.setTitle(user.getName());
+                    
+                    view.getjButton2().setEnabled(true);
+                    view.getjLabel4().setEnabled(true);
+                    view.getjTextField2().setEnabled(true);
+                    view.getjTextField2().setFocusable(true);
+                    view.getjButton6().setEnabled(true);
+                    mostrarErrorEnPantallaLogin("Se perdio la conexion con el servidor");
+                    
+                    remoteUsers = new ArrayList<User>();
+                    httpClient = new HttpClient(this);
+                    removeAllTab();
+                    //JOptionPane.showMessageDialog(view, "Se perdio la conexion con el servidor", "Error de conexion", JOptionPane.ERROR_MESSAGE);
+                    //System.exit(0);
                 }
             }
         } catch (Exception e) {
@@ -474,7 +585,12 @@ public class Controller {
         
     }
 
-    public static String decodeValue(String value) {
+    private User getRemoteUser(String id) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	public static String decodeValue(String value) {
         try {
             return URLDecoder.decode(value, StandardCharsets.UTF_8.toString());
         } catch (UnsupportedEncodingException ex) {
@@ -581,7 +697,19 @@ public class Controller {
     }
 
     private void loadRemoteUserTab(String username, User user) {
-        loadUserTab(username, user, user.getId(), "/status-ok.png", 2);
+    	TabListFile tlf = findTableByUserId(user.getId());
+    	if(tlf != null) {
+        	int idx = searchTabById(user.getId());
+            ImageIcon icon = new javax.swing.ImageIcon(getClass().getResource("/status-ok.png"));
+            view.getjTabbedPane().setIconAt(idx, icon);
+            view.getjTabbedPane().setToolTipTextAt(idx, "Última vez conectado " + new Date() + " (Doble click para cerrar)");
+            tlf.enabled();
+            int idxUser = remoteUsers.indexOf(user);
+            remoteUsers.get(idxUser).setOnline(true);
+            refreshTables();
+    	}else{
+    		loadUserTab(username, user, user.getId(), "/status-ok.png", 2);    		
+    	}
     }
 
     private void loadLocalUserTab(String username, User user) {
@@ -622,6 +750,23 @@ public class Controller {
         return -1;
     }
 
+    private void removeAllTab() {
+        int idx = -1;
+        do {            
+            idx = -1;
+            Component[] cos = view.getjTabbedPane().getComponents();
+            for (int i = 0; i < cos.length; i++) {
+                if (cos[i] instanceof TabListFile) {
+                    idx = view.getjTabbedPane().indexOfComponent(cos[i]);
+                    break;
+                }
+            }
+            if(idx != -1){
+                view.getjTabbedPane().removeTabAt(idx);
+            }
+        } while (idx != -1);
+    }
+    
     private void refreshTables() {
         Component[] cos = view.getjTabbedPane().getComponents();
         for (int i = 0; i < cos.length; i++) {
@@ -647,14 +792,18 @@ public class Controller {
     }
 
     private void ping() {
+        final Controller controller = this;
         new Thread(new Runnable() {
             public void run() {
                 try {
                     do {
                         httpClient.get(Config.buildPingUserUrl(wk, user));
                         Thread.sleep(2000);
-                    } while (sseClient.isAlive());
+                    } while (sseClient.isAlive() && !httpClient.isDisconnect());
                 } catch (Exception ex) {
+                } finally {
+                    Event event = new Event("Se perdio la conexion con el servidor");
+                    controller.notify(event);
                 }
             }
         }).start();

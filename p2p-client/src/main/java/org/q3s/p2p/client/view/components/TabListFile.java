@@ -8,15 +8,11 @@ package org.q3s.p2p.client.view.components;
 import java.awt.Color;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
-import java.sql.Date;
-import java.util.List;
 
 import javax.swing.JMenuItem;
 import javax.swing.JPopupMenu;
 import javax.swing.JTable;
 import javax.swing.RowFilter;
-import javax.swing.table.TableColumn;
-import javax.swing.table.TableColumnModel;
 import javax.swing.table.TableModel;
 import javax.swing.table.TableRowSorter;
 
@@ -31,18 +27,19 @@ import org.q3s.p2p.model.Workspace;
  */
 public class TabListFile extends javax.swing.JPanel {
 
-	private Workspace wk;
-	private User user;
-	private Controller controller;
-	
+    private Workspace wk;
+    private User user;
+    private Controller controller;
+
+    private int tabType;
     /**
      * Creates new form JPanelListFile
      */
     public TabListFile(int tabType) {
         initComponents();
-//        jTable1.setDefaultRenderer(Date.class, new TabelaCellRenderer());        
         jPanel1.setVisible(false);
-        
+        this.setTabType(tabType);
+        back = jTable1.getBackground();
         JPopupMenu popupMenu = new JPopupMenu();
 
         JMenuItem menuItemOpen = new JMenuItem("Abrir");
@@ -53,77 +50,81 @@ public class TabListFile extends javax.swing.JPanel {
         });
         popupMenu.add(menuItemOpen);
 
-        if(tabType == 2) {
-        	JMenuItem menuItemDownload = new JMenuItem("Descargar");
-	        menuItemDownload.addActionListener(new java.awt.event.ActionListener() {
-	            public void actionPerformed(java.awt.event.ActionEvent evt) {
-	                downloadMenuItemActionPerformed(evt);
-	            }
-	        });
-	        popupMenu.add(menuItemDownload);
-        }        
+        if (tabType == 2) {
+            JMenuItem menuItemDownload = new JMenuItem("Descargar");
+            menuItemDownload.addActionListener(new java.awt.event.ActionListener() {
+                public void actionPerformed(java.awt.event.ActionEvent evt) {
+                    downloadMenuItemActionPerformed(evt);
+                }
+            });
+            popupMenu.add(menuItemDownload);
+        }
 
-        if(tabType == 1) {
-        	JMenuItem menuItemRemove = new JMenuItem("Eliminar");
-	        menuItemRemove.addActionListener(new java.awt.event.ActionListener() {
-	            public void actionPerformed(java.awt.event.ActionEvent evt) {
-	                removeMenuItemActionPerformed(evt);
-	            }
-	        });
-	        popupMenu.add(menuItemRemove);
-        }   
+        if (tabType == 1) {
+            JMenuItem menuItemRemove = new JMenuItem("Eliminar");
+            menuItemRemove.addActionListener(new java.awt.event.ActionListener() {
+                public void actionPerformed(java.awt.event.ActionEvent evt) {
+                    removeMenuItemActionPerformed(evt);
+                }
+            });
+            popupMenu.add(menuItemRemove);
+        }
 
-        if(tabType == 1) {
-        	JMenuItem menuItemRefresh = new JMenuItem("Actualizar");
-	        menuItemRefresh.addActionListener(new java.awt.event.ActionListener() {
-	            public void actionPerformed(java.awt.event.ActionEvent evt) {
-	                refreshMenuItemActionPerformed(evt);
-	            }
-	        });
-	        popupMenu.add(menuItemRefresh);
-        }   
-        
+        if (tabType == 1) {
+            JMenuItem menuItemRefresh = new JMenuItem("Actualizar");
+            menuItemRefresh.addActionListener(new java.awt.event.ActionListener() {
+                public void actionPerformed(java.awt.event.ActionEvent evt) {
+                    refreshMenuItemActionPerformed(evt);
+                }
+            });
+            popupMenu.add(menuItemRefresh);
+        }
+
         jTable1.setComponentPopupMenu(popupMenu);
-        
+
     }
-    
+
     /**
      * @param wk
      * @param user el que notifica
      * @param httpClient
      */
     public TabListFile(Workspace wk, User user, Controller controller, int tabType) {
-    	this(tabType);
-    	this.wk = wk;
-    	this.user = user;
-    	this.controller = controller;
+        this(tabType);
+        this.wk = wk;
+        this.user = user;
+        this.controller = controller;
     }
 
     private void openMenuItemActionPerformed(ActionEvent evt) {
         QFile qFile = getSelectedItem();
-        controller.openFile(user,qFile);
+        controller.openFile(user, qFile);
     }
 
     private void downloadMenuItemActionPerformed(ActionEvent evt) {
-    	QFile qFile = getSelectedItem();
-    	controller.downloadFile(user,qFile);        	        	
+        QFile qFile = getSelectedItem();
+        controller.downloadFile(user, qFile);
     }
 
     private void removeMenuItemActionPerformed(ActionEvent evt) {
-    	QFile qFile = getSelectedItem();
-    	controller.removeFile(user,qFile);        	        	
+        QFile qFile = getSelectedItem();
+        controller.removeFile(user, qFile);
     }
 
     private void refreshMenuItemActionPerformed(ActionEvent evt) {
-    	controller.refreshFiles(user);        	        	
+        controller.refreshFiles(user);
     }
-    
-	private QFile getSelectedItem() {
-		FileTableModel ftm = (FileTableModel) jTable1.getModel();
-        QFile qFile = (QFile) ftm.getValueAt(jTable1.getSelectedRow(), -1);
-		return qFile;
-	}
-    
+
+    private QFile getSelectedItem() {
+        int row=jTable1.getSelectedRow();
+        if (jTable1.getRowSorter()!=null) {
+            row = jTable1.getRowSorter().convertRowIndexToModel(row);
+        }
+        FileTableModel ftm = (FileTableModel) jTable1.getModel();
+        QFile qFile = (QFile) ftm.getValueAt(row, -1);
+        return qFile;
+    }
+
     /**
      * This method is called from within the constructor to initialize the form.
      * WARNING: Do NOT modify this code. The content of this method is always
@@ -201,37 +202,45 @@ public class TabListFile extends javax.swing.JPanel {
             jTextField1.setText("");
             //getJFrame().pack();
             jTable1.requestFocus();
-        } 
-        TableRowSorter<TableModel> sorter = new TableRowSorter<TableModel>((jTable1.getModel())); 
+        }
+        TableRowSorter<TableModel> sorter = new TableRowSorter<TableModel>((jTable1.getModel()));
         sorter.setRowFilter(RowFilter.regexFilter(jTextField1.getText()));
         jTable1.setRowSorter(sorter);
     }//GEN-LAST:event_jTextField1KeyReleased
 
-    
     public JTable getjTable1() {
         return jTable1;
     }
 
     private boolean offline = false;
+
+    private Color back = null;
     
-    public void disabled(){
+    public void disabled() {
         Color backgroud = Color.decode("#dedede");
         jTable1.setBackground(backgroud);
         offline = true;
     }
 
-    public void enabled(){
-        jTable1.setBackground(null);
+    public void enabled() {
+        jTable1.setBackground(back);
         offline = false;
     }
 
     public boolean isOffline() {
         return offline;
     }
-    
-    
 
-    // Variables declaration - do not modify//GEN-BEGIN:variables
+
+    public int getTabType() {
+		return tabType;
+	}
+
+	public void setTabType(int tabType) {
+		this.tabType = tabType;
+	}
+
+	// Variables declaration - do not modify//GEN-BEGIN:variables
     private javax.swing.JPanel jPanel1;
     private javax.swing.JScrollPane jScrollPane1;
     private javax.swing.JTable jTable1;

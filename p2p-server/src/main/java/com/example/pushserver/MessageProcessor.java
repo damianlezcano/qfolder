@@ -50,6 +50,7 @@ public class MessageProcessor {
             User user = entry.getKey();
             Workspace wk = entry.getValue();
             pong.get(wk).remove(user);
+            approved.get(wk).remove(user);   
         }
     }
 

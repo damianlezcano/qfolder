@@ -8,6 +8,7 @@ package org.q3s.p2p.client.view;
 import java.io.File;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
+import javax.swing.JTextField;
 
 /**
  *
@@ -249,6 +250,11 @@ public class View extends javax.swing.JFrame {
 
         jCheckBox2.setText("Hablitiar contraseña");
         jCheckBox2.setEnabled(false);
+        jCheckBox2.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                jCheckBox2ActionPerformed(evt);
+            }
+        });
 
         jLabel12.setText("Usuario");
 
@@ -257,18 +263,8 @@ public class View extends javax.swing.JFrame {
         jPasswordField4.setEnabled(false);
 
         jButton7.setText("Volver");
-        jButton7.addActionListener(new java.awt.event.ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent evt) {
-                jButton7ActionPerformed(evt);
-            }
-        });
 
-        jButton8.setText("Crear");
-        jButton8.addActionListener(new java.awt.event.ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent evt) {
-                jButton8ActionPerformed(evt);
-            }
-        });
+        jButton8.setText("Aceptar");
 
         jTextField7.setEnabled(false);
 
@@ -276,12 +272,11 @@ public class View extends javax.swing.JFrame {
 
         jTextField9.setEnabled(false);
 
-        jLabel14.setText(" HTTP Proxy host");
+        jLabel14.setText(" Servidor Proxy");
 
-        jLabel15.setText(" HTTPs Proxy host");
+        jLabel15.setText(" Puerto");
 
         jCheckBox3.setText("Configurar proxy");
-        jCheckBox3.setEnabled(false);
 
         javax.swing.GroupLayout jPanelProxyLayout = new javax.swing.GroupLayout(jPanelProxy);
         jPanelProxy.setLayout(jPanelProxyLayout);
@@ -515,22 +510,6 @@ public class View extends javax.swing.JFrame {
         // TODO add your handling code here:
     }//GEN-LAST:event_jTextField2ActionPerformed
 
-    private void jButton7ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton7ActionPerformed
-        jPanelCreateWorkspace.setVisible(false);
-        jPanelJoin.setVisible(true);
-        jTabbedPane.setVisible(false);
-        jPanelProxy.setVisible(false);
-        this.setTitle("Bienvenidos");
-    }//GEN-LAST:event_jButton7ActionPerformed
-
-    private void jButton8ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton8ActionPerformed
-        jPanelCreateWorkspace.setVisible(false);
-        jPanelJoin.setVisible(true);
-        jTabbedPane.setVisible(false);
-        jPanelProxy.setVisible(false);
-        this.setTitle("Bienvenidos");
-    }//GEN-LAST:event_jButton8ActionPerformed
-
     private void jButton6ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton6ActionPerformed
         jPanelCreateWorkspace.setVisible(false);
         jPanelJoin.setVisible(false);
@@ -538,6 +517,10 @@ public class View extends javax.swing.JFrame {
         jPanelProxy.setVisible(true);
         this.setTitle("Configuracion proxy");
     }//GEN-LAST:event_jButton6ActionPerformed
+
+    private void jCheckBox2ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jCheckBox2ActionPerformed
+        // TODO add your handling code here:
+    }//GEN-LAST:event_jCheckBox2ActionPerformed
 
     public void mostarJoinPanel(){
         jPanelCreateWorkspace.setVisible(false);
@@ -672,14 +655,6 @@ public class View extends javax.swing.JFrame {
 
     public void setjLabel14(javax.swing.JLabel jLabel14) {
         this.jLabel14 = jLabel14;
-    }
-
-    public javax.swing.JLabel getjLabel15() {
-        return jLabel15;
-    }
-
-    public void setjLabel15(javax.swing.JLabel jLabel15) {
-        this.jLabel15 = jLabel15;
     }
 
     public javax.swing.JLabel getjLabel2() {
@@ -882,14 +857,6 @@ public class View extends javax.swing.JFrame {
         this.jTextField7 = jTextField7;
     }
 
-    public javax.swing.JTextField getjTextField8() {
-        return jTextField8;
-    }
-
-    public void setjTextField8(javax.swing.JTextField jTextField8) {
-        this.jTextField8 = jTextField8;
-    }
-
     public javax.swing.JTextField getjTextField9() {
         return jTextField9;
     }
@@ -912,6 +879,10 @@ public class View extends javax.swing.JFrame {
 
     public JLabel getjLabel17() {
         return jLabel17;
+    }
+
+    public JTextField getjTextField8() {
+        return jTextField8;
     }
 
     

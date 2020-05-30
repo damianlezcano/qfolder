@@ -8,7 +8,6 @@ package org.q3s.p2p.client.util;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.logging.Level;
 
 import org.q3s.p2p.client.Config;
 import org.q3s.p2p.client.view.Controller;
@@ -17,7 +16,7 @@ import org.q3s.p2p.model.User;
 import org.q3s.p2p.model.Workspace;
 import org.q3s.p2p.model.util.EventUtils;
 import org.springframework.http.HttpMethod;
-import org.springframework.web.client.RestClientException;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
 
 /**
@@ -31,11 +30,11 @@ public class SseClient extends Thread {
     private Controller controller;
     private Logger log;
 
-    private int MAX_RETRY_RECONNECT = 3;
+    private int MAX_RETRY_RECONNECT = 2;
     private long DELAY_RETRY_RECONNECT = 1000;
     
-    private int connectTimeoutMillis = 100000;
-    private int readTimeoutMillis = 100000;
+    private int connectTimeoutMillis = 4000;
+    private int readTimeoutMillis = 0;
 
     private int cdor = 0;
     
@@ -55,6 +54,7 @@ public class SseClient extends Thread {
         this.user = user;
         this.controller = controller;
         this.log = log;
+        setTimeout(restTemplate);
     }
 
     public void run() {
@@ -98,6 +98,13 @@ public class SseClient extends Thread {
 
     public boolean isClosed(){
         return interrupt.get();
+    }
+    
+    private void setTimeout(RestTemplate restTemplate) {
+        restTemplate.setRequestFactory(new SimpleClientHttpRequestFactory());
+        SimpleClientHttpRequestFactory rf = (SimpleClientHttpRequestFactory) restTemplate.getRequestFactory();
+        rf.setReadTimeout(readTimeoutMillis);
+        rf.setConnectTimeout(connectTimeoutMillis);
     }
     
 //    public String get(String url) throws Exception {

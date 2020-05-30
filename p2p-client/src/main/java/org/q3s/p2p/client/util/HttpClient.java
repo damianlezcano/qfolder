@@ -5,13 +5,11 @@
  */
 package org.q3s.p2p.client.util;
 
-import java.net.ConnectException;
 import java.util.Map;
 import java.util.Map.Entry;
 import org.q3s.p2p.client.Config;
 import org.q3s.p2p.client.view.Controller;
 import org.q3s.p2p.model.Event;
-import org.q3s.p2p.model.User;
 import org.q3s.p2p.model.Workspace;
 
 import org.springframework.http.HttpEntity;
@@ -19,6 +17,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -31,8 +30,17 @@ public class HttpClient {
 
     private Controller controller;
     private RestTemplate restTemplate = new RestTemplate();
+    
+    private int MAX_RETRY_TO_DISCONNECT = 3;
+    
+    private int connectTimeoutMillis = 5000;
+    private int readTimeoutMillis = 2000;
+    
+    private long last;
+    private int cdor;
 
     public HttpClient(Controller controller) {
+        setTimeout(restTemplate);
         this.controller = controller;
     }
 
@@ -74,8 +82,10 @@ public class HttpClient {
                     eventResponse = new Event(eventResponseOK, body);
                     
                 } catch(RestClientException e){
+                    registerError();
                     eventResponse = new Event(eventResponseFail,"El servidor no esta disponible. Vuelva a intentarlo mas tarde.");
                 } catch(Exception e) {
+                    registerError();
                     eventResponse = new Event(eventResponseFail,e.getMessage());
                 } finally {
                     controller.notify(eventResponse);
@@ -84,26 +94,24 @@ public class HttpClient {
         }).start();
 
     }
-
-//    public String get(String url) throws Exception {
-//        try {
-//            HttpHeaders httpHeaders = new HttpHeaders();
-//            httpHeaders.set("Accept", MediaType.APPLICATION_JSON_VALUE);
-//            HttpEntity<?> httpEntity = new HttpEntity<>(httpHeaders);
-//            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, httpEntity, String.class);
-//            return response.getBody().trim();
-//        } catch (Exception e) {
-//            return "";
-//        }
-//    }
+    
+    private void registerError(){
+        long current = System.currentTimeMillis();
+        if(current - last > 5000){
+            cdor++;
+        }else{
+            cdor = 0;
+            last = current;
+        }
+    }
+    
+    public boolean isDisconnect(){
+        return cdor > MAX_RETRY_TO_DISCONNECT;
+    }
     
     public RestTemplate getRestTemplate() {
         return restTemplate;
     }
-
-//    public void post(String url, Object obj) {
-//        restTemplate.postForEntity(url, obj, String.class);
-//    }
 
     public void post(String url, Object obj, String eventResponseOK, String eventResponseFail) {
         new Thread(new Runnable() {
@@ -116,6 +124,7 @@ public class HttpClient {
                         restTemplate.postForEntity(url, obj, obj.getClass());
                     }
                 } catch (Exception e) {
+                    registerError();
                     eventResponse = new Event(eventResponseFail);
                 }finally{
                     controller.notify(eventResponse);
@@ -131,8 +140,10 @@ public class HttpClient {
     //llamar a github para obtener la URL del servidor
     public void verifyServiceGithubUp(){
         if (Config.URL_SERVER == null) {
-            get(Config.URL_GITHUB_SERVER_INF, null, null, "URL servicio resuelta", "Error al intentar recuperar la URL del servicio");
-            
+//            get(Config.URL_GITHUB_SERVER_INF, null, null, "URL servicio resuelta", "Error al intentar recuperar la URL del servicio");
+        	
+            Event er = new Event("URL servicio resuelta","http://localhost:8080");
+            controller.notify(er);
         }
     }
 
@@ -141,11 +152,6 @@ public class HttpClient {
         get(Config.buildWkCreateUri(),null, wk.buildRequestParam(), "Workspace creado", "Error al crear el workspace");
     }
 
-//    public void sendUserData(Workspace wk, User user) {
-//        //httpClient.post(Config.buildWkConnectWithAuthUri(wk), user);
-//        post(Config.buildWkConnectWithoutAuthUri(wk), user,null,"Error al intentar conectarse con el servidor");
-//    }
-
     public void post(String url, Object obj) {
         post(url, obj, null, "Error al intentar conectarse con el servidor");
     }
@@ -153,4 +159,12 @@ public class HttpClient {
     public void get(String url) {
         get(url, null, null, null, "Error al intentar conectarse con el servidor");
     }
+
+    private void setTimeout(RestTemplate restTemplate) {
+        restTemplate.setRequestFactory(new SimpleClientHttpRequestFactory());
+        SimpleClientHttpRequestFactory rf = (SimpleClientHttpRequestFactory) restTemplate.getRequestFactory();
+        rf.setReadTimeout(readTimeoutMillis);
+        rf.setConnectTimeout(connectTimeoutMillis);
+    }
+    
 }

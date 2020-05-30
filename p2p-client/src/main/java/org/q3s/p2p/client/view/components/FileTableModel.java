@@ -17,9 +17,8 @@ import org.q3s.p2p.model.User;
 
 public class FileTableModel extends AbstractTableModel {
 
-    //private List<QFile> files;
     private List<User> users = new ArrayList<>();
-    ImageIcon icon = new ImageIcon(getClass().getResource("/files-icon.png"));
+    private ImageIcon icon = new ImageIcon(getClass().getResource("/files-icon.png"));
 
     protected String[] columnNames = new String[]{
         "", "Archivo", "Tamaño", "Fecha Modificación", "Propietario"
@@ -45,7 +44,13 @@ public class FileTableModel extends AbstractTableModel {
     	List<QFile> list = new ArrayList<QFile>();
     	if(users != null) {
     		for (User usr : users) {
-    			list.addAll(usr.getFiles());
+    			if(usr.isOnline()) {
+    				list.addAll(usr.getFiles());    				
+    			}else{
+    				if(users.size() == 1) {
+    					list.addAll(usr.getFiles());
+    				}
+    			}
     		}    		
     	}
     	return list;
