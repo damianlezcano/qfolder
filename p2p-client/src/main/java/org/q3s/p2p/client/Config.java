@@ -14,7 +14,9 @@ import org.q3s.p2p.model.Workspace;
  */
 public class Config {
  
-    public static String URL_GITHUB_SERVER_INF = "https://raw.githubusercontent.com/damianlezcano/qfolder/jdk8-swing/p2p-server/dist/server.inf";
+    public static final int FILE_PART_SIZE_IN_KB = 100;
+    
+	public static String URL_GITHUB_SERVER_INF = "https://raw.githubusercontent.com/damianlezcano/qfolder/jdk8-swing/p2p-server/dist/server.inf";
     public static String URL_SERVER;
     
     public static String WK_CREATE = "wk";

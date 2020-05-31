@@ -68,7 +68,8 @@ public class Controller {
 
     private Executor exec = ExecutorFactoryBean.create();
 
-    public void start() {
+    @SuppressWarnings({ "rawtypes", "unchecked" })
+	public void start() {
 
         removeTemp();
 
@@ -493,13 +494,13 @@ public class Controller {
                     Path path = FileUtils.saveInTempDirectory(filename, content);
                     String md5 = FileUtils.md5(path.toString());
                     qfile.setMD5(md5);
-                    File fus = md5Folder(event.getFile().getMD5(), "out");
-                    int parts = FileUtils.splitFile(path.toString(), 512, fus.getAbsolutePath());
+                    File fus = FileUtils.md5Folder(wk,event.getFile().getMD5(), "out");
+                    int parts = FileUtils.splitFile(path.toString(), Config.FILE_PART_SIZE_IN_KB, fus.getAbsolutePath());
                     qfile.setParts(parts);
                     Event e = new Event("Envio el detalle de las partes del archivo", user, qfile);
                     httpClient.post(Config.buildWkToUserUri(wk, event.getUser()), e);
                 } else if ("Envio el detalle de las partes del archivo".equals(event.getName())) {
-                    File fus = md5Folder(event.getFile().getMD5(), "in");
+                    File fus = FileUtils.md5Folder(wk,event.getFile().getMD5(), "in");
                     for (int i = 0; i < event.getFile().getParts(); i++) {
                         File t = new File(fus.getAbsolutePath() + File.separator + i + Config.SUFFIX_PENDING);
                         t.createNewFile();
@@ -507,7 +508,7 @@ public class Controller {
                     retriveAnyPendingFileAndRequest(event, fus);
                 } else if ("Dame la parte numero".equals(event.getName())) {
                     QFile file = event.getFile();
-                    File md5Dir = md5Folder(file.getMD5(), "out");
+                    File md5Dir = FileUtils.md5Folder(wk,file.getMD5(), "out");
                     String md5Part = md5Dir.getAbsolutePath() + File.separator + file.getParts() + Config.SUFFIX_PART;
                     String content = FileUtils.read(md5Part);
                     file.setContent(content);
@@ -515,7 +516,7 @@ public class Controller {
                     httpClient.post(Config.buildWkToUserUri(wk, event.getUser()), e);
                 } else if ("Esta es la parte que me pedistes".equals(event.getName())) {
                     QFile file = event.getFile();
-                    File md5Dir = md5Folder(file.getMD5(), "in");
+                    File md5Dir = FileUtils.md5Folder(wk,file.getMD5(), "in");
                     FileUtils.save(md5Dir.getAbsolutePath() + File.separator + Config.PREFFIX_ENCODE + Config.SUFFIX_ENCODE, file.getContent().getBytes());
                     String md5Part = md5Dir.getAbsolutePath() + File.separator + file.getParts();
                     FileUtils.remove(Paths.get(md5Part + Config.SUFFIX_PENDING));
@@ -582,13 +583,7 @@ public class Controller {
         } catch (Exception e) {
             
         }
-        
     }
-
-    private User getRemoteUser(String id) {
-		// TODO Auto-generated method stub
-		return null;
-	}
 
 	public static String decodeValue(String value) {
         try {
@@ -599,11 +594,7 @@ public class Controller {
     }
     
     private void notifyChangeFiles(Event event) {
-        if (event.getUser().equals(user)) {
-            addUserToRemoteList(event.getUser());
-        } else {
-            addUserToRemoteList(event.getUser());
-        }
+    	addUserToRemoteList(event.getUser());
         refreshTables();
     }
 
@@ -614,10 +605,9 @@ public class Controller {
     }
 
     private void retriveAnyPendingFileAndRequest(Event event, File md5Dir) throws Exception {
-        File file = md5Folder(event.getFile().getMD5(), "in");
+        File file = FileUtils.md5Folder(wk,event.getFile().getMD5(), "in");
         int part = FileUtils.anyPending(file.getAbsolutePath());
         if (part == -1) {
-            System.out.println("UNIR / abrir o enviar a carpeta destiino");
             String from = md5Dir.getAbsolutePath() + File.separator + Config.PREFFIX_ENCODE;
             String to = null;
             byte[] dec = FileUtils.decode(from + Config.SUFFIX_ENCODE);
@@ -638,38 +628,14 @@ public class Controller {
         }
     }
 
-    private File md5Folder(String md5, String inOut) {
-        File temp = new File(Config.TEMP_PATH);
-
-        if (!temp.exists()) {
-            temp.mkdir();
-        }
-
-        File fwk = new File(temp.getAbsolutePath() + File.separator + wk.getId());
-
-        if (!fwk.exists()) {
-            fwk.mkdir();
-        }
-
-        File fot = new File(fwk.getAbsolutePath() + File.separator + inOut);
-
-        if (!fot.exists()) {
-            fot.mkdir();
-        }
-
-        File fus = new File(fot.getAbsolutePath() + File.separator + md5);
-
-        if (!fus.exists()) {
-            fus.mkdir();
-        }
-        return fus;
-    }
-
     private void addUserToRemoteList(User user) {
         int idx = remoteUsers.indexOf(user);
         if (idx != -1) {
             User us = remoteUsers.get(idx);
             us.copy(user);
+            if(user.getFiles().isEmpty()) {
+            	us.setFiles(new ArrayList<QFile>());
+            }
         } else {
             remoteUsers.add(user);
         }

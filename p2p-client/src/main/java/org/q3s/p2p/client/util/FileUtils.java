@@ -14,13 +14,16 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
+import java.util.Comparator;
 import java.util.List;
 
 import javax.xml.bind.DatatypeConverter;
 
 import org.q3s.p2p.client.Config;
 import org.q3s.p2p.model.QFile;
+import org.q3s.p2p.model.Workspace;
 
 public class FileUtils {
 	
@@ -42,14 +45,31 @@ public class FileUtils {
     
     public static int anyPending(String path) {
         File folder = new File(path);
-        File[] files = folder.listFiles();
-        for (File file : files) {
-            if(file.isFile() && !file.isHidden()){
-                if(file.getName().endsWith(Config.SUFFIX_PENDING)) {
-                	return Integer.valueOf(file.getName().split("\\.")[0]);
-                }
-            }
+        File[] fl = folder.listFiles();
+        
+        List<File> files = new ArrayList<File>();
+        for (File file : fl) {
+        	if(file.isFile() && !file.isHidden()){
+        		if(file.getName().endsWith(Config.SUFFIX_PENDING)) {
+        			files.add(file);
+        		}
+        	}
         }
+        
+        File[] onlyPending = files.toArray(new File[] {});
+        
+        Arrays.sort(onlyPending, new Comparator<File>() {
+            public int compare(File f1, File f2) {
+            	int i1 = Integer.valueOf(f1.getName().replace(Config.SUFFIX_PENDING, ""));
+            	int i2 = Integer.valueOf(f2.getName().replace(Config.SUFFIX_PENDING, ""));
+                return Integer.compare(i1, i2);
+            }
+        });
+        
+        for (File file : onlyPending) {
+			return Integer.valueOf(file.getName().split("\\.")[0]);
+        }
+        
         return -1;
     }
     
@@ -149,11 +169,6 @@ public class FileUtils {
 	 * @throws IOException
 	 */
 	public static int splitFile(final String fileName, final int mBperSplit, String destination) throws IOException {
-
-	    if (mBperSplit <= 0) {
-	        throw new IllegalArgumentException("mBperSplit must be more than zero");
-	    }
-
 	    List<Path> partFiles = new ArrayList<>();
 	    final long sourceSize = Files.size(Paths.get(fileName));
 	    final long bytesPerSplit = 1024L * mBperSplit;
@@ -162,7 +177,7 @@ public class FileUtils {
 	    int position = 0;
 
 	    try (RandomAccessFile sourceFile = new RandomAccessFile(fileName, "r");
-	         FileChannel sourceChannel = sourceFile.getChannel()) {
+	        FileChannel sourceChannel = sourceFile.getChannel()) {
 
 	        for (; position < numSplits; position++) {
 	            //write multipart files.
@@ -184,6 +199,60 @@ public class FileUtils {
 	        toChannel.transferFrom(sourceChannel, 0, byteSize);
 	    }
 	    partFiles.add(fileName);
+	}
+	
+    public static File md5Folder(Workspace wk, String md5, String inOut) {
+        File temp = new File(Config.TEMP_PATH);
+
+        if (!temp.exists()) {
+            temp.mkdir();
+        }
+
+        File fwk = new File(temp.getAbsolutePath() + File.separator + wk.getId());
+
+        if (!fwk.exists()) {
+            fwk.mkdir();
+        }
+
+        File fot = new File(fwk.getAbsolutePath() + File.separator + inOut);
+
+        if (!fot.exists()) {
+            fot.mkdir();
+        }
+
+        File fus = new File(fot.getAbsolutePath() + File.separator + md5);
+
+        if (!fus.exists()) {
+            fus.mkdir();
+        }
+        return fus;
+    }
+	
+	public static void main(String[] args) throws IOException {
+		String path = "/Users/damianlezcano/rh/workspaces/q3s/qfolder/p2p-client/temp/60746f1d-f037-4874-bdf9-1a9d45a41096/out/E8F269AB3EB324EBDB261E874BEEEC84";
+		int idx = FileUtils.anyPending(path);
+		System.out.println(idx);
+//		String ext = ".json";
+//		String filename = "/Users/damianlezcano/rh/workspaces/q3s/qfolder/p2p-client/export" + ext;
+//		
+//		//1
+//        String content = FileUtils.encoder(filename);
+//        Path path = FileUtils.saveInTempDirectory(filename, content);
+//        
+//        int parts = FileUtils.splitFile(path.toString(), Config.FILE_PART_SIZE_IN_KB, "./temp/out/");
+//        
+//        //2
+//        for (int i = 0; i < parts; i++) {
+//        	String c = FileUtils.read("./temp/out/"+i+".part");
+//        	FileUtils.save("./temp/in/salida"+ext+".enc", c.getBytes());			
+//		}
+//        
+//        //3
+//        byte[] out = FileUtils.decode("./temp/in/salida"+ext+".enc");
+//        FileUtils.save("salida" + ext, out);
+//        
+//        System.out.println("");
+        
 	}
 	
 }

@@ -7,11 +7,11 @@ package org.q3s.p2p.client.util;
 
 import java.util.Map;
 import java.util.Map.Entry;
+
 import org.q3s.p2p.client.Config;
 import org.q3s.p2p.client.view.Controller;
 import org.q3s.p2p.model.Event;
 import org.q3s.p2p.model.Workspace;
-
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -140,10 +140,7 @@ public class HttpClient {
     //llamar a github para obtener la URL del servidor
     public void verifyServiceGithubUp(){
         if (Config.URL_SERVER == null) {
-//            get(Config.URL_GITHUB_SERVER_INF, null, null, "URL servicio resuelta", "Error al intentar recuperar la URL del servicio");
-        	
-            Event er = new Event("URL servicio resuelta","http://localhost:8080");
-            controller.notify(er);
+            get(Config.URL_GITHUB_SERVER_INF, null, null, "URL servicio resuelta", "Error al intentar recuperar la URL del servicio");
         }
     }
 
