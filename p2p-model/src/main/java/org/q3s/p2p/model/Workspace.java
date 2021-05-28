@@ -3,6 +3,7 @@ package org.q3s.p2p.model;
 import java.util.HashMap;
 import java.util.Map;
 
+
 public class Workspace {
 
     private String id;

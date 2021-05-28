@@ -25,9 +25,7 @@ public class Config {
     
     public static String WK_APPROVE_USER = "approved";
     public static String WK_REFUSE_USER = "refuse";
-    
-     public static String WK_PING_USER = "ping";
-    
+        
     public static String WK_CONNECT_WITHOUT_AUTH = "connect";
     public static String WK_CONNECT_WITH_AUTH = "connect/auth";
     
@@ -49,10 +47,6 @@ public class Config {
 
     public static String buildWkConnectUri(Workspace wk, User user) {
         return String.format("%s/%s/%s?user=%s", URL_SERVER,wk.getId(),WK_CONNECT,user.getId());
-    }
-
-    public static String buildWkReconnectUri(Workspace wk, User user) {
-        return String.format("%s/%s/%s?user=%s", URL_SERVER,wk.getId(),WK_RECONNECT,user.getId());
     }
     
     public static String buildWkConnectWithoutAuthUri(Workspace wk) {
@@ -79,7 +73,4 @@ public class Config {
         return String.format("%s/%s/%s", URL_SERVER,wk.getId(),user.getId());
     }
     
-    public static String buildPingUserUrl(Workspace wk, User user) {
-        return String.format("%s/%s/%s/%s", URL_SERVER,wk.getId(),WK_PING_USER,user.getId());
-    }
 }

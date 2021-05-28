@@ -1,6 +1,7 @@
 package org.q3s.p2p.model;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
+import javax.json.bind.annotation.JsonbTransient;
+
 
 public class QFile {
 
@@ -16,7 +17,7 @@ public class QFile {
     private String content;
     private String operation;
     
-    @JsonIgnore
+    @JsonbTransient
     private User owner;
 
     public String getName() {

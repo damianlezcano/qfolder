@@ -1,10 +1,9 @@
-
 package org.q3s.p2p.model;
 
 import java.util.ArrayList;
 import java.util.List;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
+import javax.json.bind.annotation.JsonbTransient;
 
 public class User {
 
@@ -135,7 +134,7 @@ public class User {
         return this;
     }
 
-    @JsonIgnore
+    @JsonbTransient
     public boolean isReconnect() {
         if (this.date != 0l) {
             long current = System.currentTimeMillis();

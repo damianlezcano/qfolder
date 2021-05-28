@@ -93,14 +93,6 @@ public class Event {
     public void setResponse(String response) {
         this.response = response;
     }
-    
-    public String toJson() {
-        try {
-            return EventUtils.toJson(this);
-        } catch (Exception e) {
-            return "";
-        }
-    }
 
     public String toJsonBase64() {
         try {
@@ -108,10 +100,6 @@ public class Event {
         } catch (Exception e) {
             return "";
         }
-    }
-    
-    public Event build(String json){
-        return EventUtils.toObject(json);
     }
 
     @Override

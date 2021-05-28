@@ -5,9 +5,16 @@
  */
 package org.q3s.p2p.client.util;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.util.concurrent.atomic.AtomicBoolean;
+
+
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
+
+import javax.ws.rs.client.Client;
+import javax.ws.rs.client.ClientBuilder;
+import javax.ws.rs.client.WebTarget;
+import javax.ws.rs.sse.InboundSseEvent;
+import javax.ws.rs.sse.SseEventSource;
 
 import org.q3s.p2p.client.Config;
 import org.q3s.p2p.client.view.Controller;
@@ -15,9 +22,7 @@ import org.q3s.p2p.model.Event;
 import org.q3s.p2p.model.User;
 import org.q3s.p2p.model.Workspace;
 import org.q3s.p2p.model.util.EventUtils;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
-import org.springframework.web.client.RestTemplate;
+
 
 /**
  *
@@ -29,89 +34,42 @@ public class SseClient extends Thread {
     private Workspace wk;
     private Controller controller;
     private Logger log;
-
-    private int MAX_RETRY_RECONNECT = 2;
-    private long DELAY_RETRY_RECONNECT = 1000;
     
-    private int connectTimeoutMillis = 4000;
-    private int readTimeoutMillis = 0;
-
-    private int cdor = 0;
-    
-    private RestTemplate restTemplate = new RestTemplate() /*new RestTemplateBuilder()
-        .setConnectTimeout(Duration.ofMillis(connectTimeoutMillis))
-        .setReadTimeout(Duration.ofMillis(readTimeoutMillis))
-        .build()*/;
-
-    private AtomicBoolean interrupt = new AtomicBoolean(false);
-
-    public void interrupt() {
-        interrupt.set(true);
-    }
+    Client client = ClientBuilder.newClient();
 
     public SseClient(Workspace wk, User user, Controller controller, Logger log) {
         this.wk = wk;
         this.user = user;
         this.controller = controller;
         this.log = log;
-        setTimeout(restTemplate);
     }
 
     public void run() {
-        System.out.println("Thread has started");
-        do{
-            try {
-                String url = cdor++ > 0 ? Config.buildWkReconnectUri(wk, user) : Config.buildWkConnectUri(wk, user);
-                restTemplate.execute(url, HttpMethod.GET,
-                        request -> {},
-                        response -> {
-                            BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(response.getBody()));
-                            String line; cdor = 0;
-                            while ((line = bufferedReader.readLine()) != null) {
-                                if(interrupt.get()){
-                                    break;
-                                }else{
-                                    if (!line.isEmpty()) {
-                                        Event event = EventUtils.toObjectBase64(line);
-                                        controller.notify(event);
-                                    }
-                                }
-                            }
-                            return response;
-                        });
-            } catch (Exception e) {
-                System.out.println("SSECLient ERROR 2");
-            }
-            
-            try {Thread.sleep(DELAY_RETRY_RECONNECT);} catch (InterruptedException ex) {}
-            
-            if(cdor > MAX_RETRY_RECONNECT){
-                Event event = new Event("No es posible establecer una conexion","El servidor no esta disponible. Vuelva a intentarlo mas tarde.");
-                controller.notify(event);            
-            }
-            
-        }while (!interrupt.get() && cdor <= MAX_RETRY_RECONNECT);
-
-        System.out.println("Thread has ended");
-
-    }
-
-    public boolean isClosed(){
-        return interrupt.get();
+        String url = Config.buildWkConnectUri(wk, user);
+        WebTarget target = client.target(url);
+        SseEventSource eventSource = SseEventSource.target(target).reconnectingEvery(5, TimeUnit.SECONDS).build();
+        eventSource.register(onEvent, onError, onComplete);
+        eventSource.open();
     }
     
-    private void setTimeout(RestTemplate restTemplate) {
-        restTemplate.setRequestFactory(new SimpleClientHttpRequestFactory());
-        SimpleClientHttpRequestFactory rf = (SimpleClientHttpRequestFactory) restTemplate.getRequestFactory();
-        rf.setReadTimeout(readTimeoutMillis);
-        rf.setConnectTimeout(connectTimeoutMillis);
-    }
+    // A new event is received
+    private Consumer<InboundSseEvent> onEvent = (inboundSseEvent) -> {
+        String data = inboundSseEvent.readData(String.class);
+//        System.out.println("Event received: {}" + data);
+		Event event = (Event) EventUtils.toObjectBase64(data,Event.class);
+//		System.out.println("name: " + inboundSseEvent.getName() + " - event: " + event);
+		controller.notify(event);
+    };
+
+    //Error
+    private Consumer<Throwable> onError = (throwable) -> {
+    	System.out.println("Error received: {}" + throwable.getMessage() + throwable);
+        throwable.printStackTrace();
+    };
+
+    //Connection close and there is nothing to receive
+    private Runnable onComplete = () -> {
+    	System.out.println("onComplete");
+    };
     
-//    public String get(String url) throws Exception {
-//        HttpHeaders httpHeaders = new HttpHeaders();
-//        httpHeaders.set("Accept", MediaType.APPLICATION_JSON_VALUE);
-//        HttpEntity<?> httpEntity = new HttpEntity<>(httpHeaders);
-//        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, httpEntity, String.class);
-//        return response.getBody().trim();
-//    }
 }

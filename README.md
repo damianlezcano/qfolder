@@ -1,3 +1,4 @@
-# qfolder
+# qfolder (Directorio distribuido) con Swing + Quarkus SSE
 
-version swing
+
+![screen](screen.png)

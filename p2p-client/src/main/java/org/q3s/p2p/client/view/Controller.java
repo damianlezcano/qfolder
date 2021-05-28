@@ -443,8 +443,6 @@ public class Controller {
 
                     refreshLocalFilesAndNotify("Gracias por la bienvenida, notifico mis archivos");
 
-                    ping();//TODO: borrar cuando se resuelva el issue SSE con webflux
-
                 } else if ("Gracias por la bienvenida, notifico mis archivos".equals(event.getName())) {
                     if (event.getUser().equals(user)) {
                         // renderizo archivos locales
@@ -755,24 +753,6 @@ public class Controller {
             }
         }
         return null;
-    }
-
-    private void ping() {
-        final Controller controller = this;
-        new Thread(new Runnable() {
-            public void run() {
-                try {
-                    do {
-                        httpClient.get(Config.buildPingUserUrl(wk, user));
-                        Thread.sleep(2000);
-                    } while (sseClient.isAlive() && !httpClient.isDisconnect());
-                } catch (Exception ex) {
-                } finally {
-                    Event event = new Event("Se perdio la conexion con el servidor");
-                    controller.notify(event);
-                }
-            }
-        }).start();
     }
 
     public void downloadFile(User user2, QFile qFile) {
