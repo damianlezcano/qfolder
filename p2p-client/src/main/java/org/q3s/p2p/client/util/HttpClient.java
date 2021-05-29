@@ -28,14 +28,14 @@ public class HttpClient {
 
     private Controller controller;
     
-    private Client client = ClientBuilder.newClient();
+    private Client client = ClientBuilder.newBuilder().build();
 
     public HttpClient(Controller controller) {
         this.controller = controller;
     }
     
 	public void get(String uri, Event request, Map<String, String> params, String eventResponseOK, String eventResponseFail) {
-		System.out.println("> HttpClient.get -> " + uri);
+		controller.getLogger().debug("> HttpClient.get -> " + uri);
         new Thread(new Runnable() {
             public void run() {
                 Event eventResponse = new Event(eventResponseOK);
@@ -68,7 +68,7 @@ public class HttpClient {
 	}
     
 	public void post(String uri, Object obj, String eventResponseOK, String eventResponseFail) {
-		System.out.println("> HttpClient.post -> " + uri);
+		controller.getLogger().debug("> HttpClient.post -> " + uri);
         new Thread(new Runnable() {
             public void run() {
                 Event eventResponse = new Event(eventResponseOK);
@@ -76,6 +76,7 @@ public class HttpClient {
                     WebTarget target = client.target(uri);
                     Response response = target.request(MediaType.APPLICATION_JSON).post(Entity.entity(obj, MediaType.APPLICATION_JSON));
         			int statusCode = response.getStatus();
+        			controller.getLogger().debug("> http.statusCode: " + statusCode);
         			if (!(statusCode >= 200 && statusCode < 400)) {
         				throw new Exception();
         			}
@@ -97,8 +98,15 @@ public class HttpClient {
     
     //llamar a github para obtener la URL del servidor
     public void verifyServiceGithubUp(){
-        if (Config.URL_SERVER == null) {
-            get(Config.URL_GITHUB_SERVER_INF, null, null, "URL servicio resuelta", "Error al intentar recuperar la URL del servicio");
+    	String server = Config.URL_SERVER;
+    	String eventResponseOK = "URL servicio resuelta";
+    	//-----------------------------------------------
+        if (server == null) {
+            get(Config.URL_GITHUB_SERVER_INF, null, null, eventResponseOK, "Error al intentar recuperar la URL del servicio");
+        }else {
+        	controller.getLogger().debug("# Server REF definido: " + server);
+        	Event event = new Event(eventResponseOK, server);
+        	controller.notify(event);
         }
     }
 

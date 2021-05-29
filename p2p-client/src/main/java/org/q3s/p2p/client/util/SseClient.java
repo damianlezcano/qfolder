@@ -35,8 +35,8 @@ public class SseClient extends Thread {
     private Controller controller;
     private Logger log;
     
-    Client client = ClientBuilder.newClient();
-
+    private Client client = ClientBuilder.newClient();
+    
     public SseClient(Workspace wk, User user, Controller controller, Logger log) {
         this.wk = wk;
         this.user = user;
@@ -45,31 +45,32 @@ public class SseClient extends Thread {
     }
 
     public void run() {
-        String url = Config.buildWkConnectUri(wk, user);
-        WebTarget target = client.target(url);
-        SseEventSource eventSource = SseEventSource.target(target).reconnectingEvery(5, TimeUnit.SECONDS).build();
-        eventSource.register(onEvent, onError, onComplete);
-        eventSource.open();
+    	String url = Config.buildWkConnectUri(wk, user);
+    	log.debug("Estableciendo conexion SSE con el servidor -> " + url);
+    	WebTarget target = client.target(url);
+    	SseEventSource eventSource = SseEventSource.target(target).reconnectingEvery(3, TimeUnit.SECONDS).build();
+    	eventSource.register(onEvent, onError, onComplete);
+    	eventSource.open();
     }
     
     // A new event is received
     private Consumer<InboundSseEvent> onEvent = (inboundSseEvent) -> {
+        log.debug("Event received: " + inboundSseEvent.getId());
         String data = inboundSseEvent.readData(String.class);
-//        System.out.println("Event received: {}" + data);
 		Event event = (Event) EventUtils.toObjectBase64(data,Event.class);
-//		System.out.println("name: " + inboundSseEvent.getName() + " - event: " + event);
 		controller.notify(event);
     };
 
     //Error
     private Consumer<Throwable> onError = (throwable) -> {
-    	System.out.println("Error received: {}" + throwable.getMessage() + throwable);
-        throwable.printStackTrace();
+    	System.out.println("> Error ->" + throwable.getMessage());
+    	controller.notify(new Event("No es posible establecer una conexion"));
     };
 
     //Connection close and there is nothing to receive
     private Runnable onComplete = () -> {
-    	System.out.println("onComplete");
+    	System.out.println("> onComplete");
+    	controller.notify(new Event("Se perdio la conexion con el servidor"));
     };
     
 }

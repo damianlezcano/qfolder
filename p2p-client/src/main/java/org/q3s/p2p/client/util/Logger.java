@@ -31,6 +31,12 @@ public class Logger {
         listModel.addElement(f);
     }
     
+    public void debug(String msg){
+        String date = simpleDateFormat.format(new Date());
+        String f = String.format("%s - %s", date,msg);
+        System.out.println(f);
+    }
+    
     public void err(String msg){
         String date = simpleDateFormat.format(new Date());
         String f = String.format("%s - %s", date,msg);

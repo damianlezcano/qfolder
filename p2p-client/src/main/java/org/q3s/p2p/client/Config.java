@@ -17,7 +17,7 @@ public class Config {
     public static final int FILE_PART_SIZE_IN_KB = 100;
     
 	public static String URL_GITHUB_SERVER_INF = "https://raw.githubusercontent.com/damianlezcano/qfolder/jdk8-swing/p2p-server/dist/redirect.ref";
-    public static String URL_SERVER;
+    public static String URL_SERVER = System.getProperty("server");
     
     public static String WK_CREATE = "wk";
     public static String WK_CONNECT = "connect";
