@@ -370,7 +370,7 @@ public class Controller {
             if(event != null && event.getName() != null){
                 log.debug(event.getName());
                 if ("Wk no existe, desconectar".equals(event.getName())) {
-log.info(">>>> 1");
+//log.info(">>>> 1");
                     sseClient.interrupt();
                     view.getjButton2().setEnabled(true);
                     view.getjLabel4().setEnabled(true);
@@ -383,7 +383,7 @@ log.info(">>>> 1");
                     //envio datos del usuario
                     httpClient.post(Config.buildWkConnectWithoutAuthUri(wk), user);
                 } else if ("Wk existente, con credenciales".equals(event.getName())) {
-log.info(">>>> 3");                	
+//log.info(">>>> 3");                	
                     //Credenciales
                     JPasswordField pf = new JPasswordField();
                     //Create OptionPane & Dialog
@@ -416,7 +416,7 @@ log.info(">>>> 3");
                     }
 
                 } else if ("Credenciales incorrectas".equals(event.getName())) {
-log.info(">>>> 4");
+//log.info(">>>> 4");
                     mostrarErrorEnPantallaLogin("Credenciales incorrectas");
                 } else if ("Aprobar al usuario".equals(event.getName())) {
 //log.info(">>>> 5");
@@ -478,7 +478,7 @@ log.info(">>>> 4");
                 } else if ("Se borro un archivo".equals(event.getName())) {
 //log.info(">>>> 11");
                 	if (event.getUser().equals(user)) {
-                		log.info("Archivo '" + event.getFile().getName() + "' borrado");
+                		log.info("Borraste el archivo '" + event.getFile().getName());
                 	}else {
                 		log.info("El usuario '" + event.getUser().getName() + "' borro el archivo '" + event.getFile().getName());
                 	}
@@ -525,35 +525,35 @@ log.info(">>>> 4");
                     qfile.setMD5(md5);
                     File fus = FileUtils.md5Folder(wk,event.getFile().getMD5(), "out");
                     int parts = FileUtils.splitFile(path.toString(), Config.FILE_PART_SIZE_IN_KB, fus.getAbsolutePath());
-                    qfile.setParts(parts);
+                    qfile.setTotalParts(parts);
                     Event e = new Event("Envio el detalle de las partes del archivo", user, qfile);
                     httpClient.post(Config.buildWkToUserUri(wk, event.getUser()), e);
                 } else if ("Envio el detalle de las partes del archivo".equals(event.getName())) {
 //log.info(">>>> 15");
-					log.info("Recuperando cantidad de partes del archivo: " + event.getFile().getParts());
+					log.info("Recuperando cantidad de partes del archivo: " + event.getFile().getTotalParts());
                     File fus = FileUtils.md5Folder(wk,event.getFile().getMD5(), "in");
-                    for (int i = 0; i < event.getFile().getParts(); i++) {
+                    for (int i = 0; i < event.getFile().getTotalParts(); i++) {
                         File t = new File(fus.getAbsolutePath() + File.separator + i + Config.SUFFIX_PENDING);
                         t.createNewFile();
                     }
                     retriveAnyPendingFileAndRequest(event, fus);
                 } else if ("Dame la parte numero".equals(event.getName())) {
 //log.info(">>>> 16");
-                	log.info("Enviando parte nro '" + event.getFile().getParts());
+                	log.info("Enviando parte nro " + (event.getFile().getCurrentPart()+1) + " de " + event.getFile().getTotalParts());
                     QFile file = event.getFile();
                     File md5Dir = FileUtils.md5Folder(wk,file.getMD5(), "out");
-                    String md5Part = md5Dir.getAbsolutePath() + File.separator + file.getParts() + Config.SUFFIX_PART;
+                    String md5Part = md5Dir.getAbsolutePath() + File.separator + file.getCurrentPart() + Config.SUFFIX_PART;
                     String content = FileUtils.read(md5Part);
                     file.setContent(content);
                     Event e = new Event("Esta es la parte que me pedistes", user, file);
                     httpClient.post(Config.buildWkToUserUri(wk, event.getUser()), e);
                 } else if ("Esta es la parte que me pedistes".equals(event.getName())) {
 //log.info(">>>> 17");
-                	log.info("Obteniendo parte nro " + event.getFile().getParts());
+                	log.info("Obteniendo parte nro " + (event.getFile().getCurrentPart()+1) + " de " + event.getFile().getTotalParts());
                     QFile file = event.getFile();
                     File md5Dir = FileUtils.md5Folder(wk,file.getMD5(), "in");
                     FileUtils.save(md5Dir.getAbsolutePath() + File.separator + Config.PREFFIX_ENCODE + Config.SUFFIX_ENCODE, file.getContent().getBytes());
-                    String md5Part = md5Dir.getAbsolutePath() + File.separator + file.getParts();
+                    String md5Part = md5Dir.getAbsolutePath() + File.separator + file.getCurrentPart();
                     FileUtils.remove(Paths.get(md5Part + Config.SUFFIX_PENDING));
                     retriveAnyPendingFileAndRequest(event, md5Dir);
                 }else if("Error al intentar conectarse con el servidor".equals(event.getName())){
@@ -567,7 +567,7 @@ log.info(">>>> 18");
                     view.getjTextField2().setFocusable(true);
                     Config.URL_SERVER = event.getResponse();
                 }else if("Error al intentar recuperar la URL del servicio".equals(event.getName())){
-log.info(">>>> 20");
+//log.info(">>>> 20");
                     mostrarErrorEnPantallaLogin("Verifique su conexion a internet o configure el proxy.");
                 }else if("Workspace creado".equals(event.getName())){
 //log.info(">>>> 21");
@@ -581,7 +581,7 @@ log.info(">>>> 20");
                     view.setTitle(view.getjTextField3().getText());
                     mostrarErrorEnPantallaLogin("");
                 }else if("Error al crear el workspace".equals(event.getName())){
-log.info(">>>> 22");
+//log.info(">>>> 22");
                     view.getjPanelCreateWorkspace().setVisible(false);
                     view.getjPanelJoin().setVisible(true);
                     view.getjTabbedPane().setVisible(false);
@@ -589,7 +589,7 @@ log.info(">>>> 22");
                     view.setTitle(user.getName());
                     mostrarErrorEnPantallaLogin("Error al crear el espacio de trabajo: " + event.getResponse());
                 }else if("No es posible establecer una conexion".equals(event.getName())){
-log.info(">>>> 23");
+//log.info(">>>> 23");
                     view.getjPanelCreateWorkspace().setVisible(false);
                     view.getjPanelJoin().setVisible(true);
                     view.getjTabbedPane().setVisible(false);
@@ -603,7 +603,7 @@ log.info(">>>> 23");
                     view.getjButton6().setEnabled(true);
                     mostrarErrorEnPantallaLogin("No es posible conectarse al grupo de trabajo. Vuelva a intentarlo mas tarde.");
                 }else if("Se perdio la conexion con el servidor".equals(event.getName())){
-log.info(">>>> 24");
+//log.info(">>>> 24");
                     view.getjPanelCreateWorkspace().setVisible(false);
                     view.getjPanelJoin().setVisible(true);
                     view.getjTabbedPane().setVisible(false);
@@ -671,8 +671,8 @@ log.info(">>>> 24");
             }
             refreshLocalFilesAndNotify("Notifico Cambio en los archivos");
         } else {
-        	log.info("Solicitando parte nro " + part);
-            event.getFile().setParts(part);
+        	log.info("Solicitando parte nro " + (part +1) + " de " + event.getFile().getTotalParts());
+            event.getFile().setCurrentPart(part);
             Event e = new Event("Dame la parte numero", user, event.getFile());
             httpClient.post(Config.buildWkToUserUri(wk, event.getUser()), e);
         }

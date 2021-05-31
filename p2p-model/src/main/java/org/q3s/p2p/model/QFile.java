@@ -12,7 +12,9 @@ public class QFile {
     private String name;
     private long size;
     private long date;
-    private int parts;
+    
+    private int totalParts;
+    private int currentPart;
     
     private String content;
     private String operation;
@@ -65,14 +67,6 @@ public class QFile {
         return String.format("QFile -> name: %s, size: %s, date: %s", name, size, date);
     }
 
-	public int getParts() {
-		return parts;
-	}
-
-	public void setParts(int parts) {
-		this.parts = parts;
-	}
-
 	public String getContent() {
 		return content;
 	}
@@ -87,6 +81,30 @@ public class QFile {
 
 	public void setOperation(String operation) {
 		this.operation = operation;
+	}
+
+	public String getMd5() {
+		return md5;
+	}
+
+	public void setMd5(String md5) {
+		this.md5 = md5;
+	}
+
+	public int getTotalParts() {
+		return totalParts;
+	}
+
+	public void setTotalParts(int totalParts) {
+		this.totalParts = totalParts;
+	}
+
+	public int getCurrentPart() {
+		return currentPart;
+	}
+
+	public void setCurrentPart(int currentPart) {
+		this.currentPart = currentPart;
 	}
 	
 }
