@@ -14,7 +14,7 @@
 		<jetty.version>8.1.5.v20120716</jetty.version>
 		<jetty.jsp.version>8.1.4.v20120524</jetty.jsp.version>
 		<spring.version>3.1.2.RELEASE</spring.version>
-		<jboss.resteasy.version>3.0.9.Final</jboss.resteasy.version>
+		<jboss.resteasy.version>3.0.11.Final</jboss.resteasy.version>
 	</properties>
 
 	<repositories>
