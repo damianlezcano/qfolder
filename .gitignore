@@ -1,0 +1,34 @@
+# Maven
+/p2p-client/target/
+/p2p-server/target/
+/p2p-model/target/
+
+# Build output
+dist/
+build/
+packages/
+
+# Personal files
+*.pem
+*.xls
+*.xlsx
+*.jpeg
+*.jpg
+*.png
+*.bmp
+session-ses_*.md
+*.swp
+.DS_Store
+.github-token
+
+# Temp and cache
+history/
+temp/
+*.part
+
+# IDE
+.idea/
+*.iml
+.vscode/
+nbproject/
+RELEASE.md

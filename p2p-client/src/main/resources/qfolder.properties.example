@@ -1,0 +1,10 @@
+# Development tunnel mock. Set to true to avoid calling cloudflared.
+qfolder.tunnel.mock=false
+
+# Host published by mock tunnels. Use localhost for same-machine tests.
+# Use your LAN IP if testing from another machine without Cloudflare.
+qfolder.tunnel.mock.host=localhost
+
+# WebSocket server port. For multiple clients on the same machine,
+# run each distribution copy with a different qfolder.ws.port.
+qfolder.ws.port=18765
