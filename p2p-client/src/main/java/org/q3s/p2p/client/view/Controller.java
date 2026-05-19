@@ -751,7 +751,7 @@ public class Controller {
 			String hubMarker = isThisInstanceHub() ? " [Hub]" : "";
 			view.setTitle("'" + username + "' conectado al grupo '" + decodeValue(wk.getName()) + "'" + hubMarker);
 		} else {
-			view.setTitle(username);
+			view.setTitle(username + " - qfolder v" + UpdateChecker.getVersion());
 		}
 	}
 
