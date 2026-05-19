@@ -8,6 +8,7 @@ package org.q3s.p2p.client.util;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import javax.swing.DefaultListModel;
+import javax.swing.SwingUtilities;
 
 /**
  *
@@ -28,7 +29,7 @@ public class Logger {
         String date = simpleDateFormat.format(new Date());
         String f = String.format("%s - %s", date,msg);
         System.out.println(f);
-        listModel.addElement(f);
+        addToModel(f);
     }
     
     public void debug(String msg){
@@ -41,6 +42,14 @@ public class Logger {
         String date = simpleDateFormat.format(new Date());
         String f = String.format("%s - %s", date,msg);
         System.err.println(f);
-        listModel.addElement(f);
+        addToModel(f);
+    }
+
+    private void addToModel(String msg) {
+        if (SwingUtilities.isEventDispatchThread()) {
+            listModel.addElement(msg);
+        } else {
+            SwingUtilities.invokeLater(() -> listModel.addElement(msg));
+        }
     }
 }

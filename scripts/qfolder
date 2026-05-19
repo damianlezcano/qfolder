@@ -1,0 +1,38 @@
+#!/bin/bash
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+JAR="$SCRIPT_DIR/qfolder.jar"
+
+if [ ! -f "$JAR" ]; then
+    echo "ERROR: No se encuentra $JAR"
+    exit 1
+fi
+
+for jhome in "$JAVA_HOME" "$HOME/.local/jdk" "/usr/lib/jvm/java-21-openjdk" "/usr/lib/jvm/java-17-openjdk" "/usr/lib/jvm/default-java"; do
+    if [ -n "$jhome" ] && [ -x "$jhome/bin/java" ]; then
+        JAVA="$jhome/bin/java"
+        break
+    fi
+done
+
+if [ -z "$JAVA" ] && command -v java &>/dev/null; then
+    JAVA="java"
+fi
+
+if [ -z "$JAVA" ]; then
+    echo "ERROR: Java 21+ no encontrado. Instale OpenJDK 21 o superior."
+    exit 1
+fi
+
+JAVA_VERSION=$("$JAVA" -version 2>&1 | head -1 | grep -oP '\d+' | head -1)
+if [ "$JAVA_VERSION" -lt 21 ]; then
+    echo "ERROR: Se requiere Java 21+. Version detectada: $JAVA_VERSION"
+    exit 1
+fi
+
+if [ -z "$DISPLAY" ] && [ "$(uname)" != "Darwin" ]; then
+    echo "ADVERTENCIA: No se detecto display grafico. La app Swing puede fallar."
+fi
+
+exec "$JAVA" -jar "$JAR" "$@"

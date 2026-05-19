@@ -1,76 +1,84 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 package org.q3s.p2p.client;
 
-import org.q3s.p2p.model.User;
-import org.q3s.p2p.model.Workspace;
+import java.io.File;
+import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
-/**
- *
- * @author damianlezcano
- */
 public class Config {
- 
-    public static final int FILE_PART_SIZE_IN_KB = 100;
-    
-	public static String URL_GITHUB_SERVER_INF = "https://raw.githubusercontent.com/damianlezcano/qfolder/jdk8-swing/p2p-server/dist/redirect.ref";
-    public static String URL_SERVER = System.getProperty("server");
-    
-    public static String WK_CREATE = "wk";
-    public static String WK_CONNECT = "connect";
-    public static String WK_RECONNECT = "reconnect";
-    
-    public static String WK_APPROVE_USER = "approved";
-    public static String WK_REFUSE_USER = "refuse";
-        
-    public static String WK_CONNECT_WITHOUT_AUTH = "connect";
-    public static String WK_CONNECT_WITH_AUTH = "connect/auth";
-    
-    //http client
-    public static int HTTP_CLIENT_CONNECT_READ_TIMEOUT = 1000;
-    public static int HTTP_CLIENT_CONNECT_REQUEST_TIMEOUT = 1000;
 
-    public static String TEMP_PATH = "temp";
-    public static String SUFFIX_PART = ".part";
-    public static String SUFFIX_PENDING = ".pending";
-    public static String SUFFIX_ENCODE = ".enc";
-    public static String SUFFIX_DECODE = ".dec";
-    
-    public static String PREFFIX_ENCODE = "file";
-    
-    public static String buildWkCreateUri() {
-        return String.format("%s/%s", URL_SERVER,WK_CREATE);
-    }
+	public static String TEMP_PATH = "temp";
 
-    public static String buildWkConnectUri(Workspace wk, User user) {
-        return String.format("%s/%s/%s?user=%s", URL_SERVER,wk.getId(),WK_CONNECT,user.getId());
-    }
-    
-    public static String buildWkConnectWithoutAuthUri(Workspace wk) {
-        return String.format("%s/%s/%s", URL_SERVER,wk.getId(),WK_CONNECT_WITHOUT_AUTH);
-    }
+	public static final int WS_SERVER_PORT = AppConfig.getInt("qfolder.ws.port", 18765);
 
-    public static String buildWkConnectWithAuthUri(Workspace wk) {
-        return String.format("%s/%s/%s", URL_SERVER,wk.getId(),WK_CONNECT_WITH_AUTH);
-    }
+	public static final String USER_NAME = AppConfig.get("qfolder.user.name", System.getenv("USER"));
 
-    public static String buildWkSendApprovedUserUrl(Workspace wk, User user) {
-        return String.format("%s/%s/%s/%s", URL_SERVER,wk.getId(),WK_APPROVE_USER,user.getId());
-    }
-    
-    public static String buildWkSendRefuseUserUrl(Workspace wk, User user) {
-        return String.format("%s/%s/%s/%s", URL_SERVER,wk.getId(),WK_REFUSE_USER,user.getId());
-    }
+	public static final String SHARED_DIR = resolveHome(AppConfig.get("qfolder.shared.dir",
+			"~/qfolder/temporal"));
 
-    public static String buildWkBroadcastUri(Workspace wk) {
-        return String.format("%s/%s", URL_SERVER,wk.getId());
-    }
-    
-    public static String buildWkToUserUri(Workspace wk, User user){
-        return String.format("%s/%s/%s", URL_SERVER,wk.getId(),user.getId());
-    }
-    
+	public static final String HISTORY_DIR = resolveHome(AppConfig.get("qfolder.history.dir",
+			"~/qfolder/history"));
+
+	private static String resolveHome(String path) {
+		if (path == null) return null;
+		if (path.startsWith("~/") || path.equals("~")) {
+			return System.getProperty("user.home") + path.substring(1);
+		}
+		return new File(path).getAbsolutePath();
+	}
+
+	public static boolean isTunnelMockEnabled() {
+		return AppConfig.getBoolean("qfolder.tunnel.mock", false);
+	}
+
+	public static String getTunnelMockHost() {
+		return AppConfig.get("qfolder.tunnel.mock.host", "localhost");
+	}
+
+	public static String getCloudflaredPath() {
+		String configured = AppConfig.get("qfolder.cloudflared.path", null);
+		if (configured != null) return configured;
+
+		String packaged = getPackagedCloudflaredPath();
+		if (packaged != null) return packaged;
+
+		String os = System.getProperty("os.name").toLowerCase();
+		String installDir;
+		if (os.contains("windows")) {
+			installDir = System.getProperty("user.home") + "/AppData/Local/qfolder/bin";
+			return installDir + "/cloudflared.exe";
+		}
+		installDir = System.getProperty("user.home") + "/.local/qfolder/bin";
+		return installDir + "/cloudflared";
+	}
+
+	private static String getPackagedCloudflaredPath() {
+		String name = System.getProperty("os.name").toLowerCase().contains("windows")
+				? "cloudflared.exe" : "cloudflared";
+		try {
+			URI codeUri = Config.class.getProtectionDomain().getCodeSource().getLocation().toURI();
+			Path appDir = Paths.get(codeUri).toAbsolutePath().getParent();
+			Path[] candidates = new Path[] {
+					appDir.resolve("bin").resolve(name),
+					appDir.resolve(name),
+					appDir.resolve("content").resolve("bin").resolve(name),
+					appDir.getParent() != null ? appDir.getParent().resolve("bin").resolve(name) : null,
+					appDir.getParent() != null ? appDir.getParent().resolve(name) : null,
+					appDir.getParent() != null ? appDir.getParent().resolve("content").resolve("bin").resolve(name) : null,
+					Paths.get(System.getProperty("user.dir", ".")).resolve("bin").resolve(name),
+					Paths.get(System.getProperty("user.dir", ".")).resolve(name)
+			};
+			for (Path candidate : candidates) {
+				if (candidate != null && Files.exists(candidate)) {
+					File file = candidate.toFile();
+					file.setExecutable(true);
+					return file.getAbsolutePath();
+				}
+			}
+		} catch (Exception e) {
+			return null;
+		}
+		return null;
+	}
 }

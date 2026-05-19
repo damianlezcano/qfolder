@@ -18,14 +18,15 @@ import org.q3s.p2p.model.User;
 public class FileTableModel extends AbstractTableModel {
 
     private List<User> users = new ArrayList<>();
-    private ImageIcon icon = new ImageIcon(getClass().getResource("/files-icon.png"));
+    private ImageIcon fileIcon = new ImageIcon(getClass().getResource("/files-icon.png"));
+    private ImageIcon folderIcon = new ImageIcon(getClass().getResource("/folder.png"));
 
     protected String[] columnNames = new String[]{
         "", "Archivo", "Tamaño", "Fecha Modificación", "Propietario"
     };
 
     protected Class[] columnClasses = new Class[]{
-        ImageIcon.class, String.class, Long.class, Date.class, String.class
+        ImageIcon.class, String.class, String.class, Date.class, String.class
     };
 
     public FileTableModel() {
@@ -86,18 +87,27 @@ public class FileTableModel extends AbstractTableModel {
         	case -1:
         		return f;
         	case 0:
-                return icon;
+                return f.isDirectory() ? folderIcon : fileIcon;
             case 1:
                 return f.getName();
             case 2:
-                return f.getSize();
+                return f.isDirectory() ? null : formatSize(f.getSize());
             case 3:
-                return new Date(f.getDate());
+                return f.isDirectory() ? null : new Date(f.getDate());
             case 4:
-                return f.getOwner().getName();
+                return f.getOwner() != null ? f.getOwner().getName() : null;
             default:
                 return null;
         }
+    }
+
+    private String formatSize(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        double kb = bytes / 1024.0;
+        if (kb < 1024) return String.format("%.1f KB", kb);
+        double mb = kb / 1024.0;
+        if (mb < 1024) return String.format("%.1f MB", mb);
+        return String.format("%.1f GB", mb / 1024.0);
     }
 
     public List<User> getUsers() {

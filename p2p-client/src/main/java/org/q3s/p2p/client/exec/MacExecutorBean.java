@@ -1,33 +1,14 @@
 package org.q3s.p2p.client.exec;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-
 public class MacExecutorBean implements Executor {
 
 	
 	public void open(String fullname) throws InterruptedException {
-		executeCommand("open -n " + fullname);
-	}
-	
-	private String executeCommand(String command) {
-		StringBuffer output = new StringBuffer();
-		Process p;
 		try {
-			p = Runtime.getRuntime().exec(command);
-			p.waitFor();
-			BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()));
-            String line = "";
-			while ((line = reader.readLine())!= null) {
-				output.append(line + "\n");
-			}
-
+			new ProcessBuilder("open", "-n", fullname).start();
 		} catch (Exception e) {
-			e.printStackTrace();
+			System.err.println("Error opening file: " + e.getMessage());
 		}
-
-		return output.toString();
-
 	}
 	
 }
