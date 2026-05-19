@@ -4,6 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 DIST_JAR="$PROJECT_DIR/dist/qfolder.jar"
+PKG_LINUX_DIR="$PROJECT_DIR/packages/linux"
+PKG_WIN_DIR="$PROJECT_DIR/packages/windows"
 REPO="damianlezcano/qfolder"
 BASE_BRANCH="master"
 DEV_BRANCH="develop"
@@ -18,9 +20,6 @@ warn() { echo -e "${YELLOW}$*${NC}"; }
 CMD="${1:-}"; VERSION="${2:-}"
 [ -n "$CMD" ] && [ -n "$VERSION" ] || {
 	echo "Usage: $0 prepare|publish <version> [notes]"
-	echo ""
-	echo "  prepare v1.0.3   Build, commit on develop, push, create PR → $BASE_BRANCH"
-	echo "  publish v1.0.3   After PR is merged: tag $BASE_BRANCH, release, upload JAR"
 	exit 1
 }
 NOTES="${3:-$VERSION}"
@@ -33,17 +32,25 @@ AUTH="Authorization: token $TOKEN"
 GH="https://${TOKEN}@github.com/${REPO}.git"
 API="https://api.github.com/repos/$REPO"
 
-# ══════════════════════════════════════════════════════════════════
-#  PREPARE
+# ── helpers ──────────────────────────────────────────────────────
+upload_asset() {
+	local release_id="$1" file="$2" name="$3"
+	if [ -f "$file" ]; then
+		ok "Uploading $name ($(du -h "$file" | cut -f1))"
+		curl -s -X POST "$API/releases/$release_id/assets?name=$name" \
+			-H "$AUTH" -H "Content-Type: application/octet-stream" \
+			--data-binary @"$file" > /dev/null
+	fi
+}
+
 # ══════════════════════════════════════════════════════════════════
 cmd_prepare() {
 	ok "Building $VERSION"
 	cd "$PROJECT_DIR"
 	bash "$PROJECT_DIR/build.sh"
-	[ -f "$DIST_JAR" ] || die "$DIST_JAR not found"
 
 	sed -i "s/VERSION = \"[^\"]*\"/VERSION = \"$APP_VERSION\"/" "$VERSION_FILE"
-	ok "Version updated to $APP_VERSION in UpdateChecker.java"
+	ok "Version set to $APP_VERSION"
 
 	ok "Switching to $DEV_BRANCH"
 	git -c user.name=release -c user.email=release@qfolder checkout -B "$DEV_BRANCH" 2>/dev/null || true
@@ -51,47 +58,63 @@ cmd_prepare() {
 	git -c user.name=release -c user.email=release@qfolder commit -m "$VERSION: $NOTES" || ok "(nothing to commit)"
 
 	ok "Pushing $DEV_BRANCH"
-	git -c user.name=release -c user.email=release@qfolder push "$GH" "$DEV_BRANCH" --force-with-lease 2>&1 | tail -1
+	git -c user.name=release -c user.email=release@qfolder push "$GH" "$DEV_BRANCH" 2>&1 | tail -1
 
 	ok "Creating Pull Request: $DEV_BRANCH → $BASE_BRANCH"
 	PR_URL=$(curl -s -X POST "$API/pulls" -H "$AUTH" -H "Content-Type: application/json" \
 		-d "{\"title\":\"$VERSION: $NOTES\",\"head\":\"$DEV_BRANCH\",\"base\":\"$BASE_BRANCH\",\"body\":\"$NOTES\"}" \
 		| python3 -c "import sys,json; print(json.load(sys.stdin).get('html_url','ERROR'))" 2>/dev/null)
-	ok "PR created: $PR_URL"
-	warn "Review and merge the PR, then run: $0 publish $VERSION"
+	ok "PR: $PR_URL"
+	warn "→ Merge the PR, then run: $0 publish $VERSION"
 }
 
 # ══════════════════════════════════════════════════════════════════
-#  PUBLISH  (run after PR is merged)
-# ══════════════════════════════════════════════════════════════════
 cmd_publish() {
-	ok "Fetching latest $BASE_BRANCH"
-	git -c user.name=release -c user.email=release@qfolder fetch origin "$BASE_BRANCH" 2>/dev/null
+	ok "Fetching $BASE_BRANCH"
+	git -c user.name=release -c user.email=release@qfolder fetch origin "$BASE_BRANCH"
 	git -c user.name=release -c user.email=release@qfolder checkout -B "$BASE_BRANCH" "origin/$BASE_BRANCH"
 
-	ok "Tagging $VERSION"
+	# ── build jar ─────────────────────────────────────────────
+	ok "Building JAR"
+	cd "$PROJECT_DIR"
+	bash "$PROJECT_DIR/build.sh"
+	[ -f "$DIST_JAR" ] || die "$DIST_JAR not found"
+
+	# ── package ───────────────────────────────────────────────
+	if command -v jpackage &>/dev/null || [ -x "${JAVA_HOME:-}/bin/jpackage" ]; then
+		ok "Packaging Linux (jpackage app-image)"
+		bash "$SCRIPT_DIR/package-linux.sh" app-image || warn "Linux package skipped (cloudflared missing?)"
+	else
+		warn "jpackage not available, skipping platform packages"
+	fi
+
+	# ── tag ───────────────────────────────────────────────────
+	ok "Tagging $VERSION on $BASE_BRANCH"
 	git -c user.name=release -c user.email=release@qfolder tag -f "$VERSION"
 	git -c user.name=release -c user.email=release@qfolder push "$GH" "$VERSION" 2>&1 | tail -1
 
+	# ── release ───────────────────────────────────────────────
 	ok "Creating GitHub Release"
 	RELEASE_ID=$(curl -s -X POST "$API/releases" -H "$AUTH" -H "Content-Type: application/json" \
 		-d "{\"tag_name\":\"$VERSION\",\"name\":\"$VERSION\",\"body\":\"$NOTES\",\"draft\":false,\"prerelease\":false}" \
 		| python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 	ok "Release id=$RELEASE_ID"
 
-	ok "Uploading qfolder.jar"
-	curl -s -X POST "$API/releases/$RELEASE_ID/assets?name=qfolder.jar" \
-		-H "$AUTH" -H "Content-Type: application/octet-stream" --data-binary @"$DIST_JAR" > /dev/null
+	# ── upload JAR ────────────────────────────────────────────
+	upload_asset "$RELEASE_ID" "$DIST_JAR" "qfolder.jar"
 
+	# ── upload packages ───────────────────────────────────────
+	upload_asset "$RELEASE_ID" "$PKG_LINUX_DIR/qfolder-linux-x64.tar.gz" "qfolder-linux-x64.tar.gz"
+	upload_asset "$RELEASE_ID" "$PKG_WIN_DIR/qfolder-windows-x64.zip"   "qfolder-windows-x64.zip"
+
+	# ── done ──────────────────────────────────────────────────
 	ok "Done: https://github.com/$REPO/releases/tag/$VERSION"
-
-	ok "Back to $DEV_BRANCH"
-	git -c user.name=release -c user.email=release@qfolder checkout "$DEV_BRANCH" 2>/dev/null || true
+	warn "Back on $BASE_BRANCH. Switch to develop to continue work:"
+	warn "  git checkout $DEV_BRANCH"
 }
 
-# ══════════════════════════════════════════════════════════════════
 case "$CMD" in
 	prepare) cmd_prepare ;;
 	publish) cmd_publish ;;
-	*) die "Unknown command: $CMD" ;;
+	*) die "Unknown: $CMD. Use prepare|publish" ;;
 esac
