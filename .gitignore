@@ -19,6 +19,7 @@ packages/
 session-ses_*.md
 *.swp
 .DS_Store
+.github-token
 
 # Temp and cache
 history/
