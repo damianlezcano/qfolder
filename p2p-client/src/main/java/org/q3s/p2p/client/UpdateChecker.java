@@ -21,7 +21,7 @@ import org.q3s.p2p.client.util.Logger;
 
 public class UpdateChecker {
 
-	private static final String VERSION = "1.0.0";
+	private static final String VERSION = "1.0.1";
 	private static final String GITHUB_API = "https://api.github.com/repos/damianlezcano/qfolder/releases/latest";
 	private static final Pattern TAG_PATTERN = Pattern.compile("\"tag_name\"\\s*:\\s*\"([^\"]+)\"");
 	private static final Pattern URL_PATTERN = Pattern.compile("\"browser_download_url\"\\s*:\\s*\"([^\"]+)\"");

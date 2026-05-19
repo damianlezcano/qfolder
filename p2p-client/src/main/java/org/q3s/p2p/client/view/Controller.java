@@ -580,7 +580,7 @@ public class Controller {
 		help.setContentType("text/html");
 		help.setEditable(false);
 		help.setText("<html><body style='padding:8px;font-family:sans-serif'>"
-				+ "<h2>qfolder</h2>"
+				+ "<h2>qfolder <small>v" + UpdateChecker.getVersion() + "</small></h2>"
 				+ "<p><b>" + I18n.get("author") + "</b></p>"
 				+ "<p><a href='https://github.com/damianlezcano/qfolder'>github.com/damianlezcano/qfolder</a></p>"
 				+ "<p>" + I18n.get("app.description") + "</p>"
