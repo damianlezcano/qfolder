@@ -31,3 +31,4 @@ temp/
 *.iml
 .vscode/
 nbproject/
+RELEASE.md
