@@ -2,6 +2,7 @@ package org.q3s.p2p.client.hub;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.function.Consumer;
 
 import org.q3s.p2p.client.Config;
@@ -22,10 +23,23 @@ public class CloudflareTunnel {
 
 	public void start(int localPort, Consumer<String> onUrlReady, Consumer<String> onError) {
 		if (Config.isTunnelMockEnabled()) {
-			tunnelUrl = Config.getTunnelMockHost() + ":" + localPort;
-			running = true;
-			log.info("[cloudflared-mock] Tunnel mock activo: " + tunnelUrl);
-			onUrlReady.accept(tunnelUrl);
+			int delay = Config.getTunnelMockDelay();
+			log.info("[cloudflared-mock] Simulando túnel con demora de " + delay + "ms...");
+			Thread t = new Thread(() -> {
+				try {
+					Thread.sleep(delay);
+					tunnelUrl = Config.getTunnelMockHost() + ":" + localPort;
+					running = true;
+					log.info("[cloudflared-mock] Túnel mock listo: " + tunnelUrl);
+					onUrlReady.accept(tunnelUrl);
+				} catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
+					if (onError != null) {
+						onError.accept("Interrumpido durante simulación de túnel");
+					}
+				}
+			}, "cloudflared-mock-delay");
+			t.start();
 			return;
 		}
 
@@ -37,7 +51,7 @@ public class CloudflareTunnel {
 				process = pb.start();
 				running = true;
 
-				BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+				BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
 				String line;
 				while ((line = reader.readLine()) != null) {
 					log.debug("[cloudflared] " + line);

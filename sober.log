@@ -1,0 +1,19 @@
+sober: /usr/lib/x86_64-linux-gnu/libcurl.so.4: no version information available (required by sober)
+/proc/self/exe: /usr/lib/x86_64-linux-gnu/libcurl.so.4: no version information available (required by /proc/self/exe)
+info: app: lifecycle: app_start delta=0.0024449974298477173ms
+info: app: lifecycle: logging_started delta=153.26846000552177ms
+info: app: app tag: s0107-2350-x86_64-gnu
+info: app: cpu model: AMD Ryzen 5 3400G with Radeon Vega Graphics
+info: app: os release: GNOME
+info: app: host os release: CachyOS Linux
+info: app: desktop: KDE (on wayland)
+info: app: lifecycle: init_app_info delta=0.5391159951686859ms
+info: window: using C.UTF-8 locale
+info: app: lifecycle: runtime_handler delta=135.36148400604725ms
+info: app: lifecycle: update_flags_from_remote_manifest delta=0.3581539988517761ms
+info: state: using manifest object: {"app_settings":{"FStringRenderTextureBudgetByRam":""},"r1":1,"u":1,"use_new_text_renderer":false}
+info: app: lifecycle: fs_init delta=21.34400600194931ms
+I/O warning : failed to load "/home/tiul/.var/app/org.vinegarhq.Sober/data/sober/appData/GlobalBasicSettings_13.xml": No such file or directory
+WARN: state: could not parse file /home/tiul/.var/app/org.vinegarhq.Sober/data/sober/appData/GlobalBasicSettings_13.xml
+info: app: lifecycle: check_security delta=174.23887799680233ms
+info: UIServicesConduit: will execute ui service binary

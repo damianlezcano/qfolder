@@ -1,6 +1,7 @@
 package org.q3s.p2p.client.view;
 
 import java.awt.Component;
+import java.awt.Container;
 import java.awt.BorderLayout;
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -31,21 +32,30 @@ import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.MessageDigest;
+import java.time.Instant;
 import java.text.Normalizer;
+import java.util.HexFormat;
+import java.util.Locale;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Date;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import java.awt.image.BufferedImage;
 
@@ -55,6 +65,8 @@ import javax.swing.ImageIcon;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JColorChooser;
+import javax.swing.JComboBox;
+import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
@@ -83,8 +95,15 @@ import javax.swing.text.StyledDocument;
 import javax.swing.text.StyledEditorKit;
 import javax.swing.text.StyleConstants;
 import javax.swing.text.rtf.RTFEditorKit;
+import javax.swing.table.DefaultTableModel;
+import javax.swing.SwingUtilities;
+import javax.json.Json;
+import javax.json.JsonArrayBuilder;
+import javax.json.JsonObject;
+import javax.json.JsonObjectBuilder;
 
 import org.java_websocket.WebSocket;
+import org.q3s.p2p.adapters.filesystem.QfolderLayout;
 import org.q3s.p2p.client.CloudflareInstaller;
 import org.q3s.p2p.client.Config;
 import org.q3s.p2p.client.UpdateChecker;
@@ -94,10 +113,21 @@ import org.q3s.p2p.client.hub.CloudflareTunnel;
 import org.q3s.p2p.client.hub.EmbeddedWebSocketServer;
 import org.q3s.p2p.client.util.FileUtils;
 import org.q3s.p2p.client.util.I18n;
+import org.q3s.p2p.client.util.LookAndFeelManager;
 import org.q3s.p2p.client.util.Logger;
+import org.q3s.p2p.client.util.UserPreferences;
 import org.q3s.p2p.client.ws.WsClient;
 import org.q3s.p2p.client.view.components.FileTableModel;
 import org.q3s.p2p.client.view.components.TabListFile;
+import org.q3s.p2p.adapters.network.CoreChunkTransferCoordinator;
+import org.q3s.p2p.adapters.network.DirectBootstrap;
+import org.q3s.p2p.adapters.network.InviteCode;
+import org.q3s.p2p.adapters.network.P2PMeshService;
+import org.q3s.p2p.adapters.network.P2PNetworkAdapter;
+import org.q3s.p2p.adapters.network.WebSocketNetworkAdapter;
+import org.q3s.p2p.core.app.CoreApplicationService;
+import org.q3s.p2p.core.model.FileMetadata;
+import org.q3s.p2p.core.state.WorkspaceState;
 import org.q3s.p2p.model.Event;
 import org.q3s.p2p.model.QFile;
 import org.q3s.p2p.model.User;
@@ -109,14 +139,15 @@ public class Controller {
 
 	private Workspace wk;
 	private User user = User.build(UUIDUtils.generate());
+	private String localPublicKey = "";
+	private String localPrivateKey = "";
 
 	private List<User> remoteUsers = new ArrayList<User>();
 
 	private WsClient wsClient;
 	private EmbeddedWebSocketServer wsServer;
 	private CloudflareTunnel cloudflareTunnel;
-	private boolean isHub = false;
-	private static final int FILE_CHUNK_SIZE = 48 * 1024;
+	private static final int FILE_CHUNK_SIZE = 32 * 1024;
 	private String peerTunnelUrl;
 	private JTextPane chatArea;
 	private JTextField chatInput;
@@ -126,24 +157,41 @@ public class Controller {
 	private JPanel transferPanel;
 	private JPanel chatContainerPanel;
 	private JPanel helpContainerPanel;
+	private javax.swing.JTextPane helpPane;
 	private JPanel whiteboardContainerPanel;
 	private JPanel notesContainerPanel;
+	private JLabel openWorkDirLabel;
+	private JPanel membersContainerPanel;
+	private JTable membersTable;
 	private final Map<String, JProgressBar> transferBars = new LinkedHashMap<>();
+	private final Map<String, JPanel> transferRows = new LinkedHashMap<>();
 	private final Map<String, String> transferTargets = new LinkedHashMap<>();
+	private final Map<String, QFile> activeTransferRequests = new LinkedHashMap<>();
+	private final Map<String, String> transferPendingOpenLinks = new LinkedHashMap<>();
 	private final Map<String, String> chatFileLinks = new LinkedHashMap<>();
 	private final Map<String, String> chatTransferLinks = new LinkedHashMap<>();
 	private final Map<String, ChatMessage> chatMessages = new LinkedHashMap<>();
 	private final Map<String, int[]> chatMessageRanges = new LinkedHashMap<>();
-	private final Map<String, User> hubCandidates = new LinkedHashMap<>();
+	private final Map<String, String> indexedCoreFiles = new LinkedHashMap<>();
+	private String indexedCoreFilesWorkspaceId;
+	private final Map<String, String> pendingMemberPublicKeys = new LinkedHashMap<>();
 	private final Map<String, JDialog> approvalDialogs = new LinkedHashMap<>();
+	private final Map<String, WebSocket> directPeerConnections = new LinkedHashMap<>();
+	private final Map<String, User> knownMembers = new LinkedHashMap<>();
+	private final Map<String, Long> memberConnectedAt = new LinkedHashMap<>();
+	private final Map<String, String> corePeerUrls = new LinkedHashMap<>();
+	private final Map<String, Set<String>> corePeerConnections = new LinkedHashMap<>();
 	private final Map<String, String> navigationPaths = new LinkedHashMap<>();
+	private final Map<String, String> fileNavigationRequestIds = new LinkedHashMap<>();
 	private final Map<String, JCheckBox> complementoChecks = new LinkedHashMap<>();
-	private JButton archivosBackBtn;
-	private JLabel archivosBreadcrumb;
-	private JButton archivosFilterBtn;
+	private final Map<String, Long> complementoSequences = new LinkedHashMap<>();
 	private TabListFile archivosTab;
 	private JPanel archivosContainerPanel;
-	private String selectedArchivosUserId;
+
+	private record FileRegistryEntry(String name, long size, long date, String fileId, String hash, String firstSharedBy) {}
+	private final Map<String, FileRegistryEntry> fileRegistry = new LinkedHashMap<>();
+	private final Map<String, Set<String>> filePeers = new LinkedHashMap<>();
+	private final Map<String, String> pendingChatDownloads = new LinkedHashMap<>();
 	private WhiteboardCanvas whiteboardCanvas;
 	private JTextField whiteboardTextInput;
 	private JButton whiteboardColorButton;
@@ -152,6 +200,7 @@ public class Controller {
 	private Timer notesSyncTimer;
 	private int notesFontSize = 14;
 	private String lastSentNotesState = "";
+	private String lastAppliedNotesState = "";
 	private DocumentListener notesDocumentListener;
 	private long suppressNotesBroadcastUntil;
 	private final Set<String> markedTabs = new HashSet<>();
@@ -165,13 +214,29 @@ public class Controller {
 	private long cachedSessionCreatedAt;
 	private String cachedSessionChatText;
 	private ChatMessage replyingToChatMessage;
-	private String currentHubUri;
-	private volatile boolean failoverInProgress;
-	private boolean isActiveHub;
+	private final ExecutorService outboundEventQueue = Executors.newSingleThreadExecutor(r -> {
+		Thread t = new Thread(r, "ws-outbound-events");
+		t.setDaemon(true);
+		return t;
+	});
+	private volatile long lastLocalWhiteboardChangeAt;
+	private long latestWhiteboardSequence;
+	private long latestNotesSequence;
 
 	private View view = new View();
 
 	private Logger log;
+	private CoreApplicationService core;
+	private CoreChunkTransferCoordinator coreChunkTransfer;
+	private P2PNetworkAdapter p2pNetwork;
+	private P2PMeshService p2pMesh;
+	private DirectBootstrap directBootstrap;
+	private File qfolderRootDir;
+	private File currentSessionDir;
+	private File currentSessionFilesDir;
+	private final Set<String> appliedCoreChatIds = new HashSet<>();
+	private final Set<String> appliedCoreChatFileIds = new HashSet<>();
+	private String lastAppliedCoreWhiteboardState = "";
 
 	private boolean configChange = false;
 
@@ -184,8 +249,14 @@ public class Controller {
 		view.getjList2().setModel(model);
 
 		log = new Logger(model);
+		qfolderRootDir = new File(Config.SHARED_DIR).getAbsoluteFile();
+		qfolderRootDir.mkdirs();
+		UserPreferences.init(qfolderRootDir.toPath());
+		I18n.setLocale(UserPreferences.getLanguage());
+		loadOrCreateLocalIdentity();
+		initializeCoreServices(qfolderRootDir.toPath());
 
-		removeTemp();
+		new Thread(() -> removeTemp(), "remove-temp").start();
 
 		log.info("Usuario ID: " + user.getId());
 
@@ -194,7 +265,9 @@ public class Controller {
 		view.getjTextField5().setText(defaultWorkspaceName());
 		view.setTitle(hostname);
 		user.setName(hostname);
-		view.getjTextField4().setText(Config.SHARED_DIR);
+		view.getjTextField4().setText(qfolderRootDir.getAbsolutePath());
+		view.applyI18nTexts();
+		refreshTabTitles();
 
 		view.getjButton4().addActionListener(new java.awt.event.ActionListener() {
 			public void actionPerformed(java.awt.event.ActionEvent evt) {
@@ -293,14 +366,18 @@ public class Controller {
 		view.getjTabbedPane().addChangeListener(e -> clearSelectedTabMark());
 		Runtime.getRuntime().addShutdownHook(new Thread(() -> {
 			try {
-				if (wsServer != null && wk != null && user != null && cloudflareTunnel != null) {
-					wsServer.getHubService().sendToWk(wk.getId(), new Event("Usuario desconectado", user));
-					Thread.sleep(200);
-				}
-			} catch (Exception ignored) {}
+				if (p2pMesh != null) p2pMesh.disconnectAll();
+			} catch (Exception e) {
+				log.debug("No se pudo desconectar malla en shutdown hook: " + e.getMessage());
+			}
 		}, "shutdown-hook"));
 		view.setDefaultCloseOperation(javax.swing.WindowConstants.DO_NOTHING_ON_CLOSE);
 		view.addWindowListener(new WindowAdapter() {
+			@Override
+			public void windowActivated(WindowEvent e) {
+				clearSelectedTabMark();
+			}
+
 			@Override
 			public void windowClosing(WindowEvent e) {
 				shutdown();
@@ -320,11 +397,51 @@ public class Controller {
 		view.getjLabel4().setEnabled(true);
 		view.getjTextField2().setEnabled(true);
 		view.getjTextField2().setFocusable(true);
+		view.getjTextField2().setComponentPopupMenu(createJoinTextPopupMenu());
 
-		CloudflareInstaller.ensureInstalled(log);
+		new Thread(() -> {
+			CloudflareInstaller.ensureInstalled(log);
+			log.info("Servicio listo. Puede crear o unirse a un espacio de trabajo.");
+		}, "cloudflared-install").start();
 
-		log.info("Servicio listo. Puede crear o unirse a un espacio de trabajo.");
 		UpdateChecker.checkForUpdates(view, log);
+	}
+
+	private void loadOrCreateLocalIdentity() {
+		File identityFile = qfolderLayout().identityFile().toFile();
+		Properties identity = new Properties();
+		try {
+			if (identityFile.exists()) {
+				try (FileInputStream in = new FileInputStream(identityFile)) {
+					identity.load(in);
+				}
+				String id = identity.getProperty("member.id");
+				if (id != null && !id.isBlank()) user.setId(id.trim());
+				localPublicKey = identity.getProperty("member.publicKey", "").trim();
+				localPrivateKey = identity.getProperty("member.privateKey", "").trim();
+				if (!localPublicKey.isBlank() && !localPrivateKey.isBlank()) return;
+			}
+			ensureLocalKeyPair(identity);
+			identity.setProperty("member.id", user.getId());
+			identity.setProperty("member.publicKey", localPublicKey);
+			identity.setProperty("member.privateKey", localPrivateKey);
+			File parent = identityFile.getParentFile();
+			if (parent != null) parent.mkdirs();
+			try (FileOutputStream out = new FileOutputStream(identityFile)) {
+				identity.store(out, "qfolder local identity");
+			}
+		} catch (Exception e) {
+			log.debug("No se pudo cargar identidad local persistente: " + e.getMessage());
+		}
+	}
+
+	private void ensureLocalKeyPair(Properties identity) throws Exception {
+		if (localPublicKey != null && !localPublicKey.isBlank() && localPrivateKey != null && !localPrivateKey.isBlank()) return;
+		KeyPair pair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+		localPublicKey = Base64.getEncoder().encodeToString(pair.getPublic().getEncoded());
+		localPrivateKey = Base64.getEncoder().encodeToString(pair.getPrivate().getEncoded());
+		identity.setProperty("member.publicKey", localPublicKey);
+		identity.setProperty("member.privateKey", localPrivateKey);
 	}
 
 	private void installTransferStatusBar() {
@@ -350,57 +467,117 @@ public class Controller {
 
 	private void installConfigEnhancements() {
 		int configIdx = findTabByTitle("Configuración");
+		log.debug("installConfigEnhancements called, configIdx=" + configIdx + ", current I18n locale=" + I18n.currentLocale().getLanguage());
 		if (configIdx >= 0) {
 			view.getjTabbedPane().setToolTipTextAt(configIdx,
-					"Configuración local: usuario, carpeta compartida, workspace y opciones de ventana");
+					I18n.get("config") + ": " + I18n.get("config.user") + ", " + I18n.get("config.folder")
+					+ ", workspace " + I18n.get("config.alwaysOnTop"));
 		}
 
-		JCheckBox alwaysOnTop = new JCheckBox("Mantener ventana siempre visible");
+		JCheckBox alwaysOnTop = new JCheckBox(I18n.get("config.alwaysOnTop"));
 		alwaysOnTop.setOpaque(false);
-		alwaysOnTop.setToolTipText("Mantiene qfolder por encima de otras ventanas");
 		alwaysOnTop.addActionListener(e -> view.setAlwaysOnTop(alwaysOnTop.isSelected()));
 
-		JButton copyWsId = new JButton("Copiar");
-		copyWsId.setToolTipText("Copiar ID del workspace en Base64 al portapapeles");
+		JButton copyWsId = new JButton(I18n.get("config.copy"));
+		copyWsId.setToolTipText(I18n.get("config.copyTooltip"));
 		copyWsId.setFocusable(false);
 		copyWsId.addActionListener(e -> {
 			String id = view.getjTextField6().getText();
 			if (id != null && !id.isEmpty()) {
 				java.awt.Toolkit.getDefaultToolkit().getSystemClipboard()
 						.setContents(new java.awt.datatransfer.StringSelection(id), null);
-				log.info("ID del workspace copiado al portapapeles");
+				log.info("Invitación local copiada al portapapeles");
 			}
 		});
 
-		JLabel complementosLabel = new JLabel("Complementos");
+		JLabel openWorkDirLabel = new JLabel(I18n.get("config.openWorkDir"));
+		openWorkDirLabel.setForeground(new java.awt.Color(51, 102, 255));
+		openWorkDirLabel.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
+		openWorkDirLabel.setToolTipText(I18n.get("config.openWorkDirTooltip"));
+		openWorkDirLabel.addMouseListener(new java.awt.event.MouseAdapter() {
+			public void mouseClicked(java.awt.event.MouseEvent evt) {
+				openWorkingDirectory();
+			}
+		});
+
+		JLabel languageLabel = new JLabel(I18n.get("config.language"));
+		String[] langEntries = { I18n.get("config.languageSpanish"), I18n.get("config.languageEnglish") };
+		JComboBox<String> languageCombo = new JComboBox<>(langEntries);
+		String currentLang = I18n.currentLocale().getLanguage();
+		log.debug("Creating language combo, currentLang=" + currentLang + ", entries=[" + langEntries[0] + ", " + langEntries[1] + "]");
+		languageCombo.setSelectedIndex("es".equals(currentLang) ? 0 : 1);
+		languageCombo.addActionListener(e -> {
+			String code = languageCombo.getSelectedIndex() == 0 ? "es" : "en";
+			log.debug("Language combo changed to: " + code + " (index=" + languageCombo.getSelectedIndex() + ")");
+			UserPreferences.setLanguage(new Locale(code));
+			I18n.setLocale(new Locale(code));
+			log.debug("I18n locale after set: " + I18n.currentLocale().getLanguage());
+			refreshLanguageTexts();
+			log.debug("After refreshLanguageTexts, I18n locale: " + I18n.currentLocale().getLanguage());
+			log.info(I18n.get("config.languageApplied"));
+		});
+
+		JLabel lafLabel = new JLabel(I18n.get("config.lookAndFeel"));
+		lafLabel.setToolTipText(I18n.get("config.lookAndFeelTooltip"));
+		Map<String, String> lafOptions = LookAndFeelManager.options();
+		String[] lafEntries = lafOptions.values().toArray(new String[0]);
+		String[] lafIds = lafOptions.keySet().toArray(new String[0]);
+		JComboBox<String> lafCombo = new JComboBox<>(lafEntries);
+		String currentLaf = UserPreferences.getLookAndFeel();
+		for (int i = 0; i < lafIds.length; i++) {
+			if (lafIds[i].equals(currentLaf)) {
+				lafCombo.setSelectedIndex(i);
+				break;
+			}
+		}
+		lafCombo.addActionListener(e -> {
+			int idx = lafCombo.getSelectedIndex();
+			if (idx < 0) return;
+			String lafId = lafIds[idx];
+			UserPreferences.setLookAndFeel(lafId);
+			LookAndFeelManager.apply(lafId);
+			SwingUtilities.updateComponentTreeUI(view);
+			view.pack();
+		});
+
+		JLabel complementosLabel = new JLabel(I18n.get("config.complements"));
 		complementosLabel.setFont(complementosLabel.getFont().deriveFont(java.awt.Font.BOLD));
 
-		JCheckBox cbChat = new JCheckBox("Chat");
+		if (enabledComplementos.isEmpty()) {
+			enabledComplementos.addAll(java.util.Arrays.asList("Archivos", "Chat", "Pizarra", "Notas", "Miembros"));
+		}
+
+		JCheckBox cbChat = new JCheckBox(I18n.get("complement.chat"));
 		cbChat.setOpaque(false);
 		cbChat.setSelected(enabledComplementos.contains("Chat"));
 		cbChat.addActionListener(e -> toggleComplemento("Chat", cbChat.isSelected()));
 
-		JCheckBox cbPizarra = new JCheckBox("Pizarra");
+		JCheckBox cbPizarra = new JCheckBox(I18n.get("complement.whiteboard"));
 		cbPizarra.setOpaque(false);
 		cbPizarra.setSelected(enabledComplementos.contains("Pizarra"));
 		cbPizarra.addActionListener(e -> toggleComplemento("Pizarra", cbPizarra.isSelected()));
 
-		JCheckBox cbNotas = new JCheckBox("Notas");
+		JCheckBox cbNotas = new JCheckBox(I18n.get("complement.notes"));
 		cbNotas.setOpaque(false);
 		cbNotas.setSelected(enabledComplementos.contains("Notas"));
 		cbNotas.addActionListener(e -> toggleComplemento("Notas", cbNotas.isSelected()));
 
-		JCheckBox cbArchivos = new JCheckBox("Archivos");
+		JCheckBox cbMiembros = new JCheckBox(I18n.get("complement.members"));
+		cbMiembros.setOpaque(false);
+		cbMiembros.setSelected(enabledComplementos.contains("Miembros"));
+		cbMiembros.addActionListener(e -> toggleComplemento("Miembros", cbMiembros.isSelected()));
+
+		JCheckBox cbArchivos = new JCheckBox(I18n.get("complement.files"));
 		cbArchivos.setOpaque(false);
 		cbArchivos.setSelected(enabledComplementos.contains("Archivos"));
 		cbArchivos.addActionListener(e -> toggleComplemento("Archivos", cbArchivos.isSelected()));
 
-		JCheckBox cbLog = new JCheckBox("Log");
+		JCheckBox cbLog = new JCheckBox(I18n.get("complement.log"));
 		cbLog.setOpaque(false);
 		cbLog.setSelected(enabledComplementos.contains("Log"));
 		cbLog.addActionListener(e -> toggleComplemento("Log", cbLog.isSelected()));
 
-		JCheckBox cbAyuda = new JCheckBox("Ayuda");
+		JCheckBox cbAyuda = new JCheckBox(I18n.get("complement.help"));
 		cbAyuda.setOpaque(false);
 		cbAyuda.setSelected(enabledComplementos.contains("Ayuda"));
 		cbAyuda.addActionListener(e -> toggleComplemento("Ayuda", cbAyuda.isSelected()));
@@ -409,6 +586,7 @@ public class Controller {
 		complementoChecks.put("Chat", cbChat);
 		complementoChecks.put("Pizarra", cbPizarra);
 		complementoChecks.put("Notas", cbNotas);
+		complementoChecks.put("Miembros", cbMiembros);
 		complementoChecks.put("Log", cbLog);
 		complementoChecks.put("Ayuda", cbAyuda);
 
@@ -418,6 +596,7 @@ public class Controller {
 		complementosPanel.add(cbChat);
 		complementosPanel.add(cbPizarra);
 		complementosPanel.add(cbNotas);
+		complementosPanel.add(cbMiembros);
 		complementosPanel.add(cbLog);
 		complementosPanel.add(cbAyuda);
 
@@ -435,8 +614,17 @@ public class Controller {
 				.addGroup(layout.createSequentialGroup()
 						.addComponent(view.getjTextField4())
 						.addComponent(view.getjButton3()))
-				.addComponent(view.getjLabel6())
+				.addGroup(layout.createSequentialGroup()
+						.addComponent(view.getjLabel6())
+						.addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+						.addComponent(openWorkDirLabel))
 				.addComponent(alwaysOnTop)
+				.addGroup(layout.createSequentialGroup()
+						.addComponent(languageLabel)
+						.addComponent(languageCombo))
+				.addGroup(layout.createSequentialGroup()
+						.addComponent(lafLabel)
+						.addComponent(lafCombo))
 				.addComponent(view.getjLabel10())
 				.addGroup(layout.createSequentialGroup()
 						.addComponent(view.getjTextField6())
@@ -455,9 +643,22 @@ public class Controller {
 						.addComponent(view.getjTextField4(), javax.swing.GroupLayout.PREFERRED_SIZE,
 								javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
 						.addComponent(view.getjButton3()))
-				.addComponent(view.getjLabel6())
+				.addGap(8)
+				.addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.CENTER)
+						.addComponent(view.getjLabel6())
+						.addComponent(openWorkDirLabel))
 				.addGap(18)
 				.addComponent(alwaysOnTop)
+				.addGap(8)
+				.addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.CENTER)
+						.addComponent(languageLabel)
+						.addComponent(languageCombo, javax.swing.GroupLayout.PREFERRED_SIZE,
+								javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE))
+				.addGap(8)
+				.addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.CENTER)
+						.addComponent(lafLabel)
+						.addComponent(lafCombo, javax.swing.GroupLayout.PREFERRED_SIZE,
+								javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE))
 				.addGap(18)
 				.addComponent(view.getjLabel10())
 				.addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.CENTER)
@@ -471,6 +672,16 @@ public class Controller {
 		view.getjPanel3().repaint();
 	}
 
+	private void openWorkingDirectory() {
+		try {
+			File dir = getQfolderRootDir();
+			dir.mkdirs();
+			exec.open(dir.getAbsolutePath());
+		} catch (Exception e) {
+			log.err(I18n.get("config.openWorkDirError", e.getMessage()));
+		}
+	}
+
 	private void toggleComplemento(String name, boolean enabled) {
 		if (enabled) {
 			enabledComplementos.add(name);
@@ -480,7 +691,7 @@ public class Controller {
 		applyComplementoVisibility(name, enabled);
 		if (wsClient != null) {
 			String eventName = enabled ? "Complemento habilitado" : "Complemento deshabilitado";
-			wsClient.sendEvent(new Event(eventName, user, name));
+			sendEvent(new Event(eventName, user, name));
 		}
 	}
 
@@ -490,6 +701,7 @@ public class Controller {
 			if ("Chat".equals(name)) { loadChatTab(); ensureChatTabVisible(); }
 			if ("Pizarra".equals(name)) { loadWhiteboardTab(); ensureWhiteboardTabVisible(); }
 			if ("Notas".equals(name)) { loadNotesTab(); ensureNotesTabVisible(); }
+			if ("Miembros".equals(name)) { loadMembersTab(); ensureMembersTabVisible(); }
 			if ("Log".equals(name) && findTabByTitle("Log") < 0) restoreLogTab();
 			if ("Ayuda".equals(name)) { loadHelpTab(); }
 			if ("Archivos".equals(name)) { showArchivosTab(); }
@@ -502,6 +714,9 @@ public class Controller {
 				view.getjTabbedPane().removeTabAt(idx);
 			}
 			if ("Notas".equals(name) && (idx = findTabByTitle("Notas")) >= 0) {
+				view.getjTabbedPane().removeTabAt(idx);
+			}
+			if ("Miembros".equals(name) && (idx = findTabByTitle("Miembros")) >= 0) {
 				view.getjTabbedPane().removeTabAt(idx);
 			}
 			if ("Log".equals(name) && (idx = findTabByTitle("Log")) >= 0) {
@@ -567,6 +782,12 @@ public class Controller {
 		}
 	}
 
+	private void ensureMembersTabVisible() {
+		if (membersContainerPanel != null && findTabByTitle("Miembros") < 0) {
+			insertSystemTab("Miembros", groupIcon(), membersContainerPanel, "Miembros del workspace");
+		}
+	}
+
 	private void loadHelpTab() {
 		if (helpContainerPanel != null) {
 			if (findTabByTitle("Ayuda") < 0) {
@@ -574,46 +795,12 @@ public class Controller {
 			}
 			return;
 		}
-		String sharedDir = Config.SHARED_DIR;
-		String historyDir = Config.HISTORY_DIR;
-		JTextPane help = new JTextPane();
-		help.setContentType("text/html");
-		help.setEditable(false);
-		help.setText("<html><body style='padding:8px;font-family:sans-serif'>"
-				+ "<h2>qfolder <small>v" + UpdateChecker.getVersion() + "</small></h2>"
-				+ "<p><b>" + I18n.get("author") + "</b></p>"
-				+ "<p><a href='https://github.com/damianlezcano/qfolder'>github.com/damianlezcano/qfolder</a></p>"
-				+ "<p>" + I18n.get("app.description") + "</p>"
-				+ "<h3>Highlights</h3>"
-				+ "<ul>"
-				+ "<li>Zero registration. No accounts, no servers.</li>"
-				+ "<li>Distributed: if the hub disconnects, another member takes over automatically.</li>"
-				+ "<li>Ephemeral: sessions save locally in <code>" + historyDir + "</code>.</li>"
-				+ "<li>Shared files sync automatically between members.</li>"
-				+ "<li>Clickable file links in chat with one-click download.</li>"
-				+ "<li>Reply and pin messages in chat.</li>"
-				+ "<li>Collaborative whiteboard with draw, text, images and shapes.</li>"
-				+ "<li>Shared rich-text notes with images and formatting.</li>"
-				+ "<li>Workspace complements toggle individually.</li>"
-				+ "<li>Auto-detects English/Spanish from system locale.</li>"
-				+ "</ul>"
-				+ "<h3>File locations</h3>"
-				+ "<table>"
-				+ "<tr><td>Shared:</td><td><code>" + sharedDir + "</code></td></tr>"
-				+ "<tr><td>History:</td><td><code>" + historyDir + "</code></td></tr>"
-				+ "</table>"
-				+ "<h3>Launch options</h3>"
-				+ "<table>"
-				+ "<tr><td><code>-Dqfolder.user.name=X</code></td><td>User name</td></tr>"
-				+ "<tr><td><code>-Dqfolder.shared.dir=X</code></td><td>Shared folder (<code>~</code> ok)</td></tr>"
-				+ "<tr><td><code>-Dqfolder.history.dir=X</code></td><td>History folder (<code>~</code> ok)</td></tr>"
-				+ "<tr><td><code>-Dqfolder.ws.port=N</code></td><td>WebSocket port (18765)</td></tr>"
-				+ "<tr><td><code>-Dqfolder.tunnel.mock=true</code></td><td>Local dev mode</td></tr>"
-				+ "</table>"
-				+ "<p>qfolder 2020-2026</p>"
-				+ "</body></html>");
+		helpPane = new javax.swing.JTextPane();
+		helpPane.setContentType("text/html");
+		helpPane.setEditable(false);
+		helpPane.setText(buildHelpHtml());
 		helpContainerPanel = new JPanel(new BorderLayout(8, 8));
-		helpContainerPanel.add(new JScrollPane(help), BorderLayout.CENTER);
+		helpContainerPanel.add(new JScrollPane(helpPane), BorderLayout.CENTER);
 		insertSystemTab("Ayuda", helpIcon(), helpContainerPanel, I18n.get("help.title"));
 	}
 
@@ -621,9 +808,9 @@ public class Controller {
 		ImageIcon icon = new javax.swing.ImageIcon(getClass().getResource("/tab-log.png"));
 		int idx = findTabByTitle("Configuración");
 		if (idx < 0) {
-			view.getjTabbedPane().addTab("Log", icon, view.getjScrollPane2(), "Registros de eventos");
+			view.getjTabbedPane().addTab(I18n.get("tab.log"), icon, view.getjScrollPane2(), I18n.get("log.tabTooltip"));
 		} else {
-			view.getjTabbedPane().insertTab("Log", icon, view.getjScrollPane2(), "Registros de eventos", idx);
+			view.getjTabbedPane().insertTab(I18n.get("tab.log"), icon, view.getjScrollPane2(), I18n.get("log.tabTooltip"), idx);
 		}
 	}
 
@@ -635,7 +822,7 @@ public class Controller {
 	}
 
 	private void hideInitialComplementos() {
-		for (String name : new String[]{"Archivos", "Chat", "Pizarra", "Notas", "Ayuda"}) {
+		for (String name : new String[]{"Archivos", "Chat", "Pizarra", "Notas", "Miembros", "Ayuda"}) {
 			int idx = findTabByTitle(name);
 			if (idx >= 0) {
 				view.getjTabbedPane().removeTabAt(idx);
@@ -707,7 +894,10 @@ public class Controller {
 	}
 
 	private void Jabel6ActionPerformed(java.awt.event.MouseEvent evt) {
-		view.getjTextField4().setText(Config.SHARED_DIR);
+		qfolderRootDir = new File(Config.SHARED_DIR).getAbsoluteFile();
+		currentSessionDir = null;
+		currentSessionFilesDir = null;
+		prepareWorkspaceSessionDirectories();
 		refreshLocalFilesAndNotify("Notifico Cambio en los archivos");
 	}
 
@@ -733,13 +923,17 @@ public class Controller {
 		int option = fileChooser.showOpenDialog(view);
 		if (option == JFileChooser.APPROVE_OPTION) {
 			File file = fileChooser.getSelectedFile();
-			view.getjTextField4().setText(file.getAbsolutePath());
+			qfolderRootDir = file.getAbsoluteFile();
+			currentSessionDir = null;
+			currentSessionFilesDir = null;
+			prepareWorkspaceSessionDirectories();
 			refreshLocalFilesAndNotify("Notifico Cambio en los archivos");
 		}
 	}
 
 	private void jTextField3KeyReleased(java.awt.event.KeyEvent evt) {
 		user.setName(view.getjTextField3().getText());
+		trackMember(user, wsClient != null);
 		updateWindowTitle();
 		configChange = true;
 	}
@@ -748,65 +942,10 @@ public class Controller {
 		String username = user.getName() != null && !user.getName().trim().isEmpty()
 				? user.getName().trim() : getLocalHostName();
 		if (wk != null && view.getjTabbedPane().isVisible()) {
-			String hubMarker = isThisInstanceHub() ? " [Hub]" : "";
-			view.setTitle("'" + username + "' conectado al grupo '" + decodeValue(wk.getName()) + "'" + hubMarker);
+			view.setTitle("'" + username + "' conectado al grupo '" + decodeValue(wk.getName()) + "'");
 		} else {
 			view.setTitle(username + " - qfolder v" + UpdateChecker.getVersion());
 		}
-	}
-
-	private boolean isThisInstanceHub() {
-		return isActiveHub;
-	}
-
-	private boolean attemptHubFailover() {
-		if (wk == null || failoverInProgress) return false;
-		List<HubCandidate> candidates = hubFailoverCandidates();
-		if (candidates.isEmpty()) return false;
-
-		failoverInProgress = true;
-		log.info(I18n.get("reconnecting"));
-		new Thread(() -> {
-			boolean connected = false;
-			for (HubCandidate candidate : candidates) {
-				if (candidate.uri.equals(currentHubUri)) continue;
-				log.info(I18n.get("reconnecting.trying", candidate.name));
-				if (connectWebSocket(candidate.uri, true) && waitForFailoverWelcome(candidate.uri)) {
-					connected = true;
-					log.info(I18n.get("reconnecting.ok", candidate.name));
-					break;
-				}
-				closeFailedFailoverConnection(candidate.uri);
-			}
-			if (!connected) {
-				javax.swing.SwingUtilities.invokeLater(() -> {
-					failoverInProgress = false;
-					showJoinAfterWorkspaceLost(I18n.get("reconnecting.fail"));
-				});
-			}
-		}, "hub-failover").start();
-		return true;
-	}
-
-	private boolean waitForFailoverWelcome(String candidateUri) {
-		long deadline = System.currentTimeMillis() + 8000;
-		while (failoverInProgress && candidateUri.equals(currentHubUri) && System.currentTimeMillis() < deadline) {
-			try {
-				Thread.sleep(150);
-			} catch (InterruptedException e) {
-				Thread.currentThread().interrupt();
-				break;
-			}
-		}
-		return !failoverInProgress && candidateUri.equals(currentHubUri);
-	}
-
-	private void closeFailedFailoverConnection(String candidateUri) {
-		try {
-			if (wsClient != null && candidateUri.equals(currentHubUri)) {
-				wsClient.close();
-			}
-		} catch (Exception ignored) {}
 	}
 
 	private void showJoinAfterWorkspaceLost(String message) {
@@ -820,27 +959,15 @@ public class Controller {
 		view.getjLabel4().setEnabled(true);
 		view.getjTextField2().setEnabled(true);
 		view.getjTextField2().setFocusable(true);
+		view.getjTextField2().setComponentPopupMenu(createJoinTextPopupMenu());
 		view.getjButton6().setEnabled(true);
 
 		mostrarErrorEnPantallaLogin(message);
 
 		wsClient = null;
 		remoteUsers = new ArrayList<User>();
+		if (p2pMesh != null) p2pMesh.disconnectAll();
 		removeAllTab();
-	}
-
-	private List<HubCandidate> hubFailoverCandidates() {
-		LinkedHashMap<String, HubCandidate> candidates = new LinkedHashMap<>();
-		if (peerTunnelUrl != null && !peerTunnelUrl.isBlank()) {
-			candidates.put(user.getId(), new HubCandidate(user.getId(), user.getName(), "ws://localhost:" + Config.WS_SERVER_PORT));
-		}
-		for (User candidate : hubCandidates.values()) {
-			if (candidate == null || candidate.equals(user) || candidate.getPeerUrl() == null || candidate.getPeerUrl().isBlank()) continue;
-			candidates.put(candidate.getId(), new HubCandidate(candidate.getId(), candidate.getName(), "ws://" + candidate.getPeerUrl()));
-		}
-		List<HubCandidate> sorted = new ArrayList<>(candidates.values());
-		sorted.sort((a, b) -> a.userId.compareTo(b.userId));
-		return sorted;
 	}
 
 	private String defaultWorkspaceName() {
@@ -858,6 +985,44 @@ public class Controller {
 		}
 
 		log.info("Iniciando endpoint local del peer...");
+		if (!Config.isTunnelMockEnabled() && !CloudflareInstaller.isInstalled()) {
+			javax.swing.SwingUtilities.invokeLater(() -> 
+				mostrarErrorEnPantallaLogin("Preparando túnel... por favor espere"));
+			new Thread(() -> {
+				log.info("Esperando instalación de cloudflared...");
+				if (!CloudflareInstaller.awaitInstallation(150)) {
+					String error = "Timeout esperando instalación de cloudflared";
+					log.err(error);
+					javax.swing.SwingUtilities.invokeLater(() -> {
+						if (onError != null) {
+							onError.accept(error);
+						}
+					});
+					return;
+				}
+				if (!CloudflareInstaller.isInstalled()) {
+					String error = "cloudflared no está instalado";
+					log.err(error);
+					javax.swing.SwingUtilities.invokeLater(() -> {
+						if (onError != null) {
+							onError.accept(error);
+						}
+					});
+					return;
+				}
+				javax.swing.SwingUtilities.invokeLater(() -> {
+					mostrarErrorEnPantallaLogin("Iniciando túnel Cloudflare...");
+					startPeerEndpointServer(onReady, onError);
+				});
+			}, "wait-cloudflared").start();
+			return;
+		}
+		String tunnelMessage = Config.isTunnelMockEnabled() ? "Iniciando túnel (mock)..." : "Iniciando túnel Cloudflare...";
+		mostrarErrorEnPantallaLogin(tunnelMessage);
+		startPeerEndpointServer(onReady, onError);
+	}
+
+	private void startPeerEndpointServer(Runnable onReady, java.util.function.Consumer<String> onError) {
 		final int port = Config.WS_SERVER_PORT;
 		wsServer = new EmbeddedWebSocketServer(port, () -> {
 			log.info("Servidor WebSocket iniciado en puerto " + port);
@@ -865,6 +1030,7 @@ public class Controller {
 			cloudflareTunnel.start(port, tunnelUrl -> {
 				peerTunnelUrl = tunnelUrl.replace("https://", "").replace("http://", "").trim();
 				user.setPeerUrl(peerTunnelUrl);
+				trackMember(user, true);
 				log.info("Endpoint del peer listo: " + peerTunnelUrl);
 				onReady.run();
 			}, error -> {
@@ -873,16 +1039,94 @@ public class Controller {
 					onError.accept(error);
 				}
 			});
-		}, this::handleDirectPeerEvent);
+		}, this::handleDirectPeerEvent, peerId -> handlePeerDisconnected(peerId));
 		wsServer.start();
 	}
 
 	private void handleDirectPeerEvent(WebSocket conn, Event event) {
-		if ("Quiero descargar el archivo".equals(event.getName())) {
-			log.info("Pedido directo de archivo desde '" + event.getUser().getName() + "': "
-					+ event.getFile().getName());
-			sendFileDirect(event, conn);
+		if (event != null) {
+			String chunkProtocolName = event != null && event.getName() != null && (event.getName().contains("Core chunk") || event.getName().contains("core chunk")) ? event.getName() : null;
+			if (chunkProtocolName != null) {
+				log.debug("[P2P RECV] tipo=" + chunkProtocolName + " from=" + (event.getUser() != null ? event.getUser().getId() : "?") + " conn=" + (conn != null ? "yes" : "no"));
+			}
 		}
+		if (event != null && event.getUser() != null && event.getUser().getId() != null && conn != null) {
+			directPeerConnections.put(event.getUser().getId(), conn);
+			log.debug("[P2P RECV] directPeerConnections now has " + directPeerConnections.size() + " entries");
+		}
+		if (coreChunkTransfer != null && coreChunkTransfer.handle(event, conn)) {
+			return;
+		} else if (WebSocketNetworkAdapter.CORE_EVENT_NAME.equals(event.getName())) {
+			log.info("[P2P DIRECT] Core event via direct handler");
+			acceptCoreEventOnDirect(event);
+		} else if (WebSocketNetworkAdapter.CORE_SYNC_REQUEST_NAME.equals(event.getName())) {
+			respondCoreSyncOnDirect(event, conn);
+		} else if (WebSocketNetworkAdapter.CORE_SYNC_RESPONSE_NAME.equals(event.getName())) {
+			acceptCoreSyncOnDirect(event);
+		}
+	}
+
+	private void acceptCoreEventOnDirect(Event event) {
+		try {
+			org.q3s.p2p.core.model.Event coreEvent = WebSocketNetworkAdapter.decode(event);
+			if (coreEvent != null) {
+				boolean accepted = core.receiveRemoteEvent(coreEvent);
+				log.info("[P2P DIRECT] decoded=true accepted=" + accepted + " type=" + coreEvent.type());
+				if (accepted) {
+					if (org.q3s.p2p.core.events.EventTypes.MEMBER_JOIN_REQUESTED.equals(coreEvent.type())) {
+						User pending = User.build(String.valueOf(coreEvent.payload().get("candidate_member_id")));
+						pending.setName(String.valueOf(coreEvent.payload().getOrDefault("candidate_display_name", pending.getId())));
+						pendingMemberPublicKeys.put(pending.getId(), String.valueOf(coreEvent.payload().getOrDefault("public_key", "")));
+						showApprovalDialog(pending);
+					}
+					applyCoreStateToVisuals(core.currentState());
+				}
+			} else {
+				log.info("[P2P DIRECT] decode FAILED");
+			}
+		} catch (Exception e) {
+			log.info("[P2P DIRECT] ERROR: " + e.getMessage());
+		}
+	}
+
+	private void respondCoreSyncOnDirect(Event event, WebSocket conn) {
+		try {
+			if (event.getUser() == null || event.getUser().equals(user)) return;
+			String wsId = wk != null ? wk.getId() : null;
+			if (wsId == null) return;
+			java.util.Set<String> knownIds = WebSocketNetworkAdapter.decodeKnownEventIds(event);
+			java.util.List<org.q3s.p2p.core.model.Event> missing = core.missingEvents(knownIds);
+			if (!missing.isEmpty() && conn != null) {
+				Event response = new Event(WebSocketNetworkAdapter.CORE_SYNC_RESPONSE_NAME, user,
+						WebSocketNetworkAdapter.encodeSyncPayload(missing));
+				conn.send(EventUtils.toJsonBase64(response));
+			}
+		} catch (Exception e) {
+			log.debug("Sync request directo no procesado: " + e.getMessage());
+		}
+	}
+
+	private void acceptCoreSyncOnDirect(Event event) {
+		try {
+			java.util.List<org.q3s.p2p.core.model.Event> events = WebSocketNetworkAdapter.decodeEvents(event);
+			int accepted = core.receiveRemoteEvents(events);
+			if (accepted > 0) applyCoreStateToVisuals(core.currentState());
+		} catch (Exception e) {
+			log.debug("Sync response directo no procesado: " + e.getMessage());
+		}
+	}
+
+	private void handlePeerDisconnected(String peerId) {
+		if (peerId == null || peerId.isBlank()) return;
+		directPeerConnections.remove(peerId);
+		if (p2pMesh != null) p2pMesh.peerDisappeared(peerId);
+		javax.swing.SwingUtilities.invokeLater(() -> {
+			User stored = knownMembers.get(peerId);
+			if (stored != null) stored.setOnline(false);
+			refreshMembersTable();
+			refreshArchivosTable();
+		});
+		log.info("Peer desconectado del endpoint local: " + peerId);
 	}
 
 	private void jButton4ActionPerformed(java.awt.event.ActionEvent evt) {
@@ -901,35 +1145,43 @@ public class Controller {
 		}
 
 		view.getjButton4().setEnabled(false);
+		setCreateWorkspaceControlsEnabled(false);
 		ensurePeerEndpoint(() -> {
 			final String cleanUrl = peerTunnelUrl;
 			long date = new Date().getTime();
 			sessionCreatedAt = date;
 			historySaved = false;
-			wsServer.getHubService().create(cleanUrl, wsName, wsPassword, date);
-
-			isHub = true;
-			isActiveHub = true;
+			wk = new Workspace(cleanUrl, decodeValue(wsName));
+			wk.setDate(date);
+			currentSessionDir = null;
+			currentSessionFilesDir = null;
+			prepareWorkspaceSessionDirectories();
+			try {
+				core.ensureWorkspaceSession(cleanUrl, decodeValue(wsName), user.getId(), user.getName(), "swing-device", user.getId(),
+						localPublicKey, localPrivateKey, 2);
+			} catch (Exception e) {
+				log.err("No se pudo inicializar core workspace: " + e.getMessage());
+			}
 			user.setPeerUrl(cleanUrl);
 
 			javax.swing.SwingUtilities.invokeLater(() -> {
-				view.getjTextField2().setText(encodeWkId(cleanUrl));
+				view.getjTextField2().setText(encodeWkId(localInviteCode()));
+				view.getjTextField6().setText(encodeWkId(localInviteCode()));
 				log.info("Workspace '" + wsName + "' creado. URL: " + cleanUrl);
 				mostrarErrorEnPantallaLogin("");
-				log.info("Conectando al espacio de trabajo...");
+				log.info("Activando espacio de trabajo P2P...");
 
 				view.getjPanelCreateWorkspace().setVisible(false);
 				view.getjTabbedPane().setVisible(false);
 				view.getjPanelProxy().setVisible(false);
-				view.getjButton4().setEnabled(true);
+				setCreateWorkspaceControlsEnabled(true);
 				view.setTitle(view.getjTextField3().getText());
 
-				wk = Workspace.build(cleanUrl);
-				connectLocalWebSocket(Config.WS_SERVER_PORT, cleanUrl);
+				notify(new Event("Bienvenido usuario al grupo!", wk));
 			});
 		}, error -> {
 			javax.swing.SwingUtilities.invokeLater(() -> {
-				view.getjButton4().setEnabled(true);
+				setCreateWorkspaceControlsEnabled(true);
 				mostrarErrorEnPantallaLogin("Error al iniciar el tunel. Verifique que cloudflared este instalado.");
 			});
 		});
@@ -956,57 +1208,67 @@ public class Controller {
 
 	private void mostrarErrorEnPantallaLogin(String message) {
 		view.getjLabel16().setText(message);
+		view.getjLabel17().setText(message);
+	}
+
+	private void setJoinControlsEnabled(boolean enabled) {
+		view.getjTextField2().setEnabled(enabled);
+		view.getjButton2().setEnabled(enabled);
+		view.getjLabel4().setEnabled(enabled);
+		view.getjButton6().setEnabled(enabled);
+		if (enabled) view.getjTextField2().setFocusable(true);
+	}
+
+	private void setCreateWorkspaceControlsEnabled(boolean enabled) {
+		view.getjTextField5().setEnabled(enabled);
+		view.getjCheckBox1().setEnabled(enabled);
+		view.getjPasswordField1().setEnabled(enabled && view.getjCheckBox1().isSelected());
+		view.getjPasswordField2().setEnabled(enabled && view.getjCheckBox1().isSelected());
+		view.getjButton4().setEnabled(enabled);
+		view.getjButton5().setEnabled(enabled);
 	}
 
 	private void jButton2ActionPerformed(java.awt.event.ActionEvent evt) {
-		String uuid = decodeWkId(view.getjTextField2().getText());
+		String invite = decodeWkId(view.getjTextField2().getText());
 
-		if (uuid.isEmpty()) {
+		if (invite.isEmpty()) {
 			mostrarErrorEnPantallaLogin(I18n.get("workspace.emptyId"));
 		} else {
-		user.setName(view.getjTextField3().getText());
-		isActiveHub = false;
-		wk = Workspace.build(uuid);
-			view.getjTextField2().setEnabled(false);
-			view.getjButton2().setEnabled(false);
-			view.getjLabel4().setEnabled(false);
-			view.getjButton6().setEnabled(false);
+			user.setName(view.getjTextField3().getText());
+			setJoinControlsEnabled(false);
 			mostrarErrorEnPantallaLogin("");
-			connectWebSocket();
+			ensurePeerEndpoint(() -> {
+				if (directBootstrap != null && directBootstrap.join(invite, user.getId(), user.getName(), localPublicKey, localPrivateKey)) {
+					log.info("Solicitud/conexion P2P enviada. Esperando autorizacion o sync...");
+					Timer timeout = new Timer(30000, e -> {
+						if (view.getjPanelJoin().isVisible() && !view.getjButton2().isEnabled()) {
+							setJoinControlsEnabled(true);
+							mostrarErrorEnPantallaLogin("Solicitud enviada, pero no llego autorizacion. Puede reintentar.");
+						}
+					});
+					timeout.setRepeats(false);
+					timeout.start();
+				} else {
+					javax.swing.SwingUtilities.invokeLater(() -> {
+						setJoinControlsEnabled(true);
+						mostrarErrorEnPantallaLogin(I18n.get("workspace.cannotConnect"));
+					});
+				}
+			}, error -> javax.swing.SwingUtilities.invokeLater(() -> {
+				setJoinControlsEnabled(true);
+				mostrarErrorEnPantallaLogin("Error al iniciar endpoint local: " + error);
+			}));
 		}
 	}
 
-	private void connectWebSocket() {
-		connectWebSocket("ws://" + wk.getId());
-	}
-
-	private void connectLocalWebSocket(int port, String wkId) {
-		connectWebSocket("ws://localhost:" + port);
-	}
-
-	private void connectWebSocket(String serverUri) {
-		connectWebSocket(serverUri, false);
-	}
-
-	private boolean connectWebSocket(String serverUri, boolean blocking) {
-		try {
-			String uri = serverUri + "/ws?wkId=" + java.net.URLEncoder.encode(wk.getId(), "UTF-8")
-					+ "&userId=" + java.net.URLEncoder.encode(user.getId(), "UTF-8")
-					+ (failoverInProgress ? "&failover=true" : "");
-			currentHubUri = serverUri;
-			wsClient = new WsClient(new java.net.URI(uri), log, this::notify,
-					error -> notify(new Event("No es posible establecer una conexion")),
-					() -> notify(new Event("Se perdio la conexion con el servidor")));
-			wsClient.setConnectionLostTimeout(0);
-			if (blocking) {
-				return wsClient.connectBlocking(6, TimeUnit.SECONDS);
-			}
-			wsClient.connect();
-			return true;
-		} catch (Exception e) {
-			notify(new Event("No es posible establecer una conexion"));
-			return false;
-		}
+	private String webSocketUriForEndpoint(String endpoint) {
+		if (endpoint == null) return "";
+		String value = endpoint.trim();
+		if (value.startsWith("ws://") || value.startsWith("wss://")) return value;
+		if (value.startsWith("https://")) return "wss://" + value.substring("https://".length());
+		if (value.startsWith("http://")) return "ws://" + value.substring("http://".length());
+		if (value.endsWith(".trycloudflare.com")) return "wss://" + value;
+		return "ws://" + value;
 	}
 
 	private void jCheckBox1ActionPerformed(java.awt.event.ActionEvent evt) {
@@ -1031,12 +1293,26 @@ public class Controller {
 		JButton approve = new JButton(I18n.get("approve.accept"));
 		JButton refuse = new JButton(I18n.get("approve.cancel"));
 		approve.addActionListener(e -> {
-			if (wsClient != null) wsClient.sendEvent(new Event("__hub:approved:" + to.getId()));
-			log.info(I18n.get("approve.approved", to.getName()));
+			try {
+				org.q3s.p2p.core.model.Event approval = core.approveJoin(to.getId());
+				publishCoreEvent(approval);
+				sendDirectCoreEvent(to.getId(), approval);
+				org.q3s.p2p.core.model.Event status = p2pMesh != null ? p2pMesh.forcePublishPeerStatus() : null;
+				sendDirectCoreEvent(to.getId(), status);
+				sendDirectCoreSyncSnapshot(to.getId());
+				applyCoreStateToVisuals(core.currentState());
+				WorkspaceState state = core.currentState();
+				if (state.isAuthorized(to.getId())) {
+					log.info("Usuario aprobado e incorporado: " + to.getName());
+				} else {
+					log.info("Aprobacion registrada para " + to.getName() + ". Esperando mas aprobaciones.");
+				}
+			} catch (Exception ex) {
+				log.debug("No se pudo registrar aprobacion en core: " + ex.getMessage());
+			}
 			closeApprovalDialog(to.getId());
 		});
 		refuse.addActionListener(e -> {
-			if (wsClient != null) wsClient.sendEvent(new Event("__hub:refuse:" + to.getId()));
 			log.info(I18n.get("approve.refused", to.getName()));
 			closeApprovalDialog(to.getId());
 		});
@@ -1058,17 +1334,36 @@ public class Controller {
 		}
 	}
 
+	private void sendDirectCoreEvent(String peerId, org.q3s.p2p.core.model.Event coreEvent) {
+		WebSocket conn = directPeerConnections.get(peerId);
+		if (conn == null || conn.isClosed() || coreEvent == null) return;
+		try {
+			Event event = new Event(WebSocketNetworkAdapter.CORE_EVENT_NAME, user,
+					WebSocketNetworkAdapter.encodeCoreEvent(coreEvent));
+			conn.send(EventUtils.toJsonBase64(event));
+		} catch (Exception e) {
+			log.debug("No se pudo enviar evento core directo a " + peerId + ": " + e.getMessage());
+		}
+	}
+
+	private void sendDirectCoreSyncSnapshot(String peerId) {
+		WebSocket conn = directPeerConnections.get(peerId);
+		if (conn == null || conn.isClosed()) return;
+		try {
+			Event event = new Event(WebSocketNetworkAdapter.CORE_SYNC_RESPONSE_NAME, user,
+					WebSocketNetworkAdapter.encodeSyncPayload(core.events()));
+			conn.send(EventUtils.toJsonBase64(event));
+		} catch (Exception e) {
+			log.debug("No se pudo enviar sync directo a " + peerId + ": " + e.getMessage());
+		}
+	}
+
 	public void notify(Event event) {
 		try {
 			if (event != null && event.getName() != null) {
 				log.debug(event.getName());
 				if ("Wk no existe, desconectar".equals(event.getName())) {
-					if (failoverInProgress) {
-						log.info("Nodo alternativo sin workspace activo, pruebo otro...");
-						if (wsClient != null) wsClient.close();
-						return;
-					}
-					wsClient.close();
+					if (wsClient != null) wsClient.close();
 					view.getjButton2().setEnabled(true);
 					view.getjLabel4().setEnabled(true);
 					view.getjTextField2().setEnabled(true);
@@ -1076,7 +1371,7 @@ public class Controller {
 					view.getjButton6().setEnabled(true);
 					mostrarErrorEnPantallaLogin(I18n.get("ws.notExists"));
 				} else if ("Wk existente, sin credenciales".equals(event.getName())) {
-					wsClient.sendEvent(new Event("__hub:withoutAuth", user));
+					log.debug("Evento legacy de hub ignorado: " + event.getName());
 				} else if ("Wk existente, con credenciales".equals(event.getName())) {
 					JPasswordField pf = new JPasswordField();
 					JOptionPane pane = new JOptionPane(pf, JOptionPane.INFORMATION_MESSAGE, JOptionPane.OK_OPTION);
@@ -1102,7 +1397,6 @@ public class Controller {
 					if (okCxl == JOptionPane.OK_OPTION) {
 						String password = new String(pf.getPassword());
 						user.setPassword(password);
-						wsClient.sendEvent(new Event("__hub:withAuth", user));
 					}
 
 				} else if ("Credenciales incorrectas".equals(event.getName())) {
@@ -1111,30 +1405,28 @@ public class Controller {
 				} else if ("Aprobar al usuario".equals(event.getName())) {
 					markLogIfInactive();
 					log.info("El usuario '" + event.getUser().getName() + "' solicita ingresar al workspace");
+					try {
+					core.recordJoinRequest(event.getUser().getId(), event.getUser().getName(), "swing-device", event.getUser().getId());
+					} catch (Exception e) {
+						log.debug("No se pudo registrar solicitud remota core: " + e.getMessage());
+					}
 					showApprovalDialog(event.getUser());
 				} else if ("Usuario rechazado!".equals(event.getName())) {
 					log.info("Tu ingreso fue rechazado por los usuarios del workspace");
 					wsClient.close();
 					mostrarErrorEnPantallaLogin(I18n.get("approve.rejected"));
 				} else if ("Bienvenido usuario al grupo!".equals(event.getName())) {
-					boolean reconnectingByFailover = failoverInProgress;
-					failoverInProgress = false;
 					log.info("Bienvenido al grupo");
 					wk = event.getWk();
-					if (reconnectingByFailover) {
-						isActiveHub = currentHubUri != null && currentHubUri.contains("localhost:" + Config.WS_SERVER_PORT);
-					}
-					log.info("Miembro activo - wkId=" + wk.getId() + " hub=" + (currentHubUri != null ? currentHubUri : "local"));
+					log.info("Miembro activo - wkId=" + wk.getId());
+					trackMember(user, true);
 					ensureArchivosTab();
 					loadChatTab();
 					loadWhiteboardTab();
 					loadNotesTab();
-					if (!reconnectingByFailover) {
-						removeLogTab();
-						hideInitialComplementos();
-					} else {
-						restoreEnabledComplementoTabs();
-					}
+					removeLogTab();
+					hideInitialComplementos();
+					restoreEnabledComplementoTabs();
 					view.getjPanelCreateWorkspace().setVisible(false);
 					view.getjPanelJoin().setVisible(false);
 					view.getjTabbedPane().setVisible(true);
@@ -1144,74 +1436,48 @@ public class Controller {
 
 					sessionCreatedAt = wk != null && wk.getDate() > 0 ? wk.getDate() : System.currentTimeMillis();
 					historySaved = false;
+					List<org.q3s.p2p.core.model.Event> bootstrappedEvents = currentCoreEventsOrEmpty();
+					currentSessionDir = null;
+					currentSessionFilesDir = null;
+					prepareWorkspaceSessionDirectories();
+					try {
+						core.attachExistingSession(wk.getId(), user.getId(), user.getName(), "swing-device", user.getId(), localPublicKey, localPrivateKey);
+						for (org.q3s.p2p.core.model.Event coreEvent : bootstrappedEvents) {
+							if (!core.eventStore().hasEvent(coreEvent.eventId())) core.eventStore().append(coreEvent);
+						}
+						if (!core.eventStore().containsType(wk.getId(), org.q3s.p2p.core.events.EventTypes.WORKSPACE_CREATED)) {
+							core.ensureWorkspaceSession(wk.getId(), wk.getName(), user.getId(), user.getName(), "swing-device", user.getId(),
+									localPublicKey, localPrivateKey, 2);
+						}
+					} catch (Exception e) {
+						log.err("No se pudo adjuntar sesion core: " + e.getMessage());
+					}
 					wk.setName(wk.getName());
-					view.getjTextField6().setText(encodeWkId(wk.getId()));
-					if (reconnectingByFailover && currentHubUri != null && !currentHubUri.isBlank()) {
-						String hubUrl = currentHubUri.replace("ws://", "").replace("wss://", "");
-						view.getjTextField6().setText(encodeWkId(hubUrl));
-					}
-					if (!reconnectingByFailover) {
-						restoreCachedChatIfSameSession();
-					}
+					view.getjTextField6().setText(encodeWkId(localInviteCode()));
+					restoreCachedChatIfSameSession();
 
 					updateWindowTitle();
 
 					ensurePeerEndpoint(() -> {
-						if (!isHub && wsServer != null && !reconnectingByFailover) {
-							wsServer.getHubService().create(wk.getId(), wk.getName(), wk.getPassword(), wk.getDate());
+						if (peerTunnelUrl != null && !peerTunnelUrl.isBlank()) {
+							view.getjTextField6().setText(encodeWkId(localInviteCode()));
 						}
-						refreshLocalFilesAndNotify("Gracias por la bienvenida, notifico mis archivos");
+						indexLocalFilesInCore();
+						if (p2pMesh != null) p2pMesh.forcePublishPeerStatus();
+						applyCoreStateToVisuals(core.currentState());
 					}, error -> log.err("No se pudo iniciar endpoint peer: " + error));
 
-				} else if ("Gracias por la bienvenida, notifico mis archivos".equals(event.getName())) {
-					if (event.getUser().equals(user)) {
-						log.info("Notificaste tus archivos al grupo");
-					} else {
-						markLogIfInactive();
-						log.info("El usuario '" + event.getUser().getName() + "' notifico sus archivos.");
-						List<QFile> files = FileUtils.files(view.getjTextField4().getText());
-						String targetId = event.getUser().getId();
-						wsClient.sendEvent(new Event("__to:" + targetId + ":Estos son mis archivos", user.clone(files)));
-						sendInitialWorkspaceState(targetId);
-					}
-					addUserToRemoteList(event.getUser());
-				} else if ("Estos son mis archivos".equals(event.getName())) {
-					markLogIfInactive();
-					log.info("El usuario '" + event.getUser().getName() + "' notifico sus archivos.");
-					addUserToRemoteList(event.getUser());
-					refreshArchivosUserFilter();
-					refreshTables();
+				} else if ("Gracias por la bienvenida, notifico mis archivos".equals(event.getName())
+						|| "Estos son mis archivos".equals(event.getName())) {
+					log.debug("Evento legacy de archivos ignorado: " + event.getName());
 				} else if ("Notifico Cambio en los archivos".equals(event.getName())) {
 					if (event.getUser() == null || !event.getUser().equals(user)) markLogIfInactive();
 					notifyChangeFiles(event);
-				} else if ("Mensaje de chat".equals(event.getName())) {
-					appendChatMessage(event.getUser(), event.getResponse());
-					if (event.getUser() == null || !event.getUser().equals(user)) {
-						markTabIfInactive("Chat");
-						log.info("Chat: " + event.getUser().getName() + " escribio un mensaje");
-					} else {
-						log.debug("Mensaje propio recibido (eco)");
-					}
-				} else if ("Mensaje de chat fijado".equals(event.getName())) {
-					applyPinnedChatMessage(ChatMessage.fromPinnedPayload(event.getResponse(), event.getUser()));
 				} else if ("Archivo de chat enviado".equals(event.getName())) {
-					handleChatFileEvent(event);
-				} else if ("Historial de chat".equals(event.getName())) {
-					applyRemoteChatHistory(event.getResponse());
-				} else if ("Pizarra actualizada".equals(event.getName())) {
-					if (whiteboardCanvas != null) {
-						whiteboardCanvas.applyState(event.getResponse());
-						if (event.getUser() == null || !event.getUser().equals(user)) {
-							markTabIfInactive("Pizarra");
-							log.info("Pizarra actualizada por " + event.getUser().getName());
-						}
-					}
-				} else if ("Notas actualizadas".equals(event.getName())) {
-					if (event.getUser() == null || !event.getUser().equals(user)) {
-						applyRemoteNotes(event.getResponse());
-						markTabIfInactive("Notas");
-						log.info("Notas actualizadas por " + event.getUser().getName());
-					}
+					log.debug("Evento legacy de chat ignorado: " + event.getName());
+				} else if (WebSocketNetworkAdapter.CORE_EVENT_NAME.equals(event.getName())) {
+					acceptCoreEventOnDirect(event);
+					return;
 				} else if ("Se borro un archivo".equals(event.getName())) {
 					if (event.getUser() == null || !event.getUser().equals(user)) markLogIfInactive();
 					if (event.getUser().equals(user)) {
@@ -1221,27 +1487,18 @@ public class Controller {
 								+ event.getFile().getName());
 					}
 					notifyChangeFiles(event);
-				} else if ("Solicitar archivos de directorio".equals(event.getName())) {
-					String relativePath = event.getResponse();
-					String baseDir = view.getjTextField4().getText();
-					List<QFile> files = FileUtils.files(baseDir, relativePath);
-					String targetId = event.getUser().getId();
-					wsClient.sendEvent(new Event("__to:" + targetId + ":Respuesta archivos de directorio",
-							this.user.clone(files), relativePath));
-				} else if ("Respuesta archivos de directorio".equals(event.getName())) {
-					String relativePath = event.getResponse();
-					User remoteUser = event.getUser();
-					List<QFile> files = remoteUser.getFiles();
-					updateRemoteUserFiles(remoteUser.getId(), files);
-					navigationPaths.put(remoteUser.getId(), relativePath);
-					refreshArchivosTable();
+				} else if ("Solicitar archivos de directorio".equals(event.getName())
+						|| "Respuesta archivos de directorio".equals(event.getName())) {
+					log.debug("Evento legacy de navegacion de archivos ignorado: " + event.getName());
 				} else if ("Cambio de nombre".equals(event.getName())) {
 					int idx = searchTabById(event.getUser().getId());
 					int idxUser = remoteUsers.indexOf(event.getUser());
 					User oldUser = remoteUsers.get(idxUser);
 					String oldUserName = oldUser.getName();
 					oldUser.setName(event.getUser().getName());
+					trackMember(oldUser, oldUser.isOnline());
 					refreshTables();
+					refreshMembersTable();
 					if (!event.getUser().equals(user)) {
 						markLogIfInactive();
 						log.info("El usuario '" + oldUserName + "' cambio de nombre a '" + event.getUser().getName()
@@ -1263,29 +1520,31 @@ public class Controller {
 						markTabIfInactive("Chat");
 					}
 					if (disconnectedUser != null) {
+						disconnectedUser.setOnline(false);
+						trackMember(disconnectedUser, false);
 						remoteUsers.remove(disconnectedUser);
 					} else if (event.getUser() != null) {
+						event.getUser().setOnline(false);
+						trackMember(event.getUser(), false);
 						remoteUsers.remove(event.getUser());
 					}
-					if (disconnectedId != null && disconnectedId.equals(selectedArchivosUserId)) {
-						selectedArchivosUserId = null;
-					}
-					refreshArchivosUserFilter();
+					refreshArchivosTable();
 					refreshTables();
+					refreshMembersTable();
 				} else if ("Quiero descargar el archivo".equals(event.getName())) {
-					markLogIfInactive();
-					log.info("El usuario '" + event.getUser().getName() + "' solicito el archivo '"
-							+ event.getFile().getName() + "'");
-					sendFileDirect(event);
+					log.debug("Evento legacy de descarga ignorado: " + event.getName());
+				} else if (coreChunkTransfer != null && coreChunkTransfer.handle(event, null)) {
+					return;
 
 				} else if ("Parte de archivo".equals(event.getName())) {
-					receiveFilePart(event.getFile());
+					log.debug("Evento legacy de transferencia ignorado: " + event.getName());
 				} else if ("Error al transferir archivo".equals(event.getName())) {
 					markLogIfInactive();
 					log.err(event.getResponse());
 
 				} else if ("Complemento habilitado".equals(event.getName())) {
 					String name = event.getResponse();
+					if (isStaleComplementoEvent(name, event.getSequence())) return;
 					enabledComplementos.add(name);
 					applyComplementoVisibility(name, true);
 					log.info("Complemento '" + name + "' habilitado" +
@@ -1293,6 +1552,7 @@ public class Controller {
 
 				} else if ("Complemento deshabilitado".equals(event.getName())) {
 					String name = event.getResponse();
+					if (isStaleComplementoEvent(name, event.getSequence())) return;
 					enabledComplementos.remove(name);
 					applyComplementoVisibility(name, false);
 					log.info("Complemento '" + name + "' deshabilitado" +
@@ -1303,10 +1563,6 @@ public class Controller {
 
 				} else if ("Error al intentar conectarse con el servidor".equals(event.getName())) {
 				} else if ("No es posible establecer una conexion".equals(event.getName())) {
-					if (failoverInProgress) {
-						log.info("Intentando otro nodo del workspace...");
-						return;
-					}
 					log.info("No se pudo conectar al workspace");
 					view.getjPanelCreateWorkspace().setVisible(false);
 					view.getjPanelJoin().setVisible(true);
@@ -1321,16 +1577,9 @@ public class Controller {
 					view.getjButton6().setEnabled(true);
 				mostrarErrorEnPantallaLogin(I18n.get("workspace.cannotConnect"));
 				} else if ("Se perdio la conexion con el servidor".equals(event.getName())) {
-					if (failoverInProgress) {
-						log.info("Nodo alternativo no disponible, pruebo otro...");
-						return;
-					}
 					log.info("Se perdio la conexion con el workspace");
 					cacheCurrentSessionForReconnect();
 					saveSessionHistory("desconexion");
-					if (attemptHubFailover()) {
-						return;
-					}
 					showJoinAfterWorkspaceLost(event.getName());
 				}
 			}
@@ -1363,6 +1612,20 @@ public class Controller {
 		}
 	}
 
+	private String localInviteCode() {
+		String wsId = wk != null ? wk.getId() : core.currentWorkspaceId().orElse("");
+		String peerUrl = peerTunnelUrl != null && !peerTunnelUrl.isBlank() ? peerTunnelUrl : wsId;
+		return InviteCode.encode(peerUrl, wsId);
+	}
+
+	private List<org.q3s.p2p.core.model.Event> currentCoreEventsOrEmpty() {
+		try {
+			return core != null && core.currentWorkspaceId().isPresent() ? new ArrayList<>(core.events()) : List.of();
+		} catch (Exception e) {
+			return List.of();
+		}
+	}
+
 	private void cacheCurrentSessionForReconnect() {
 		if (wk == null || chatArea == null) return;
 		cachedSessionWorkspaceId = wk.getId();
@@ -1385,10 +1648,11 @@ public class Controller {
 			return;
 		}
 
-		// try file-based history folder
+		// try file-based history from the current session folder
 		File sessionDir = buildSessionHistoryDir();
 		if (sessionDir == null || !sessionDir.exists()) return;
-		File chatFile = new File(sessionDir, "chat.txt");
+		File chatFile = new File(new File(sessionDir, "chat"), "chat.txt");
+		if (!chatFile.exists()) chatFile = new File(sessionDir, "chat.txt");
 		if (!chatFile.exists()) return;
 		if (chatArea.getDocument().getLength() > 0) return;
 		try {
@@ -1406,36 +1670,192 @@ public class Controller {
 	}
 
 	private File buildSessionHistoryDir() {
+		return buildSessionDir();
+	}
+
+	private File buildSessionDir() {
 		if (wk == null) return null;
 		long createdAt = sessionCreatedAt > 0 ? sessionCreatedAt : System.currentTimeMillis();
-		Date createdDate = new Date(createdAt);
 		String workspaceName = wk.getName() != null ? decodeValue(wk.getName()) : defaultWorkspaceName();
-		String folderName = new SimpleDateFormat("HHmm").format(createdDate) + "-" + safeFileName(workspaceName);
-		File dir = new File(new File(new File(Config.HISTORY_DIR,
-				new SimpleDateFormat("yyyy").format(createdDate)),
-				new SimpleDateFormat("MM").format(createdDate)),
-				new SimpleDateFormat("dd").format(createdDate));
-		return new File(dir, folderName);
+		QfolderLayout layout = new QfolderLayout(getQfolderRootDir().toPath());
+		return layout.workspaceFolder(wk.getId(), Instant.ofEpochMilli(createdAt), workspaceName).toFile();
+	}
+
+	private File getQfolderRootDir() {
+		if (qfolderRootDir == null) qfolderRootDir = new File(Config.SHARED_DIR).getAbsoluteFile();
+		return qfolderRootDir;
+	}
+
+	private QfolderLayout qfolderLayout() {
+		return new QfolderLayout(getQfolderRootDir().toPath());
+	}
+
+	private File getSessionFilesDir() {
+		prepareWorkspaceSessionDirectories();
+		return currentSessionFilesDir != null ? currentSessionFilesDir : getQfolderRootDir();
+	}
+
+	private void prepareWorkspaceSessionDirectories() {
+		if (wk == null) {
+			getQfolderRootDir().mkdirs();
+			QfolderLayout layout = qfolderLayout();
+			layout.userdataRoot().toFile().mkdirs();
+			layout.systemdataRoot().toFile().mkdirs();
+			view.getjTextField4().setText(getQfolderRootDir().getAbsolutePath());
+			return;
+		}
+		if (currentSessionDir == null) {
+			currentSessionDir = buildSessionDir();
+			currentSessionFilesDir = new File(currentSessionDir, "files");
+			QfolderLayout layout = qfolderLayout();
+			layout.createStructure(currentSessionDir.toPath());
+			Path systemWorkspaceRoot = layout.systemWorkspaceRoot(wk.getId());
+			try {
+				Files.createDirectories(systemWorkspaceRoot.resolve("events"));
+				Files.createDirectories(systemWorkspaceRoot.resolve("chunks"));
+				Files.createDirectories(systemWorkspaceRoot.resolve("snapshots"));
+				Files.createDirectories(systemWorkspaceRoot.resolve("state"));
+			} catch (Exception e) {
+				log.debug("No se pudieron crear directorios systemdata: " + e.getMessage());
+			}
+			writeWorkspaceJson();
+			initializeCoreServices(systemWorkspaceRoot);
+		}
+		currentSessionFilesDir.mkdirs();
+		view.getjTextField4().setText(getQfolderRootDir().getAbsolutePath());
+	}
+
+	private void writeWorkspaceJson() {
+		if (currentSessionDir == null || wk == null) return;
+		try {
+			long createdAt = sessionCreatedAt > 0 ? sessionCreatedAt : System.currentTimeMillis();
+			String workspaceName = wk.getName() != null ? decodeValue(wk.getName()) : defaultWorkspaceName();
+			Map<String, Object> data = QfolderLayout.workspaceJson(wk.getId(), workspaceName,
+					Instant.ofEpochMilli(createdAt), Instant.now(), currentSessionDir.getAbsolutePath(), 2);
+			Files.writeString(new File(currentSessionDir, "workspace.json").toPath(), jsonObject(data));
+		} catch (Exception e) {
+			log.debug("No se pudo escribir workspace.json: " + e.getMessage());
+		}
+	}
+
+	@SuppressWarnings("unchecked")
+	private String jsonObject(Map<String, Object> data) {
+		JsonObjectBuilder builder = Json.createObjectBuilder();
+		for (Map.Entry<String, Object> entry : data.entrySet()) {
+			Object value = entry.getValue();
+			if (value instanceof Number number) builder.add(entry.getKey(), number.longValue());
+			else if (value instanceof Boolean bool) builder.add(entry.getKey(), bool);
+			else if (value instanceof Map<?, ?> map) builder.add(entry.getKey(), Json.createReader(new java.io.StringReader(jsonObject((Map<String, Object>) map))).readObject());
+			else builder.add(entry.getKey(), String.valueOf(value));
+		}
+		return builder.build().toString();
 	}
 
 	private void notifyChangeFiles(Event event) {
 		addUserToRemoteList(event.getUser());
-		refreshArchivosUserFilter();
+		refreshArchivosTable();
 		refreshTables();
 	}
 
 	private void refreshArchivosUserFilter() {
-		if (archivosFilterBtn == null) return;
-		archivosFilterBtn.setText(getArchivosFilterLabel() + " ▼");
 		refreshArchivosTable();
 	}
 
 	private void refreshLocalFilesAndNotify(String msg) {
-		String baseDir = view.getjTextField4().getText();
+		String baseDir = getSessionFilesDir().getAbsolutePath();
 		String navPath = navigationPaths.getOrDefault(user.getId(), "");
 		List<QFile> files = FileUtils.files(baseDir, navPath);
 		this.user.setFiles(files);
-		refreshLocalFilesAndNotify(new Event(msg, user.clone(files)));
+		indexFilesInCore(files, baseDir);
+		trackMember(user, true);
+		refreshArchivosTable();
+		refreshTables();
+	}
+
+	private void indexLocalFilesInCore() {
+		String baseDir = getSessionFilesDir().getAbsolutePath();
+		List<QFile> files = FileUtils.files(baseDir, navigationPaths.getOrDefault(user.getId(), ""));
+		this.user.setFiles(files);
+		indexFilesInCore(files, baseDir);
+	}
+
+	private void indexFilesInCore(List<QFile> files, String baseDir) {
+		if (files == null || baseDir == null || baseDir.isBlank()) return;
+		loadIndexedCoreFilesCache();
+		for (QFile file : files) {
+			if (file == null || file.isDirectory()) continue;
+			String relativePath = file.getRelativePath() != null && !file.getRelativePath().isBlank()
+					? file.getRelativePath() : file.getName();
+			String key = relativePath;
+			String cachedFingerprint = indexedCoreFiles.get(key);
+			String sizeMtime = file.getSize() + ":" + file.getDate();
+			if (sizeMtime.equals(cachedFingerprint)) continue;
+			File diskFile = new File(baseDir, relativePath);
+			String hash = sha256File(diskFile);
+			if (hash != null && hash.equals(cachedFingerprint)) {
+				indexedCoreFiles.put(key, sizeMtime);
+				saveIndexedCoreFilesCache();
+				continue;
+			}
+			try {
+				publishCoreEvent(core.shareFile(diskFile.toPath()));
+				String storedFingerprint = hash != null ? hash : sizeMtime;
+				indexedCoreFiles.put(key, storedFingerprint);
+				saveIndexedCoreFilesCache();
+			} catch (Exception e) {
+				log.debug("No se pudo indexar archivo core '" + relativePath + "': " + e.getMessage());
+			}
+		}
+	}
+
+	private String sha256File(File file) {
+		try {
+			MessageDigest md = MessageDigest.getInstance("SHA-256");
+			try (FileInputStream in = new FileInputStream(file)) {
+				byte[] buf = new byte[8192];
+				int read;
+				while ((read = in.read(buf)) != -1) md.update(buf, 0, read);
+			}
+			return HexFormat.of().formatHex(md.digest());
+		} catch (Exception e) {
+			return null;
+		}
+	}
+
+	private void loadIndexedCoreFilesCache() {
+		String workspaceId = wk != null ? wk.getId() : null;
+		if (workspaceId == null || workspaceId.isBlank() || workspaceId.equals(indexedCoreFilesWorkspaceId)) return;
+		indexedCoreFiles.clear();
+		indexedCoreFilesWorkspaceId = workspaceId;
+		File file = indexedCoreFilesCacheFile(workspaceId);
+		if (!file.isFile()) return;
+		try (FileInputStream in = new FileInputStream(file)) {
+			Properties props = new Properties();
+			props.load(in);
+			for (String name : props.stringPropertyNames()) indexedCoreFiles.put(name, props.getProperty(name));
+		} catch (Exception e) {
+			log.debug("No se pudo leer cache de indexacion core: " + e.getMessage());
+		}
+	}
+
+	private void saveIndexedCoreFilesCache() {
+		String workspaceId = wk != null ? wk.getId() : indexedCoreFilesWorkspaceId;
+		if (workspaceId == null || workspaceId.isBlank()) return;
+		File file = indexedCoreFilesCacheFile(workspaceId);
+		File parent = file.getParentFile();
+		if (parent != null) parent.mkdirs();
+		try (FileOutputStream out = new FileOutputStream(file)) {
+			Properties props = new Properties();
+			props.putAll(indexedCoreFiles);
+			props.store(out, "qfolder core indexed files cache");
+		} catch (Exception e) {
+			log.debug("No se pudo guardar cache de indexacion core: " + e.getMessage());
+		}
+	}
+
+	private File indexedCoreFilesCacheFile(String workspaceId) {
+		String safeId = safeFileName(workspaceId == null ? "default" : workspaceId);
+		return qfolderLayout().systemWorkspaceRoot(safeId).resolve("index-cache.properties").toFile();
 	}
 
 	private void refreshLocalFilesAndNotify(Event e) {
@@ -1443,22 +1863,381 @@ public class Controller {
 	}
 
 	private void sendEvent(Event e) {
-		if (wsClient != null) {
-			wsClient.sendEvent(e);
+		WsClient client = wsClient;
+		if (client == null || e == null) return;
+		outboundEventQueue.execute(() -> client.sendEvent(e));
+	}
+
+	private void initializeCoreServices(Path root) {
+		core = currentSessionDir != null
+				? CoreApplicationService.filesystemWorkspace(root)
+				: CoreApplicationService.filesystem(root);
+		coreChunkTransfer = new CoreChunkTransferCoordinator(core, () -> user, this::sendP2PProtocolEvent, this::updateTransferProgress,
+				this::completeCoreChunkDownload, this::fallbackCoreChunkDownload,
+				(message, detail) -> log.debug(message + (detail == null || detail.isBlank() ? "" : ": " + detail)));
+		p2pNetwork = new P2PNetworkAdapter(user.getId(),
+				() -> "ws://localhost:" + Config.WS_SERVER_PORT,
+				() -> wk != null ? wk.getId() : null,
+				core.eventStore(), this::handleDirectPeerEvent, message -> log.debug(message), true);
+		p2pNetwork.onCoreEventStored(e -> {
+			applyCoreEventIncremental(e);
+			applyCoreStateToVisuals(core.currentState());
+		});
+		p2pNetwork.onCoreSyncApplied(events -> applyCoreStateToVisuals(core.currentState()));
+		p2pMesh = new P2PMeshService(p2pNetwork, core, () -> wk != null ? wk.getId() : null,
+				() -> peerTunnelUrl, this::applyCoreStateToVisuals, this::publishCoreEvent, message -> log.debug(message));
+		directBootstrap = new DirectBootstrap(core, p2pMesh, this::sendP2PProtocolEvent,
+				this::activateWorkspaceFromCore, (peer, wsId) -> showApprovalDialog(peer),
+				message -> log.debug(message));
+	}
+
+	private void activateWorkspaceFromCore() {
+		javax.swing.SwingUtilities.invokeLater(() -> {
+			try {
+				WorkspaceState state = core.currentState();
+				String wsId = core.currentWorkspaceId().orElse(null);
+				if (wsId == null) return;
+				String name = state.workspace() != null ? state.workspace().name() : wsId;
+				Workspace workspace = new Workspace(wsId, name);
+				workspace.setDate(sessionCreatedAt > 0 ? sessionCreatedAt : System.currentTimeMillis());
+				notify(new Event("Bienvenido usuario al grupo!", workspace));
+			} catch (Exception e) {
+				log.err("No se pudo activar workspace desde core: " + e.getMessage());
+			}
+		});
+	}
+
+	private void publishCoreEvent(org.q3s.p2p.core.model.Event event) {
+		if (event != null) log.debug("[CORE PUBLISH] " + event.type() + " id=" + event.eventId());
+		if (p2pMesh != null) p2pMesh.publish(event);
+		if (event != null && "file.shared".equals(event.type())) {
+			WorkspaceState state = core.currentState();
+			if (javax.swing.SwingUtilities.isEventDispatchThread()) {
+				applyCoreFilesToVisuals(state);
+			} else {
+				javax.swing.SwingUtilities.invokeLater(() -> applyCoreFilesToVisuals(state));
+			}
 		}
+	}
+
+	private void sendP2PProtocolEvent(Event event) {
+		if (event == null || event.getName() == null) return;
+		String name = event.getName();
+		if (name.startsWith("__to:")) {
+			String rest = name.substring(5);
+			int colonIdx = rest.indexOf(':');
+			if (colonIdx <= 0) return;
+			String targetUserId = rest.substring(0, colonIdx);
+			event.setName(rest.substring(colonIdx + 1));
+			WebSocket direct = directPeerConnections.get(targetUserId);
+			boolean sentDirect = false;
+			boolean sentP2P = false;
+			try {
+				if (direct != null && !direct.isClosed()) {
+					log.debug("[P2P SEND] __to:" + targetUserId + " tipo=" + event.getName() + " via direct (" + directPeerConnections.size() + " direct peers)");
+					direct.send(EventUtils.toJsonBase64(event));
+					sentDirect = true;
+				}
+			} catch (Exception e) {
+				log.debug("No se pudo enviar protocolo P2P por direct a " + targetUserId + ": " + e.getMessage());
+			}
+			try {
+				if (p2pNetwork != null) {
+					p2pNetwork.sendProtocolEvent(targetUserId, event);
+					sentP2P = true;
+				}
+			} catch (Exception e) {
+				log.debug("No se pudo enviar protocolo P2P por mesh a " + targetUserId + ": " + e.getMessage());
+			}
+			if (!sentDirect && !sentP2P) {
+				log.debug("[P2P SEND] __to:" + targetUserId + " tipo=" + event.getName() + " NO ROUTE");
+			}
+			return;
+		}
+		log.debug("[P2P SEND] broadcast tipo=" + event.getName());
+		if (p2pNetwork != null) p2pNetwork.broadcastProtocolEvent(event);
+		for (WebSocket conn : new ArrayList<>(directPeerConnections.values())) {
+			try { if (conn != null && !conn.isClosed()) conn.send(EventUtils.toJsonBase64(event)); } catch (Exception ignored) {}
+		}
+	}
+
+	private void applyCoreStateToVisuals(WorkspaceState state) {
+		if (state == null) return;
+		if (p2pMesh != null) p2pMesh.applyPeerDiscoveryState(state);
+		javax.swing.SwingUtilities.invokeLater(() -> {
+			try {
+				boolean membershipChanged = applyCoreMembersToVisuals(state);
+				boolean chatChanged = false;
+			boolean notesChanged = false;
+			boolean whiteboardChanged = false;
+			boolean membersChanged = applyCorePeerStateToMembers(state) || membershipChanged;
+			log.debug("[CORE UI] aplicando estado: chat=" + state.chatMessages().size()
+					+ " notas=" + state.notes().size() + " wb=" + state.whiteboardObjects().size()
+					+ " archivos=" + state.files().size());
+			org.q3s.p2p.core.model.Note sharedNotes = state.notes().get("shared-notes");
+			if (sharedNotes != null && notesPane != null) {
+				String remoteNotes = sharedNotes.text();
+				if (remoteNotes.equals(lastAppliedNotesState)) {
+					log.debug("[NOTES] ignorando estado remoto ya aplicado " + notesStateSummary(remoteNotes));
+				} else {
+					applyRemoteNotes(remoteNotes);
+					notesChanged = true;
+				}
+			}
+
+				if (chatArea != null) {
+					int before = appliedCoreChatIds.size();
+					for (org.q3s.p2p.core.model.ChatMessage message : state.chatMessages().values()) {
+						if (!appliedCoreChatIds.add(message.messageId())) continue;
+						ChatMessage visualMessage = new ChatMessage();
+						visualMessage.id = "core-" + message.messageId();
+						visualMessage.senderName = displayNameForCoreMember(message.authorMemberId());
+						visualMessage.text = message.text();
+						User sender = User.build(message.authorMemberId());
+						sender.setName(visualMessage.senderName);
+						appendChatMessage(sender, visualMessage.toPayload());
+					}
+					int after = appliedCoreChatIds.size();
+					if (after > before) {
+						chatChanged = true;
+						log.info("[CORE UI] chat: " + (after - before) + " nuevos, total=" + after);
+					}
+				}
+
+				if (whiteboardCanvas != null) {
+					String whiteboardState = coreWhiteboardState(state);
+					if (!whiteboardState.equals(lastAppliedCoreWhiteboardState)
+							&& !whiteboardState.equals(whiteboardCanvas.serialize())) {
+						lastAppliedCoreWhiteboardState = whiteboardState;
+						log.info("[CORE UI] pizarra: aplicando " + state.whiteboardObjects().size() + " objetos");
+						whiteboardCanvas.applyState(whiteboardState);
+						whiteboardChanged = true;
+					}
+				}
+
+				applyCoreFilesToVisuals(state);
+				if (chatChanged) markTabIfInactive("Chat");
+				if (notesChanged) markTabIfInactive("Notas");
+				if (whiteboardChanged) markTabIfInactive("Pizarra");
+				if (membersChanged) markTabIfInactive("Miembros");
+				logUiSnapshot("applyCoreStateToVisuals");
+			} catch (Exception e) {
+				log.debug("No se pudo aplicar estado core a UI: " + e.getMessage());
+			}
+		});
+	}
+
+	private boolean applyCoreMembersToVisuals(WorkspaceState state) {
+		boolean changed = false;
+		for (org.q3s.p2p.core.model.Member coreMember : state.authorizedMembers().values()) {
+			User member = coreMember.memberId().equals(user.getId()) ? user : knownMembers.get(coreMember.memberId());
+			if (member == null) {
+				member = User.build(coreMember.memberId());
+				knownMembers.put(member.getId(), member);
+				if (!member.equals(user) && !remoteUsers.contains(member)) remoteUsers.add(member);
+				changed = true;
+			}
+			String displayName = coreMember.displayName();
+			if (displayName != null && !displayName.isBlank() && !displayName.equals(member.getName())) {
+				member.setName(displayName);
+				changed = true;
+			}
+		}
+		return changed;
+	}
+
+	private boolean applyCorePeerStateToMembers(WorkspaceState state) {
+		boolean changed = false;
+		if (!corePeerUrls.equals(state.peerUrls())) {
+			corePeerUrls.clear();
+			corePeerUrls.putAll(state.peerUrls());
+			changed = true;
+		}
+		if (!corePeerConnections.equals(state.peerConnections())) {
+			corePeerConnections.clear();
+			for (Map.Entry<String, Set<String>> entry : state.peerConnections().entrySet()) {
+				corePeerConnections.put(entry.getKey(), new java.util.LinkedHashSet<>(entry.getValue()));
+			}
+			changed = true;
+		}
+
+		for (Map.Entry<String, String> entry : corePeerUrls.entrySet()) {
+			User member = entry.getKey().equals(user.getId()) ? user : knownMembers.get(entry.getKey());
+			if (member == null) {
+				member = User.build(entry.getKey());
+				member.setName(displayNameForCoreMember(entry.getKey()));
+				knownMembers.put(entry.getKey(), member);
+			}
+			if (entry.getValue() != null && !entry.getValue().equals(member.getPeerUrl())) {
+				member.setPeerUrl(entry.getValue());
+				changed = true;
+			}
+		}
+		refreshMembersTable();
+		return changed;
+	}
+
+	private void applyCoreFilesToVisuals(WorkspaceState state) {
+		boolean changed = false;
+		for (FileMetadata metadata : state.files().values()) {
+			String memberId = metadata.sharedBy();
+			if (memberId == null || memberId.isBlank()) continue;
+			String hash = metadata.hash();
+			if (hash == null || hash.isBlank()) continue;
+			fileRegistry.putIfAbsent(hash, new FileRegistryEntry(
+					metadata.name(), metadata.size(), System.currentTimeMillis(),
+					metadata.fileId(), hash, memberId));
+			filePeers.computeIfAbsent(hash, k -> new HashSet<>()).add(memberId);
+			changed = true;
+
+			if (metadata.chatAttachment() && chatArea != null && appliedCoreChatFileIds.add(metadata.fileId())) {
+				User sender = memberId.equals(user.getId()) ? user : knownMembers.get(memberId);
+				if (sender == null) {
+					sender = User.build(memberId);
+					sender.setName(displayNameForCoreMember(memberId));
+				}
+				QFile qfile = new QFile();
+				qfile.setName(metadata.name());
+				qfile.setSize(metadata.size());
+				qfile.setDate(System.currentTimeMillis());
+				qfile.setRelativePath(metadata.name());
+				qfile.setOperation(QFile.OPERATION_DOWNLOAD);
+				qfile.setMd5("core:" + metadata.fileId());
+				if (!memberId.equals(user.getId())) {
+					qfile.setTransferId(UUIDUtils.generate());
+				}
+				String localPath = memberId.equals(user.getId()) ? new File(getSessionFilesDir(), metadata.name()).getAbsolutePath() : null;
+				String linkId = appendChatFileMessage(sender, qfile, localPath);
+				if (!memberId.equals(user.getId())) {
+					qfile.setOwner(sender);
+					pendingChatDownloads.put(linkId, metadata.fileId());
+					markTabIfInactive("Chat");
+				}
+			}
+		}
+		if (changed) {
+			refreshArchivosTable();
+			refreshTables();
+			markTabIfInactive("Archivos");
+			logUiSnapshot("applyCoreFilesToVisuals");
+		}
+	}
+
+	private boolean isCoreMetadataFile(QFile file) {
+		return file != null && file.getMd5() != null && file.getMd5().startsWith("core:");
+	}
+
+	private String coreFileId(QFile file) {
+		if (!isCoreMetadataFile(file)) return null;
+		String id = file.getMd5().substring("core:".length()).trim();
+		return id.isEmpty() ? null : id;
+	}
+
+	private QFile qFileForCoreFileId(String fileId) {
+		if (fileId == null || fileId.isBlank() || core == null) return null;
+		for (FileMetadata metadata : core.currentState().files().values()) {
+			if (!fileId.equals(metadata.fileId())) continue;
+			QFile qfile = new QFile();
+			qfile.setName(metadata.name());
+			qfile.setSize(metadata.size());
+			qfile.setDate(System.currentTimeMillis());
+			qfile.setRelativePath(metadata.name());
+			qfile.setMd5("core:" + metadata.fileId());
+			String ownerId = metadata.sharedBy();
+			User owner = ownerId != null && ownerId.equals(user.getId()) ? user : knownMembers.get(ownerId);
+			if (owner == null && ownerId != null) {
+				owner = User.build(ownerId);
+				owner.setName(displayNameForCoreMember(ownerId));
+			}
+			qfile.setOwner(owner);
+			return qfile;
+		}
+		return null;
+	}
+
+	private void applyCoreEventIncremental(org.q3s.p2p.core.model.Event event) {
+		if (whiteboardCanvas == null || event == null) return;
+		String type = event.type();
+		String objectId = String.valueOf(event.payload().getOrDefault("object_id", ""));
+		String operation = String.valueOf(event.payload().getOrDefault("operation", ""));
+		javax.swing.SwingUtilities.invokeLater(() -> {
+			try {
+				boolean changed = false;
+				switch (type) {
+					case "whiteboard.object.added" -> { whiteboardCanvas.applyAction(
+							whiteboardCanvas.actionPayload("add", objectId, operation)); changed = true; }
+					case "whiteboard.object.moved" -> { whiteboardCanvas.applyAction(
+							whiteboardCanvas.actionPayload("update", objectId, operation)); changed = true; }
+					case "whiteboard.object.deleted" -> { whiteboardCanvas.applyAction(
+							whiteboardCanvas.actionPayload("delete", objectId, null)); changed = true; }
+					case "whiteboard.cleared" -> { whiteboardCanvas.applyAction(
+							whiteboardCanvas.actionPayload("clear", "", null)); changed = true; }
+					case "whiteboard.stroke.added" -> changed = true;
+				}
+				if (changed) markTabIfInactive("Pizarra");
+			} catch (Exception e) {
+				log.debug("No se pudo aplicar evento pizarra incremental: " + e.getMessage());
+			}
+		});
+	}
+
+	private String coreWhiteboardState(WorkspaceState state) {
+		StringBuilder out = new StringBuilder("QWBSTATE1");
+		for (org.q3s.p2p.core.model.WhiteboardStroke stroke : state.strokes().values()) {
+			List<int[]> points = stroke.points();
+			for (int i = 1; i < points.size(); i++) {
+				int[] a = points.get(i - 1);
+				int[] b = points.get(i);
+				if (a.length < 2 || b.length < 2) continue;
+				String color = stroke.color() == null || stroke.color().isBlank() ? "#000000" : stroke.color();
+				String op = "L|" + a[0] + "," + a[1] + "," + b[0] + "," + b[1] + "|" + color + "|" + Math.max(1, stroke.width());
+				out.append('\n').append(stroke.strokeId()).append('_').append(i).append('|')
+						.append(Base64.getEncoder().encodeToString(op.getBytes(StandardCharsets.UTF_8)));
+			}
+		}
+		for (Map.Entry<String, String> entry : state.whiteboardObjects().entrySet()) {
+			String op = entry.getValue() == null ? "" : entry.getValue();
+			out.append('\n').append(entry.getKey()).append('|')
+					.append(Base64.getEncoder().encodeToString(op.getBytes(StandardCharsets.UTF_8)));
+		}
+		return out.toString();
+	}
+
+	private String displayNameForCoreMember(String memberId) {
+		User known = knownMembers.get(memberId);
+		if (known != null && known.getName() != null && !known.getName().isBlank()) return known.getName();
+		return memberId != null ? memberId : "Usuario";
 	}
 
 	private void addUserToRemoteList(User user) {
 		if (user.equals(this.user)) return;
-		if (user.getPeerUrl() != null && !user.getPeerUrl().isBlank()) {
-			hubCandidates.put(user.getId(), user);
+		boolean newMember = !remoteUsers.contains(user);
+		user.setOnline(true);
+		trackMember(user, true);
+		if (!core.currentState().isAuthorized(user.getId())) {
+			try {
+				core.recordJoinRequest(user.getId(), user.getName(), "swing-device", user.getId());
+			} catch (Exception e) {
+				log.debug("No se pudo registrar join request remoto en core: " + e.getMessage());
+			}
 		}
 		int idx = remoteUsers.indexOf(user);
 		if (idx != -1) {
 			User us = remoteUsers.get(idx);
+			List<QFile> coreFiles = new ArrayList<>();
+			for (QFile existing : us.getFiles()) {
+				if (isCoreMetadataFile(existing)) coreFiles.add(existing);
+			}
 			us.copy(user);
+			us.setOnline(true);
+			for (QFile coreFile : coreFiles) {
+				boolean alreadyPresent = us.getFiles().stream()
+						.anyMatch(f -> f.getName().equals(coreFile.getName()) && f.getSize() == coreFile.getSize());
+				if (!alreadyPresent) us.getFiles().add(coreFile);
+			}
 			if (user.getFiles().isEmpty()) {
-				us.setFiles(new ArrayList<QFile>());
+				us.setFiles(us.getFiles() == null || us.getFiles().isEmpty()
+						? new ArrayList<>() : us.getFiles());
 			}
 		} else {
 			remoteUsers.add(user);
@@ -1468,6 +2247,40 @@ public class Controller {
 			appendChatSystemMessage(I18n.get("chat.userReconnected", name), new Color(0, 128, 0));
 			markTabIfInactive("Chat");
 		}
+		connectP2PTo(user);
+		refreshMembersTable();
+		if (newMember) markTabIfInactive("Miembros");
+	}
+
+	private void connectP2PTo(User peer) {
+		if (p2pMesh != null) {
+			p2pMesh.peerAppeared(peer);
+			javax.swing.Timer timer = new javax.swing.Timer(1200, e -> {
+				refreshMembersTable();
+				markTabIfInactive("Miembros");
+			});
+			timer.setRepeats(false);
+			timer.start();
+		}
+	}
+
+	private void trackMember(User member, boolean online) {
+		if (member == null || member.getId() == null) return;
+		User stored = knownMembers.get(member.getId());
+		boolean changed = stored == null || stored.isOnline() != online
+				|| (member.getPeerUrl() != null && !member.getPeerUrl().equals(stored.getPeerUrl()))
+				|| (member.getName() != null && !member.getName().equals(stored.getName()));
+		if (stored == null) {
+			stored = User.build(member.getId());
+			knownMembers.put(member.getId(), stored);
+		}
+		stored.copy(member);
+		stored.setOnline(online);
+		if (online && !memberConnectedAt.containsKey(member.getId())) {
+			memberConnectedAt.put(member.getId(), System.currentTimeMillis());
+		}
+		refreshMembersTable();
+		if (changed && !member.equals(user)) markTabIfInactive("Miembros");
 	}
 
 	private User findKnownUser(User candidate) {
@@ -1477,74 +2290,124 @@ public class Controller {
 		return candidate;
 	}
 
+	private void loadMembersTab() {
+		trackMember(user, true);
+		if (membersContainerPanel != null) {
+			refreshMembersTable();
+			return;
+		}
+
+		membersTable = new JTable();
+		membersTable.setFillsViewportHeight(true);
+		membersTable.setAutoResizeMode(JTable.AUTO_RESIZE_SUBSEQUENT_COLUMNS);
+		membersContainerPanel = new JPanel(new BorderLayout(4, 4));
+		membersContainerPanel.add(new JScrollPane(membersTable), BorderLayout.CENTER);
+		refreshMembersTable();
+		insertSystemTab("Miembros", groupIcon(), membersContainerPanel, "Miembros del workspace");
+	}
+
+	private void refreshMembersTable() {
+		if (membersTable == null) return;
+		trackMemberWithoutRefresh(user, true);
+		String[] columns = {"Nombre", "Estado", "Conectado desde", "Peers", "Conectado con", "URL publica"};
+		DefaultTableModel model = new DefaultTableModel(columns, 0) {
+			@Override public boolean isCellEditable(int row, int column) { return false; }
+		};
+		Set<String> localConnections = p2pMesh != null ? p2pMesh.connectedPeers() : Set.of();
+		for (User member : knownMembers.values()) {
+			boolean isSelf = member.equals(user);
+			boolean connectedToMe = localConnections.contains(member.getId())
+					|| isDirectPeerConnected(member.getId());
+			boolean online = isSelf || connectedToMe;
+			if (member.isOnline() != online) member.setOnline(online);
+			if (online && !memberConnectedAt.containsKey(member.getId())) {
+				memberConnectedAt.put(member.getId(), System.currentTimeMillis());
+			}
+			Set<String> distributedConnections = new java.util.LinkedHashSet<>(corePeerConnections.getOrDefault(member.getId(), Set.of()));
+			if (isSelf) distributedConnections.addAll(localConnections);
+			if (!isSelf && connectedToMe) distributedConnections.add(user.getId());
+			if (!online) distributedConnections.clear();
+			String connectedWith = connectedPeerNames(distributedConnections);
+			String peerCount = String.valueOf(distributedConnections.size());
+			model.addRow(new Object[] {
+					member.getName() != null ? member.getName() : member.getId(),
+					online ? "Conectado" : "Desconectado",
+					formatMemberConnectedAt(member.getId()),
+					peerCount,
+					connectedWith,
+					member.getPeerUrl() != null ? member.getPeerUrl() : ""
+			});
+		}
+		membersTable.setModel(model);
+		if (membersTable.getColumnModel().getColumnCount() >= 6) {
+			membersTable.getColumnModel().getColumn(0).setPreferredWidth(140);
+			membersTable.getColumnModel().getColumn(1).setPreferredWidth(100);
+			membersTable.getColumnModel().getColumn(2).setPreferredWidth(140);
+			membersTable.getColumnModel().getColumn(3).setPreferredWidth(60);
+			membersTable.getColumnModel().getColumn(4).setPreferredWidth(180);
+			membersTable.getColumnModel().getColumn(5).setPreferredWidth(320);
+		}
+		logUiSnapshot("refreshMembersTable");
+	}
+
+	private String connectedPeerNames(Set<String> peerIds) {
+		if (peerIds == null || peerIds.isEmpty()) return "";
+		List<String> names = new ArrayList<>();
+		for (String peerId : peerIds) names.add(displayNameForCoreMember(peerId));
+		return String.join(", ", names);
+	}
+
+	private void trackMemberWithoutRefresh(User member, boolean online) {
+		if (member == null || member.getId() == null) return;
+		User stored = knownMembers.get(member.getId());
+		if (stored == null) {
+			stored = User.build(member.getId());
+			knownMembers.put(member.getId(), stored);
+		}
+		stored.copy(member);
+		stored.setOnline(online);
+		if (online && !memberConnectedAt.containsKey(member.getId())) {
+			memberConnectedAt.put(member.getId(), System.currentTimeMillis());
+		}
+	}
+
+	private String formatMemberConnectedAt(String userId) {
+		Long connectedAt = memberConnectedAt.get(userId);
+		if (connectedAt == null || connectedAt <= 0) return "";
+		return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(connectedAt));
+	}
+
 	private void ensureArchivosTab() {
 		if (archivosTab != null) return;
-
-		selectedArchivosUserId = null;
-
-		archivosFilterBtn = new JButton(getArchivosFilterLabel() + " ▼");
-		archivosFilterBtn.setFocusable(false);
-		archivosFilterBtn.addActionListener(e -> showArchivosFilterMenu());
-
-		archivosBackBtn = new JButton("← Atrás");
-		archivosBackBtn.setVisible(false);
-		archivosBackBtn.addActionListener(e -> navigateBack(getSelectedFileUserId()));
-
-		archivosBreadcrumb = new JLabel("");
-
-		JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
-		topPanel.add(archivosFilterBtn);
-		topPanel.add(archivosBackBtn);
-		topPanel.add(archivosBreadcrumb);
-		topPanel.setPreferredSize(new java.awt.Dimension(100, 32));
 
 		archivosTab = new TabListFile(wk, this.user, this, 0);
 		archivosTab.setName("Archivos");
 
 		JPanel panel = new JPanel(new BorderLayout(4, 4));
-		panel.add(topPanel, BorderLayout.NORTH);
 		panel.add(archivosTab, BorderLayout.CENTER);
+		TransferHandler archivosDropHandler = new TransferHandler() {
+			@Override public boolean canImport(TransferSupport support) {
+				return support.isDataFlavorSupported(DataFlavor.javaFileListFlavor);
+			}
+
+			@Override public boolean importData(TransferSupport support) {
+				if (!canImport(support)) return false;
+				try {
+					@SuppressWarnings("unchecked")
+					List<File> files = (List<File>) support.getTransferable().getTransferData(DataFlavor.javaFileListFlavor);
+					return importFilesToSession(files, "Archivos");
+				} catch (Exception e) {
+					log.err("Error al recibir archivo arrastrado a Archivos: " + e.getMessage());
+					return false;
+				}
+			}
+		};
+		panel.setTransferHandler(archivosDropHandler);
+		archivosTab.setTransferHandler(archivosDropHandler);
+		archivosTab.getjTable1().setTransferHandler(archivosDropHandler);
 		archivosContainerPanel = panel;
 
 		refreshArchivosTable();
-	}
-
-	private void showArchivosFilterMenu() {
-		JPopupMenu menu = new JPopupMenu();
-		JMenuItem allItem = new JMenuItem("Todos");
-		allItem.addActionListener(e -> selectArchivosUser(null));
-		menu.add(allItem);
-		menu.addSeparator();
-
-		JMenuItem yoItem = new JMenuItem("Yo");
-		yoItem.addActionListener(e -> selectArchivosUser(this.user.getId()));
-		menu.add(yoItem);
-
-		for (User u : remoteUsers) {
-			if (u.equals(this.user)) continue;
-			JMenuItem item = new JMenuItem(u.getName());
-			item.addActionListener(e -> selectArchivosUser(u.getId()));
-			menu.add(item);
-		}
-		menu.show(archivosFilterBtn, 0, archivosFilterBtn.getHeight());
-	}
-
-	private void selectArchivosUser(String userId) {
-		selectedArchivosUserId = userId;
-		refreshArchivosUserFilter();
-	}
-
-	private String getArchivosFilterLabel() {
-		if (selectedArchivosUserId == null) return "Todos";
-		if (selectedArchivosUserId.equals(this.user.getId())) return "Yo";
-		for (User u : remoteUsers) {
-			if (selectedArchivosUserId.equals(u.getId())) return u.getName();
-		}
-		return "Todos";
-	}
-
-	private String getSelectedFileUserId() {
-		return selectedArchivosUserId != null ? selectedArchivosUserId : this.user.getId();
 	}
 
 	private void showArchivosTab() {
@@ -1554,44 +2417,157 @@ public class Controller {
 		}
 	}
 
+	private boolean isDirectPeerConnected(String forPeerId) {
+		WebSocket conn = directPeerConnections.get(forPeerId);
+		return conn != null && !conn.isClosed();
+	}
+
+	private Set<String> activeFilePeers(Set<String> peers) {
+		if (peers == null || peers.isEmpty()) return Set.of();
+		Set<String> active = new LinkedHashSet<>();
+		Set<String> connected = p2pMesh != null ? p2pMesh.connectedPeers() : Set.of();
+		for (String peerId : peers) {
+			if (peerId == null || peerId.isBlank()) continue;
+			if (peerId.equals(user.getId())) { active.add(peerId); continue; }
+			if (connected.contains(peerId) || isDirectPeerConnected(peerId)) { active.add(peerId); }
+		}
+		return active;
+	}
+
 	private void refreshArchivosTable() {
 		if (archivosTab == null) return;
-		List<User> users = new ArrayList<>();
-		if (selectedArchivosUserId == null || selectedArchivosUserId.equals(this.user.getId())) {
-			users.add(this.user);
-		}
-		for (User u : remoteUsers) {
-			if (u.equals(this.user)) continue;
-			if (selectedArchivosUserId == null || selectedArchivosUserId.equals(u.getId())) {
-				users.add(u);
+		List<FileTableModel.FileTableRow> rows = new ArrayList<>();
+		for (Map.Entry<String, FileRegistryEntry> entry : fileRegistry.entrySet()) {
+			FileRegistryEntry e = entry.getValue();
+			Set<String> peers = filePeers.getOrDefault(e.hash(), Set.of());
+			Set<String> activePeers = activeFilePeers(peers);
+			boolean isLocal = activePeers.contains(user.getId());
+			User owner;
+			if (isLocal) {
+				owner = user;
+			} else {
+				String firstPeerId = e.firstSharedBy();
+				owner = knownMembers.get(firstPeerId);
+				if (owner == null) {
+					owner = User.build(firstPeerId);
+					owner.setName(displayNameForCoreMember(firstPeerId));
+				}
 			}
+			rows.add(new FileTableModel.FileTableRow(e.name(), e.size(), e.date(), e.fileId(), e.hash(), owner, activePeers.size()));
 		}
-		if (users.isEmpty()) {
-			users.add(this.user);
-			selectedArchivosUserId = this.user.getId();
+		FileTableModel ftm;
+		if (archivosTab.getjTable1().getModel() instanceof FileTableModel existing) {
+			existing.setRows(rows);
+			ftm = existing;
+		} else {
+			ftm = new FileTableModel(rows);
+			archivosTab.getjTable1().setModel(ftm);
 		}
-		FileTableModel ftm = new FileTableModel(users);
-		archivosTab.getjTable1().setModel(ftm);
 		archivosTab.getjTable1().setAutoResizeMode(JTable.AUTO_RESIZE_SUBSEQUENT_COLUMNS);
 		setFixedColumnWidth(0, 28);
 		setFixedColumnWidth(2, 80);
 		setFixedColumnWidth(3, 125);
 		setFixedColumnWidth(4, 105);
-		refreshArchivosBreadcrumb();
+		setFixedColumnWidth(5, 65);
+		logUiSnapshot("refreshArchivosTable");
 	}
 
 	private void setFixedColumnWidth(int column, int width) {
-		archivosTab.getjTable1().getColumnModel().getColumn(column).setPreferredWidth(width);
-		archivosTab.getjTable1().getColumnModel().getColumn(column).setMinWidth(width);
-		archivosTab.getjTable1().getColumnModel().getColumn(column).setMaxWidth(width);
+		try {
+			archivosTab.getjTable1().getColumnModel().getColumn(column).setPreferredWidth(width);
+			archivosTab.getjTable1().getColumnModel().getColumn(column).setMinWidth(width);
+			archivosTab.getjTable1().getColumnModel().getColumn(column).setMaxWidth(width);
+		} catch (Exception e) {
+		}
 	}
 
-	private void refreshArchivosBreadcrumb() {
-		String userId = getSelectedFileUserId();
-		String navPath = navigationPaths.getOrDefault(userId, "");
-		boolean hasPath = !navPath.isEmpty();
-		archivosBackBtn.setVisible(hasPath);
-		archivosBreadcrumb.setText(hasPath ? navPath : "");
+	private void logUiSnapshot(String reason) {
+		if (!Config.UI_VERBOSE_LOG || log == null) return;
+		try {
+			StringBuilder out = new StringBuilder("[UI VERBOSE] reason=").append(reason)
+					.append(" user=").append(user.getName()).append("(").append(user.getId()).append(")")
+					.append(" wk=").append(wk != null ? wk.getId() : "-")
+					.append(" selectedTab=").append(currentTabTitle()).append('\n');
+			out.append("[UI VERBOSE] members=").append(uiMembersSnapshot()).append('\n');
+			out.append("[UI VERBOSE] chat=").append(uiChatSnapshot()).append('\n');
+			out.append("[UI VERBOSE] files=").append(uiFilesSnapshot()).append('\n');
+			out.append("[UI VERBOSE] notes=").append(uiNotesSnapshot()).append('\n');
+			out.append("[UI VERBOSE] whiteboard=").append(uiWhiteboardSnapshot());
+			log.debug(out.toString());
+		} catch (Exception e) {
+			log.debug("[UI VERBOSE] snapshot error: " + e.getMessage());
+		}
+	}
+
+	private String currentTabTitle() {
+		try {
+			int idx = view.getjTabbedPane().getSelectedIndex();
+			return idx >= 0 ? view.getjTabbedPane().getTitleAt(idx) : "-";
+		} catch (Exception e) {
+			return "-";
+		}
+	}
+
+	private String uiMembersSnapshot() {
+		if (membersTable == null) return "tab-not-loaded known=" + knownMembers.size();
+		StringBuilder out = new StringBuilder("rows=").append(membersTable.getRowCount()).append(" [");
+		for (int r = 0; r < membersTable.getRowCount(); r++) {
+			if (r > 0) out.append("; ");
+			out.append(rowValue(membersTable, r, 0)).append('|')
+					.append(rowValue(membersTable, r, 1)).append('|')
+					.append("peers=").append(rowValue(membersTable, r, 3)).append('|')
+					.append("with=").append(rowValue(membersTable, r, 4)).append('|')
+					.append(rowValue(membersTable, r, 5));
+		}
+		return out.append(']').toString();
+	}
+
+	private String uiChatSnapshot() {
+		if (chatArea == null) return "tab-not-loaded messages=" + chatMessages.size();
+		String text = chatArea.getText();
+		return "chars=" + text.length() + " messages=" + chatMessages.size()
+				+ " links=" + chatFileLinks.size() + " text='" + compact(text, 500) + "'";
+	}
+
+	private String uiFilesSnapshot() {
+		if (archivosTab == null) return "tab-not-loaded remoteUsers=" + remoteUsers.size();
+		JTable table = archivosTab.getjTable1();
+		StringBuilder out = new StringBuilder("rows=").append(table.getRowCount()).append(" registry=")
+				.append(fileRegistry.size()).append(" [");
+		for (int r = 0; r < table.getRowCount(); r++) {
+			if (r > 0) out.append("; ");
+			out.append(rowValue(table, r, 1)).append('|')
+					.append(rowValue(table, r, 2)).append('|')
+					.append(rowValue(table, r, 3)).append('|')
+					.append("peers=").append(rowValue(table, r, 5));
+		}
+		return out.append(']').toString();
+	}
+
+	private String uiNotesSnapshot() {
+		if (notesPane == null) return "tab-not-loaded";
+		return "chars=" + notesPane.getDocument().getLength() + " text='" + compact(notesPane.getText(), 300) + "'";
+	}
+
+	private String uiWhiteboardSnapshot() {
+		if (whiteboardCanvas == null) return "tab-not-loaded";
+		String state = whiteboardCanvas.serialize();
+		int operations = state == null || state.isBlank() ? 0 : Math.max(0, state.split("\n").length - 1);
+		return "ops=" + operations + " state='" + compact(state, 300) + "'";
+	}
+
+	private Object rowValue(JTable table, int row, int col) {
+		try {
+			return col < table.getColumnCount() ? table.getValueAt(row, col) : "";
+		} catch (Exception e) {
+			return "?";
+		}
+	}
+
+	private String compact(String value, int max) {
+		if (value == null) return "";
+		String compact = value.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ').trim();
+		return compact.length() > max ? compact.substring(0, Math.max(0, max - 3)) + "..." : compact;
 	}
 
 	private void loadChatTab() {
@@ -1640,33 +2616,36 @@ public class Controller {
 		chatReplyLabel = new JLabel("Re:");
 		chatReplyLabel.setForeground(Color.GRAY);
 		chatReplyLabel.setVisible(false);
-		JButton fileButton = new JButton(attachmentIcon());
-		fileButton.setToolTipText("Adjuntar archivo");
-		fileButton.setFocusable(false);
-		fileButton.setMargin(new java.awt.Insets(2, 6, 2, 6));
 		JButton sendButton = new JButton("Enviar");
+		sendButton.setDefaultCapable(false);
+		sendButton.setFocusable(false);
+		JButton fileButton = new JButton(attachmentIcon());
+		fileButton.setToolTipText(I18n.get("tooltip.attachFile"));
+		fileButton.setFocusable(false);
+		java.awt.Dimension btnSize = new java.awt.Dimension(chatInput.getPreferredSize().height, chatInput.getPreferredSize().height);
+		fileButton.setPreferredSize(btnSize);
+		fileButton.setMaximumSize(btnSize);
+		fileButton.setMinimumSize(btnSize);
 		Runnable send = () -> sendChatMessage();
 		chatInput.addActionListener(e -> send.run());
 		fileButton.addActionListener(e -> chooseAndSendChatFile());
 		sendButton.addActionListener(e -> send.run());
 
-		JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+		JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 2));
 		buttonPanel.add(fileButton);
 		buttonPanel.add(sendButton);
 
-		JPanel inputPanel = new JPanel(new BorderLayout(4, 4));
-		inputPanel.setPreferredSize(new java.awt.Dimension(10, 32));
-		inputPanel.setMinimumSize(new java.awt.Dimension(10, 28));
+		JPanel inputPanel = new JPanel(new BorderLayout(4, 2));
 		inputPanel.add(chatReplyLabel, BorderLayout.WEST);
 		inputPanel.add(chatInput, BorderLayout.CENTER);
 		inputPanel.add(buttonPanel, BorderLayout.EAST);
 
 		JScrollPane scroll = new JScrollPane(chatArea);
 		scroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
-		scroll.setMinimumSize(new java.awt.Dimension(0, 0));
-		scroll.setPreferredSize(new java.awt.Dimension(100, 100));
+		scroll.setMinimumSize(new java.awt.Dimension(0, 50));
 
 		JPanel panel = new JPanel(new BorderLayout(4, 4));
+		panel.setMinimumSize(new java.awt.Dimension(0, 40));
 		pinnedChatLabel = new JLabel();
 		pinnedChatLabel.setOpaque(true);
 		pinnedChatLabel.setBackground(new Color(245, 245, 245));
@@ -1737,22 +2716,9 @@ public class Controller {
 			log.err("Solo se pueden enviar archivos desde el chat");
 			return;
 		}
-		String baseDir = view.getjTextField4().getText();
-		if (baseDir == null || baseDir.trim().isEmpty()) {
-			log.err("No hay directorio compartido configurado para enviar archivos");
-			return;
-		}
-		if (wsClient == null) {
-			log.err("No hay conexion al workspace para enviar archivos por chat");
-			return;
-		}
 
 		try {
-			File sharedDir = new File(baseDir);
-			sharedDir.mkdirs();
-			String targetPath = uniqueFilePath(new File(sharedDir, sourceFile.getName()).getAbsolutePath());
-			File targetFile = new File(targetPath);
-			Files.copy(sourceFile.toPath(), targetFile.toPath(), StandardCopyOption.COPY_ATTRIBUTES);
+			File targetFile = copyFileToSessionFiles(sourceFile);
 
 			QFile qfile = new QFile();
 			qfile.setName(targetFile.getName());
@@ -1761,15 +2727,52 @@ public class Controller {
 			qfile.setRelativePath(targetFile.getName());
 			qfile.setOperation(QFile.OPERATION_DOWNLOAD);
 
-			refreshLocalFilesAndNotify("Notifico Cambio en los archivos");
-			wsClient.sendEvent(new Event("Archivo de chat enviado", user, qfile));
+			org.q3s.p2p.core.model.Event event = core.shareChatFile(targetFile.toPath());
+			Object fileId = event.payload().get("file_id");
+			if (fileId != null) {
+				qfile.setMd5("core:" + fileId);
+				appliedCoreChatFileIds.add(String.valueOf(fileId));
+			}
+			publishCoreEvent(event);
+			appendChatFileMessage(user, qfile, targetFile.getAbsolutePath());
+			refreshArchivosTable();
+			refreshTables();
 		} catch (Exception e) {
 			log.err("Error al enviar archivo por chat: " + e.getMessage());
 		}
 	}
 
+	private boolean importFilesToSession(List<File> files, String sourceLabel) {
+		if (files == null || files.isEmpty()) return false;
+		int copied = 0;
+		for (File file : files) {
+			if (file == null || !file.isFile()) continue;
+			try {
+				copyFileToSessionFiles(file);
+				copied++;
+			} catch (Exception e) {
+				log.err("No se pudo importar archivo '" + file.getName() + "': " + e.getMessage());
+			}
+		}
+		if (copied > 0) {
+			refreshLocalFilesAndNotify("Notifico Cambio en los archivos");
+			log.info(copied + " archivo(s) importado(s) desde " + sourceLabel + " a " + getSessionFilesDir().getAbsolutePath());
+			return true;
+		}
+		return false;
+	}
+
+	private File copyFileToSessionFiles(File sourceFile) throws Exception {
+		File sessionFilesDir = getSessionFilesDir();
+		sessionFilesDir.mkdirs();
+		String targetPath = uniqueFilePath(new File(sessionFilesDir, sourceFile.getName()).getAbsolutePath());
+		File targetFile = new File(targetPath);
+		Files.copy(sourceFile.toPath(), targetFile.toPath(), StandardCopyOption.COPY_ATTRIBUTES);
+		return targetFile;
+	}
+
 	private void sendChatMessage() {
-		if (chatInput == null || wsClient == null) {
+		if (chatInput == null) {
 			return;
 		}
 		String message = chatInput.getText().trim();
@@ -1778,7 +2781,6 @@ public class Controller {
 		}
 		chatInput.setText("");
 		ChatMessage chatMessage = new ChatMessage();
-		chatMessage.id = UUIDUtils.generate();
 		chatMessage.senderName = user.getName();
 		chatMessage.text = message;
 		if (replyingToChatMessage != null) {
@@ -1788,7 +2790,24 @@ public class Controller {
 			chatInput.setToolTipText(null);
 			if (chatReplyLabel != null) chatReplyLabel.setVisible(false);
 		}
-		wsClient.sendEvent(new Event("Mensaje de chat", user, chatMessage.toPayload()));
+		try {
+			org.q3s.p2p.core.model.Event event = core.sendChatMessage(message);
+			Object messageId = event.payload().get("message_id");
+			if (messageId != null) {
+				String coreMessageId = String.valueOf(messageId);
+				chatMessage.id = "core-" + coreMessageId;
+				appliedCoreChatIds.add(coreMessageId);
+			} else {
+				chatMessage.id = UUIDUtils.generate();
+			}
+			appendChatMessage(user, chatMessage.toPayload());
+			log.debug("[CHAT] enviando: " + chatMessage.text);
+			publishCoreEvent(event);
+		} catch (Exception e) {
+			log.debug("Chat core no disponible: " + e.getMessage());
+			chatMessage.id = UUIDUtils.generate();
+			appendChatMessage(user, chatMessage.toPayload());
+		}
 	}
 
 	private void appendChatMessage(User sender, String message) {
@@ -1796,6 +2815,10 @@ public class Controller {
 			return;
 		}
 		ChatMessage chatMessage = ChatMessage.fromPayload(message, sender);
+		if (chatMessage.id != null && !chatMessage.id.isEmpty() && chatMessages.containsKey(chatMessage.id)) {
+			log.debug("Mensaje de chat duplicado ignorado: " + chatMessage.id);
+			return;
+		}
 		if (sender != null && sender.getId() != null && message != null && !message.trim().isEmpty()) {
 			chatActiveUserIds.add(sender.getId());
 		}
@@ -1815,6 +2838,7 @@ public class Controller {
 		int end = chatArea.getStyledDocument().getLength();
 		chatMessages.put(chatMessage.id, chatMessage);
 		chatMessageRanges.put(chatMessage.id, new int[]{start, end});
+		logUiSnapshot("appendChatMessage:" + chatMessage.id);
 	}
 
 	private void appendChatSystemMessage(String message) {
@@ -1837,9 +2861,7 @@ public class Controller {
 		String header = I18n.get("chat.fileSent", name, qfile.getName());
 		appendChatText(String.format("[%tH:%<tM] %s%n", new Date(), header), normal, alignment);
 		String linkId = UUIDUtils.generate();
-		if (localPath != null) {
-			chatFileLinks.put(linkId, localPath);
-		}
+		registerChatFileLink(linkId, qfile, localPath);
 		if (qfile.getTransferId() != null) {
 			chatTransferLinks.put(qfile.getTransferId(), linkId);
 		}
@@ -1849,7 +2871,21 @@ public class Controller {
 		link.addAttribute("chatLink", linkId);
 		appendChatText(qfile.getName(), link, alignment);
 		appendChatText(System.lineSeparator(), normal, alignment);
+		logUiSnapshot("appendChatFileMessage:" + qfile.getName());
 		return linkId;
+	}
+
+	private void registerChatFileLink(String linkId, QFile qfile, String localPath) {
+		if (linkId == null || qfile == null) return;
+		if (localPath != null) {
+			chatFileLinks.put(linkId, localPath);
+		} else {
+			chatFileLinks.put(linkId, "");
+		}
+		String fileId = coreFileId(qfile);
+		if (fileId != null) {
+			pendingChatDownloads.put(linkId, fileId);
+		}
 	}
 
 	private void appendChatText(String text, AttributeSet attrs) {
@@ -1907,11 +2943,7 @@ public class Controller {
 			chatInput.requestFocusInWindow();
 		});
 		JMenuItem pin = new JMenuItem("Fijar");
-		pin.addActionListener(ev -> {
-			if (wsClient != null) {
-				wsClient.sendEvent(new Event("Mensaje de chat fijado", user, message.toPinnedPayload()));
-			}
-		});
+		pin.addActionListener(ev -> {});
 		menu.add(reply);
 		menu.add(pin);
 		menu.show(chatArea, e.getX(), e.getY());
@@ -1948,15 +2980,33 @@ public class Controller {
 		String linkId = chatLinkAt(point);
 		if (linkId == null) return;
 		String path = chatFileLinks.get(linkId);
-		if (path == null) {
-			log.info("El archivo aun se esta descargando");
+		if (path != null && !path.isBlank() && new File(path).isFile()) {
+			try {
+				exec.open(path);
+			} catch (Exception e) {
+				log.err("No se pudo abrir el archivo adjunto: " + e.getMessage());
+			}
 			return;
 		}
-		try {
-			exec.open(path);
-		} catch (Exception e) {
-			log.err("No se pudo abrir el archivo adjunto: " + e.getMessage());
+		String fileId = pendingChatDownloads.get(linkId);
+		if (fileId == null || fileId.isBlank()) {
+			log.info("El archivo aun no esta disponible para descarga");
+			return;
 		}
+		QFile qfile = qFileForCoreFileId(fileId);
+		if (qfile != null) {
+			qfile.setOperation(QFile.OPERATION_OPEN);
+			qfile.setTransferId(UUIDUtils.generate());
+			transferPendingOpenLinks.put(qfile.getTransferId(), linkId);
+			registerActiveTransfer(qfile);
+			updateTransferProgress(qfile.getTransferId(), I18n.get("transfer.requesting") + " " + qfile.getName(), 0, 1);
+			if (!requestCoreChunkDownload(qfile)) {
+				log.err("No se pudieron encontrar chunks para " + qfile.getName());
+				finishTransferWithError(qfile.getTransferId(), I18n.get("transfer.error") + " " + qfile.getName());
+			}
+			return;
+		}
+		log.info("El archivo aun no esta disponible para descarga");
 	}
 
 	private void handleChatFileEvent(Event event) {
@@ -1964,15 +3014,16 @@ public class Controller {
 		User sender = event.getUser();
 		if (qfile == null || sender == null) return;
 		if (sender.equals(user)) {
-			appendChatFileMessage(sender, qfile, new File(view.getjTextField4().getText(), qfile.getRelativePath()).getAbsolutePath());
+			appendChatFileMessage(sender, qfile, new File(getSessionFilesDir(), qfile.getRelativePath()).getAbsolutePath());
 			return;
 		}
 		markTabIfInactive("Chat");
 		log.info("Chat: " + sender.getName() + " envio el archivo " + qfile.getName());
 		qfile.setOwner(sender);
+		qfile.setTransferId(UUIDUtils.generate());
 		String linkId = appendChatFileMessage(sender, qfile, null);
 		downloadFile(sender, qfile);
-		if (qfile.getTransferId() != null && linkId != null) {
+		if (qfile.getTransferId() != null && linkId != null && !chatTransferLinks.containsKey(qfile.getTransferId())) {
 			chatTransferLinks.put(qfile.getTransferId(), linkId);
 		}
 	}
@@ -1995,37 +3046,77 @@ public class Controller {
 		if (findTabByTitle(title) >= 0) {
 			return;
 		}
+		String displayTitle = getTabDisplayTitle(title);
 		int idx = findTabByTitle("Log");
 		if (idx < 0) {
 			idx = findTabByTitle("Configuración");
 		}
 		if (idx < 0) {
-			view.getjTabbedPane().addTab(title, icon, component, tooltip);
+			view.getjTabbedPane().addTab(displayTitle, icon, component, tooltip);
 		} else {
-			view.getjTabbedPane().insertTab(title, icon, component, tooltip, idx);
+			view.getjTabbedPane().insertTab(displayTitle, icon, component, tooltip, idx);
+		}
+	}
+
+	private static String getTabDisplayTitle(String canonical) {
+		switch (canonical) {
+			case "Ayuda": return I18n.get("tab.help");
+			case "Chat": return I18n.get("tab.chat");
+			case "Pizarra": return I18n.get("tab.whiteboard");
+			case "Notas": return I18n.get("tab.notes");
+			case "Miembros": return I18n.get("tab.members");
+			case "Archivos": return I18n.get("tab.files");
+			case "Log": return I18n.get("tab.log");
+			case "Configuración": return I18n.get("tab.config");
+			default: return canonical;
 		}
 	}
 
 	private int findTabByTitle(String title) {
-		String cleanTitle = cleanTabTitle(title);
-		for (int i = 0; i < view.getjTabbedPane().getTabCount(); i++) {
-			if (cleanTitle.equals(cleanTabTitle(view.getjTabbedPane().getTitleAt(i)))) {
-				return i;
+		String[] alternatives = getTabAlternatives(title);
+		for (String alt : alternatives) {
+			String cleanAlt = cleanTabTitle(alt);
+			for (int i = 0; i < view.getjTabbedPane().getTabCount(); i++) {
+				if (cleanAlt.equals(cleanTabTitle(view.getjTabbedPane().getTitleAt(i)))) {
+					return i;
+				}
 			}
 		}
 		return -1;
 	}
 
+	private static String[] getTabAlternatives(String title) {
+		switch (title) {
+			case "Configuración": case "Configuration":
+				return new String[]{"Configuración", "Configuration"};
+			case "Ayuda": case "Help":
+				return new String[]{"Ayuda", "Help"};
+			case "Pizarra": case "Whiteboard":
+				return new String[]{"Pizarra", "Whiteboard"};
+			case "Notas": case "Notes":
+				return new String[]{"Notas", "Notes"};
+			case "Miembros": case "Members":
+				return new String[]{"Miembros", "Members"};
+			case "Archivos": case "Files":
+				return new String[]{"Archivos", "Files"};
+			default:
+				return new String[]{title};
+		}
+	}
+
 	private String cleanTabTitle(String title) {
-		return title != null && title.startsWith("* ") ? title.substring(2) : title;
+		if (title == null) return null;
+		if (title.startsWith("* ")) return title.substring(2);
+		return title.startsWith("*") ? title.substring(1) : title;
 	}
 
 	private void markTabIfInactive(String title) {
 		int idx = findTabByTitle(title);
-		if (idx < 0 || idx == view.getjTabbedPane().getSelectedIndex()) return;
+		if (idx < 0) return;
+		if (idx == view.getjTabbedPane().getSelectedIndex() && view.isActive()) return;
 		String cleanTitle = cleanTabTitle(view.getjTabbedPane().getTitleAt(idx));
 		if (markedTabs.add(cleanTitle)) {
-			view.getjTabbedPane().setTitleAt(idx, "* " + cleanTitle);
+			view.getjTabbedPane().setTitleAt(idx, "*" + cleanTitle);
 		}
 	}
 
@@ -2038,6 +3129,247 @@ public class Controller {
 			view.getjTabbedPane().setTitleAt(idx, cleanTitle);
 		}
 		markedTabs.remove(cleanTitle);
+	}
+
+	private void refreshTabTitles() {
+		renameTabByAnyTitle(I18n.get("tab.files"), "Archivos", "Files");
+		renameTabByAnyTitle(I18n.get("tab.chat"), "Chat");
+		renameTabByAnyTitle(I18n.get("tab.whiteboard"), "Pizarra", "Whiteboard");
+		renameTabByAnyTitle(I18n.get("tab.notes"), "Notas", "Notes");
+		renameTabByAnyTitle(I18n.get("tab.members"), "Miembros", "Members");
+		renameTabByAnyTitle(I18n.get("tab.help"), "Ayuda", "Help");
+		renameTabByAnyTitle(I18n.get("tab.log"), "Log");
+		renameTabByAnyTitle(I18n.get("tab.config"), "Configuración", "Configuration");
+	}
+
+	private void renameTabByAnyTitle(String newTitle, String... possibleTitles) {
+		for (String t : possibleTitles) {
+			int idx = findTabByTitle(t);
+			if (idx >= 0) {
+				view.getjTabbedPane().setTitleAt(idx, newTitle);
+				return;
+			}
+		}
+	}
+
+	private void refreshLanguageTexts() {
+		System.out.println("[Controller.refreshLanguageTexts] START, I18n locale=" + I18n.currentLocale().getLanguage());
+		view.applyI18nTexts();
+		refreshTabTitles();
+		refreshHelpTabContent();
+		installConfigEnhancements();
+		openWorkDirLabel.setText(I18n.get("config.openWorkDir"));
+		refreshAllFileTableColumns();
+		refreshAllTooltips();
+		view.revalidate();
+		view.repaint();
+		System.out.println("[Controller.refreshLanguageTexts] END");
+	}
+
+	private void refreshAllFileTableColumns() {
+		System.out.println("[Controller.refreshAllFileTableColumns] START, I18n locale=" + I18n.currentLocale().getLanguage());
+		searchAndRefreshFileTables(view.getjTabbedPane());
+		System.out.println("[Controller.refreshAllFileTableColumns] END");
+	}
+
+	private JPopupMenu createJoinTextPopupMenu() {
+		JPopupMenu menu = new JPopupMenu();
+		JMenuItem paste = new JMenuItem(I18n.get("menu.paste"));
+		paste.addActionListener(e -> {
+			try {
+				java.awt.datatransfer.Clipboard clipboard = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
+				if (clipboard.isDataFlavorAvailable(java.awt.datatransfer.DataFlavor.stringFlavor)) {
+					String text = (String) clipboard.getData(java.awt.datatransfer.DataFlavor.stringFlavor);
+					view.getjTextField2().setText(text);
+				}
+			} catch (Exception ex) {
+				log.err("Error pasting: " + ex.getMessage());
+			}
+		});
+		menu.add(paste);
+		return menu;
+	}
+
+	private void searchAndRefreshFileTables(Container container) {
+		for (Component c : container.getComponents()) {
+			System.out.println("[Controller.searchAndRefreshFileTables] checking component: " + c.getClass().getSimpleName());
+			if (c instanceof TabListFile) {
+				TabListFile tlf = (TabListFile) c;
+				System.out.println("[Controller.searchAndRefreshFileTables] found TabListFile, calling refreshColumnNames");
+				if (tlf.getjTable1().getModel() instanceof FileTableModel) {
+					((FileTableModel) tlf.getjTable1().getModel()).refreshColumnNames();
+				}
+				tlf.updateBackButtonText();
+				tlf.updateMenuTexts();
+			} else if (c instanceof Container) {
+				searchAndRefreshFileTables((Container) c);
+			}
+		}
+	}
+
+	private void refreshAllTooltips() {
+		System.out.println("[Controller.refreshAllTooltips] START, I18n locale=" + I18n.currentLocale().getLanguage());
+		if (chatArea != null && chatArea.getParent() != null) {
+			Container p = (Container) chatArea.getParent();
+			for (Component c : p.getComponents()) {
+				if (c instanceof JButton) {
+					JButton btn = (JButton) c;
+					String tt = btn.getToolTipText();
+					if (tt != null && (tt.contains("Adjuntar") || tt.contains("Attach"))) {
+						System.out.println("[Controller.refreshAllTooltips] updating chat attach button tooltip");
+						btn.setToolTipText(I18n.get("tooltip.attachFile"));
+					}
+				}
+			}
+		}
+		if (whiteboardColorButton != null) {
+			System.out.println("[Controller.refreshAllTooltips] updating whiteboard color button tooltip");
+			whiteboardColorButton.setToolTipText(I18n.get("tooltip.currentColor"));
+		}
+		if (view.getjButton6() != null) {
+			System.out.println("[Controller.refreshAllTooltips] updating proxy button tooltip");
+			view.getjButton6().setToolTipText(I18n.get("login.configureProxy"));
+		}
+		if (notesContainerPanel != null) {
+			System.out.println("[Controller.refreshAllTooltips] updating notes container tooltips");
+			updateTooltipsInContainer(notesContainerPanel);
+		}
+		if (whiteboardContainerPanel != null) {
+			System.out.println("[Controller.refreshAllTooltips] updating whiteboard container tooltips");
+			updateTooltipsInContainer(whiteboardContainerPanel);
+		}
+		System.out.println("[Controller.refreshAllTooltips] END");
+	}
+
+	private void updateTooltipsInContainer(Container container) {
+		System.out.println("[Controller.updateTooltipsInContainer] START container=" + container.getClass().getSimpleName());
+		for (Component c : container.getComponents()) {
+			System.out.println("[Controller.updateTooltipsInContainer] component=" + c.getClass().getName() + ", tooltip=" + (c instanceof JComponent ? ((JComponent)c).getToolTipText() : null));
+			if (c instanceof JButton) {
+				JButton btn = (JButton) c;
+				String tt = btn.getToolTipText();
+				if (tt != null) {
+					if (tt.contains("Insertar imagen") || tt.contains("Insert image")) {
+						System.out.println("[Controller.updateTooltipsInContainer] updating insert image button");
+						btn.setToolTipText(I18n.get("tooltip.insertImage"));
+					} else if (tt.contains("Achicar") || tt.contains("Shrink")) {
+						System.out.println("[Controller.updateTooltipsInContainer] updating shrink button");
+						btn.setToolTipText(I18n.get("tooltip.shrinkImage"));
+					} else if (tt.contains("Agrandar") || tt.contains("Grow")) {
+						System.out.println("[Controller.updateTooltipsInContainer] updating grow button");
+						btn.setToolTipText(I18n.get("tooltip.growImage"));
+					} else if (tt.contains("Reducir") || tt.contains("Reduce")) {
+						System.out.println("[Controller.updateTooltipsInContainer] updating reduce text button");
+						btn.setToolTipText(I18n.get("tooltip.reduceText"));
+					} else if (tt.contains("Aumentar") || tt.contains("Increase")) {
+						System.out.println("[Controller.updateTooltipsInContainer] updating increase text button");
+						btn.setToolTipText(I18n.get("tooltip.increaseText"));
+					} else if (tt.contains("Cambiar color") || tt.contains("Change font")) {
+						System.out.println("[Controller.updateTooltipsInContainer] updating font color button");
+						btn.setToolTipText(I18n.get("tooltip.fontColor"));
+					} else if (tt.contains("Guardar notas") || tt.contains("Save notes")) {
+						System.out.println("[Controller.updateTooltipsInContainer] updating export notes button");
+						btn.setToolTipText(I18n.get("tooltip.exportNotes"));
+					} else if (tt.contains("Seleccionar") || tt.contains("Select")) {
+						System.out.println("[Controller.updateTooltipsInContainer] updating select button");
+						btn.setToolTipText(I18n.get("tooltip.whiteboard.select"));
+					} else if (tt.contains("Lápiz") || tt.contains("Pencil")) {
+						System.out.println("[Controller.updateTooltipsInContainer] updating pencil button");
+						btn.setToolTipText(I18n.get("tooltip.whiteboard.pencil"));
+					} else if (tt.contains("Texto") || tt.contains("Text")) {
+						System.out.println("[Controller.updateTooltipsInContainer] updating text button");
+						btn.setToolTipText(I18n.get("tooltip.whiteboard.text"));
+					} else if (tt.contains("Imagen") || tt.contains("Image")) {
+						System.out.println("[Controller.updateTooltipsInContainer] updating image button");
+						btn.setToolTipText(I18n.get("tooltip.whiteboard.image"));
+					} else if (tt.contains("Flecha") || tt.contains("Arrow")) {
+						System.out.println("[Controller.updateTooltipsInContainer] updating arrow button");
+						btn.setToolTipText(I18n.get("tooltip.whiteboard.arrow"));
+					} else if (tt.contains("Círculo") || tt.contains("Circle")) {
+						System.out.println("[Controller.updateTooltipsInContainer] updating circle button");
+						btn.setToolTipText(I18n.get("tooltip.whiteboard.circle"));
+					} else if (tt.contains("Cuadrado") || tt.contains("Square")) {
+						System.out.println("[Controller.updateTooltipsInContainer] updating square button");
+						btn.setToolTipText(I18n.get("tooltip.whiteboard.square"));
+					} else if (tt.contains("Rectángulo") || tt.contains("Rectangle")) {
+						System.out.println("[Controller.updateTooltipsInContainer] updating rectangle button");
+						btn.setToolTipText(I18n.get("tooltip.whiteboard.rectangle"));
+					} else if (tt.contains("Triángulo") || tt.contains("Triangle")) {
+						System.out.println("[Controller.updateTooltipsInContainer] updating triangle button");
+						btn.setToolTipText(I18n.get("tooltip.whiteboard.triangle"));
+					} else if (tt.contains("Limpiar pizarra") || tt.contains("Clear whiteboard")) {
+						System.out.println("[Controller.updateTooltipsInContainer] updating clear button");
+						btn.setToolTipText(I18n.get("tooltip.whiteboard.clear"));
+					} else if (tt.contains("Guardar pizarra") || tt.contains("Save whiteboard")) {
+						System.out.println("[Controller.updateTooltipsInContainer] updating save button");
+						btn.setToolTipText(I18n.get("tooltip.whiteboard.save"));
+					}
+				}
+			} else if (c instanceof JCheckBox) {
+				JCheckBox cb = (JCheckBox) c;
+				String text = cb.getText();
+				if (text != null && (text.contains("Traslúcida") || text.contains("Translucent"))) {
+					System.out.println("[Controller.updateTooltipsInContainer] updating translucent checkbox");
+					cb.setText(I18n.get("notes.translucent"));
+					cb.setToolTipText(I18n.get("tooltip.translucent"));
+				}
+			} else if (c instanceof Container) {
+				updateTooltipsInContainer((Container) c);
+			}
+		}
+		System.out.println("[Controller.updateTooltipsInContainer] END");
+	}
+
+	private void refreshHelpTabContent() {
+		if (helpPane != null) {
+			helpPane.setText(buildHelpHtml());
+		} else if (helpContainerPanel != null) {
+			helpPane = new javax.swing.JTextPane();
+			helpPane.setContentType("text/html");
+			helpPane.setEditable(false);
+			helpPane.setText(buildHelpHtml());
+			helpContainerPanel.removeAll();
+			helpContainerPanel.add(new JScrollPane(helpPane), BorderLayout.CENTER);
+			helpContainerPanel.revalidate();
+		}
+	}
+
+	private String buildHelpHtml() {
+		String qfolderRoot = Config.SHARED_DIR;
+		return "<html><body style='padding:8px;font-family:sans-serif'>"
+				+ "<h2>qfolder <small>v" + UpdateChecker.getVersion() + "</small></h2>"
+				+ "<p><b>" + I18n.get("author") + "</b></p>"
+				+ "<p><a href='https://github.com/damianlezcano/qfolder'>github.com/damianlezcano/qfolder</a></p>"
+				+ "<p>" + I18n.get("app.description") + "</p>"
+				+ "<h3>" + I18n.get("help.highlights") + "</h3>"
+				+ "<ul>"
+				+ "<li>" + I18n.get("help.bullet.noAccounts") + "</li>"
+				+ "<li>" + I18n.get("help.bullet.distributed") + "</li>"
+				+ "<li>" + I18n.get("help.bullet.sessions", qfolderRoot + "/sessions") + "</li>"
+				+ "<li>" + I18n.get("help.bullet.filesShared") + "</li>"
+				+ "<li>" + I18n.get("help.bullet.chatLinks") + "</li>"
+				+ "<li>" + I18n.get("help.bullet.replyPin") + "</li>"
+				+ "<li>" + I18n.get("help.bullet.whiteboard") + "</li>"
+				+ "<li>" + I18n.get("help.bullet.notes") + "</li>"
+				+ "<li>" + I18n.get("help.bullet.complements") + "</li>"
+				+ "<li>" + I18n.get("help.bullet.autoDetect") + "</li>"
+				+ "</ul>"
+				+ "<h3>" + I18n.get("help.title") + "</h3>"
+				+ "<p>" + I18n.get("app.description") + "</p>"
+				+ "<h3>" + I18n.get("help.fileLocations") + "</h3>"
+				+ "<table>"
+				+ "<tr><td>qfolder root:</td><td><code>" + qfolderRoot + "</code></td></tr>"
+				+ "<tr><td>" + I18n.get("help.sessions") + ":</td><td><code>" + qfolderRoot + "/sessions</code></td></tr>"
+				+ "</table>"
+				+ "<h3>" + I18n.get("help.launchOptions") + "</h3>"
+				+ "<table>"
+				+ "<tr><td><code>-Dqfolder.user.name=X</code></td><td>" + I18n.get("help.launchOption.userName") + "</td></tr>"
+				+ "<tr><td><code>-Dqfolder.shared.dir=X</code></td><td>" + I18n.get("help.launchOption.sharedDir", "~") + "</td></tr>"
+				+ "<tr><td><code>-Dqfolder.ws.port=N</code></td><td>" + I18n.get("help.launchOption.wsPort") + "</td></tr>"
+				+ "<tr><td><code>-Dqfolder.tunnel.mock=true</code></td><td>" + I18n.get("help.launchOption.tunnelMock") + "</td></tr>"
+				+ "</table>"
+				+ "<p>qfolder 2020-2026</p>"
+				+ "</body></html>";
 	}
 
 	private void markLogIfInactive() {
@@ -2065,6 +3397,21 @@ public class Controller {
 		g.drawLine(5, 5, 11, 5);
 		g.drawLine(5, 8, 11, 8);
 		g.drawLine(5, 11, 9, 11);
+		g.dispose();
+		return new ImageIcon(img);
+	}
+
+	private ImageIcon groupIcon() {
+		BufferedImage img = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+		Graphics2D g = img.createGraphics();
+		g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+		g.setColor(Color.BLACK);
+		g.drawOval(6, 2, 4, 4);
+		g.drawOval(2, 4, 4, 4);
+		g.drawOval(10, 4, 4, 4);
+		g.drawArc(4, 7, 8, 7, 0, 180);
+		g.drawArc(0, 9, 8, 5, 0, 180);
+		g.drawArc(8, 9, 8, 5, 0, 180);
 		g.dispose();
 		return new ImageIcon(img);
 	}
@@ -2233,38 +3580,56 @@ public class Controller {
 	}
 
 	private void broadcastWhiteboard() {
-		if (wsClient != null && whiteboardCanvas != null) {
-			wsClient.sendEvent(new Event("Pizarra actualizada", user, whiteboardCanvas.serialize()));
+		if (whiteboardCanvas != null) {
+			lastLocalWhiteboardChangeAt = System.currentTimeMillis();
 		}
 	}
 
-	private void sendInitialWorkspaceState(String targetId) {
-		if (wsClient == null || targetId == null) return;
-
-		for (String comp : enabledComplementos) {
-			wsClient.sendEvent(new Event("__to:" + targetId + ":Complemento habilitado", user, comp));
+	private void broadcastWhiteboardAction(String action, String elementId, String operation) {
+		if (whiteboardCanvas != null) {
+			lastLocalWhiteboardChangeAt = System.currentTimeMillis();
 		}
-
-		if (enabledComplementos.contains("Pizarra") && whiteboardCanvas != null) {
-			String state = whiteboardCanvas.serialize();
-			wsClient.sendEvent(new Event("__to:" + targetId + ":Pizarra actualizada", user, state));
-		}
-
-		if (enabledComplementos.contains("Notas") && notesPane != null) {
-			String state = serializeNotesState();
-			if (state != null) {
-				wsClient.sendEvent(new Event("__to:" + targetId + ":Notas actualizadas", user, state));
+		if ("update".equals(action) && operation != null && operation.startsWith("I|")) {
+			String[] parts = operation.split("\\|", 3);
+			if (parts.length >= 2) {
+				operation = parts[0] + "|" + parts[1];
 			}
 		}
+		recordWhiteboardActionInCore(action, elementId, operation);
+	}
 
-		if (enabledComplementos.contains("Chat") && chatArea != null) {
-			String chatHistory = chatArea.getText();
-			if (chatHistory != null && !chatHistory.isEmpty()) {
-				wsClient.sendEvent(new Event("__to:" + targetId + ":Historial de chat", user, chatHistory));
-			}
+	private void recordWhiteboardActionInCore(String action, String elementId, String operation) {
+		try {
+			log.debug("[WB] accion: " + action + " id=" + elementId);
+			publishCoreEvent(core.recordWhiteboardObjectAction(action, elementId, operation));
+		} catch (Exception e) {
+			log.debug("Pizarra core no disponible: " + e.getMessage());
 		}
 	}
 
+	private void recordWhiteboardStrokeInCore(List<String> stroke) {
+		try {
+			List<int[]> points = new ArrayList<>();
+			String color = "#000000";
+			int width = 2;
+			for (String line : stroke) {
+				String[] parts = line.split("\\|");
+				if (parts.length < 2) continue;
+				String[] xy = parts[1].split(",");
+				if (xy.length < 4) continue;
+				if (parts.length > 2 && !parts[2].isBlank()) color = parts[2];
+				if (parts.length > 3) width = Math.max(1, Integer.parseInt(parts[3]));
+				if (points.isEmpty()) {
+					points.add(new int[]{Integer.parseInt(xy[0]), Integer.parseInt(xy[1])});
+				}
+				points.add(new int[]{Integer.parseInt(xy[2]), Integer.parseInt(xy[3])});
+			}
+			if (!points.isEmpty()) publishCoreEvent(core.finishWhiteboardStroke(points, color, width));
+		} catch (Exception e) {
+			log.debug("No se pudo registrar trazo core: " + e.getMessage());
+		}
+	}
+ 
 	private void scheduleNotesBroadcast() {
 		if (!applyingRemoteNotes && notesSyncTimer != null && System.currentTimeMillis() >= suppressNotesBroadcastUntil) {
 			notesSyncTimer.restart();
@@ -2275,24 +3640,137 @@ public class Controller {
 		if (notesPane == null) return;
 		if (notesDocumentListener == null) {
 			notesDocumentListener = new DocumentListener() {
-				public void insertUpdate(DocumentEvent e) { scheduleNotesBroadcast(); }
-				public void removeUpdate(DocumentEvent e) { scheduleNotesBroadcast(); }
+				public void insertUpdate(DocumentEvent e) { recordNotesInsert(e); }
+				public void removeUpdate(DocumentEvent e) { recordNotesDelete(e); }
 				public void changedUpdate(DocumentEvent e) { scheduleNotesBroadcast(); }
 			};
 		}
 		notesPane.getDocument().addDocumentListener(notesDocumentListener);
 	}
 
+	private void recordNotesInsert(DocumentEvent e) {
+		if (applyingRemoteNotes || System.currentTimeMillis() < suppressNotesBroadcastUntil) return;
+		try {
+			if (!isPlainTextNotesDocument()) {
+				scheduleNotesBroadcast();
+				return;
+			}
+			String text = e.getDocument().getText(e.getOffset(), e.getLength());
+			if (text == null || text.isEmpty()) return;
+			lastSentNotesState = notesPane.getText();
+			publishCoreEvent(core.insertNoteText("shared-notes", e.getOffset(), text));
+		} catch (Exception ex) {
+			log.debug("No se pudo registrar insercion de notas: " + ex.getMessage());
+			scheduleNotesBroadcast();
+		}
+	}
+
+	private void recordNotesDelete(DocumentEvent e) {
+		if (applyingRemoteNotes || System.currentTimeMillis() < suppressNotesBroadcastUntil) return;
+		try {
+			if (!isPlainTextNotesDocument()) {
+				scheduleNotesBroadcast();
+				return;
+			}
+			lastSentNotesState = notesPane.getText();
+			publishCoreEvent(core.deleteNoteText("shared-notes", e.getOffset(), e.getLength()));
+		} catch (Exception ex) {
+			log.debug("No se pudo registrar borrado de notas: " + ex.getMessage());
+			scheduleNotesBroadcast();
+		}
+	}
+
+	private boolean isPlainTextNotesDocument() {
+		if (notesPane == null) return true;
+		try {
+			StyledDocument doc = notesPane.getStyledDocument();
+			for (int i = 0; i < doc.getLength(); i++) {
+				AttributeSet attrs = doc.getCharacterElement(i).getAttributes();
+				if (iconInfo(attrs) != null || StyleConstants.isBold(attrs) || StyleConstants.isItalic(attrs)
+						|| StyleConstants.isUnderline(attrs) || !Color.BLACK.equals(noteForeground(attrs))) return false;
+			}
+			return true;
+		} catch (Exception e) {
+			return false;
+		}
+	}
+
 	private void broadcastNotes() {
-		if (wsClient == null || notesPane == null || applyingRemoteNotes || System.currentTimeMillis() < suppressNotesBroadcastUntil) {
+		if (notesPane == null || applyingRemoteNotes || System.currentTimeMillis() < suppressNotesBroadcastUntil) {
 			return;
 		}
-		String state = serializeNotesState();
-		if (state == null || state.equals(lastSentNotesState)) {
-			return;
+		String currentState = lastSentNotesState;
+		StyledDocument doc = notesPane.getStyledDocument();
+		int docLength = doc.getLength();
+		new Thread(() -> {
+			String state = serializeNotesStateInBackground(doc, docLength);
+			if (state == null || state.equals(currentState)) {
+				return;
+			}
+			javax.swing.SwingUtilities.invokeLater(() -> {
+				if (!state.equals(lastSentNotesState)) {
+					lastSentNotesState = state;
+					recordNotesUpdateInCore(state);
+				}
+			});
+		}, "notes-serialize").start();
+	}
+
+	private String serializeNotesStateInBackground(StyledDocument doc, int docLength) {
+		try {
+			StringBuilder state = new StringBuilder("QNOTES2\n");
+			StringBuilder text = new StringBuilder();
+			AttributeSet currentAttrs = null;
+			int textRuns = 0;
+			int images = 0;
+			for (int i = 0; i < docLength; i++) {
+				AttributeSet attrs = doc.getCharacterElement(i).getAttributes();
+				IconInfo icon = iconInfo(attrs);
+				if (icon != null) {
+					textRuns += appendNotesTextRun(state, text, currentAttrs);
+					text.setLength(0);
+					currentAttrs = null;
+					state.append("I|").append(icon.width).append('|').append(icon.height).append('|').append(icon.base64).append('\n');
+					images++;
+					continue;
+				}
+				if (currentAttrs == null || !sameNoteStyle(currentAttrs, attrs)) {
+					textRuns += appendNotesTextRun(state, text, currentAttrs);
+					text.setLength(0);
+					currentAttrs = attrs;
+				}
+				text.append(doc.getText(i, 1));
+			}
+			textRuns += appendNotesTextRun(state, text, currentAttrs);
+			log.debug("[NOTES] serializado " + notesStateSummary(state.toString())
+					+ " textRuns=" + textRuns + " images=" + images);
+			return state.toString();
+		} catch (Exception e) {
+			log.err("Error al serializar notas: " + e.getMessage());
+			return null;
 		}
-		lastSentNotesState = state;
-		new Thread(() -> wsClient.sendEvent(new Event("Notas actualizadas", user, state)), "notes-sync").start();
+	}
+
+	private void recordNotesUpdateInCore(String state) {
+		try {
+			if (core != null && state != null) {
+				log.debug("[NOTES] publicando actualizacion");
+				publishCoreEvent(core.updateNote("shared-notes", state));
+			}
+		} catch (Exception e) {
+			log.debug("No se pudo registrar notas en core: " + e.getMessage());
+		}
+	}
+
+	private boolean isStaleComplementoEvent(String name, long sequence) {
+		if (name == null || sequence <= 0) return false;
+		long latest = complementoSequences.getOrDefault(name, 0L);
+		if (sequence <= latest) {
+			log.debug("Complemento ignorado por estar desactualizado: " + name + " #" + sequence);
+			return true;
+		}
+		complementoSequences.put(name, sequence);
+		return false;
 	}
 
 	private String serializeNotesState() {
@@ -2301,24 +3779,29 @@ public class Controller {
 			StringBuilder state = new StringBuilder("QNOTES2\n");
 			StringBuilder text = new StringBuilder();
 			AttributeSet currentAttrs = null;
+			int textRuns = 0;
+			int images = 0;
 			for (int i = 0; i < doc.getLength(); i++) {
 				AttributeSet attrs = doc.getCharacterElement(i).getAttributes();
 				IconInfo icon = iconInfo(attrs);
 				if (icon != null) {
-					appendNotesTextRun(state, text, currentAttrs);
+					textRuns += appendNotesTextRun(state, text, currentAttrs);
 					text.setLength(0);
 					currentAttrs = null;
 					state.append("I|").append(icon.width).append('|').append(icon.height).append('|').append(icon.base64).append('\n');
+					images++;
 					continue;
 				}
 				if (currentAttrs == null || !sameNoteStyle(currentAttrs, attrs)) {
-					appendNotesTextRun(state, text, currentAttrs);
+					textRuns += appendNotesTextRun(state, text, currentAttrs);
 					text.setLength(0);
 					currentAttrs = attrs;
 				}
 				text.append(doc.getText(i, 1));
 			}
-			appendNotesTextRun(state, text, currentAttrs);
+			textRuns += appendNotesTextRun(state, text, currentAttrs);
+			log.debug("[NOTES] serializado " + notesStateSummary(state.toString())
+					+ " textRuns=" + textRuns + " images=" + images);
 			return state.toString();
 		} catch (Exception e) {
 			log.err("Error al serializar notas: " + e.getMessage());
@@ -2326,8 +3809,8 @@ public class Controller {
 		}
 	}
 
-	private void appendNotesTextRun(StringBuilder state, StringBuilder text, AttributeSet attrs) {
-		if (attrs == null || text.length() == 0) return;
+	private int appendNotesTextRun(StringBuilder state, StringBuilder text, AttributeSet attrs) {
+		if (attrs == null || text.length() == 0) return 0;
 		String encoded = Base64.getEncoder().encodeToString(text.toString().getBytes(StandardCharsets.UTF_8));
 		state.append("T|")
 				.append(StyleConstants.isBold(attrs)).append('|')
@@ -2336,6 +3819,19 @@ public class Controller {
 				.append(Math.max(1, StyleConstants.getFontSize(attrs))).append('|')
 				.append(colorToHex(noteForeground(attrs))).append('|')
 				.append(encoded).append('\n');
+		return 1;
+	}
+
+	private String notesStateSummary(String state) {
+		if (state == null) return "state=null";
+		if (!state.startsWith("QNOTES2\n")) return "legacy/plain chars=" + state.length();
+		int images = 0;
+		int textRuns = 0;
+		for (String line : state.split("\n")) {
+			if (line.startsWith("I|")) images++;
+			else if (line.startsWith("T|")) textRuns++;
+		}
+		return "QNOTES2 chars=" + state.length() + " textRuns=" + textRuns + " images=" + images;
 	}
 
 	private boolean sameNoteStyle(AttributeSet a, AttributeSet b) {
@@ -2380,10 +3876,10 @@ public class Controller {
 			}
 			applyingRemoteNotes = true;
 			suppressNotesBroadcastUntil = System.currentTimeMillis() + 1200;
-			lastSentNotesState = text;
+			lastAppliedNotesState = text;
 			int oldCaret = notesPane.getCaretPosition();
 			DefaultStyledDocument doc = text.startsWith("QNOTES1\n") || text.startsWith("QNOTES2\n")
-					? parseNotesState(text) : parseLegacyRtfNotes(text);
+					? parseNotesState(text) : parsePlainOrLegacyNotes(text);
 			notesPane.setDocument(doc);
 			attachNotesDocumentListener();
 			notesPane.setCaretPosition(Math.min(oldCaret, notesPane.getDocument().getLength()));
@@ -2391,6 +3887,16 @@ public class Controller {
 			log.err("Error al aplicar notas remotas: " + e.getMessage());
 		} finally {
 			applyingRemoteNotes = false;
+		}
+	}
+
+	private DefaultStyledDocument parsePlainOrLegacyNotes(String text) throws Exception {
+		try {
+			return parseLegacyRtfNotes(text);
+		} catch (Exception ignored) {
+			DefaultStyledDocument doc = new DefaultStyledDocument();
+			doc.insertString(0, text, null);
+			return doc;
 		}
 	}
 
@@ -2404,6 +3910,8 @@ public class Controller {
 	private DefaultStyledDocument parseNotesState(String state) throws Exception {
 		DefaultStyledDocument doc = new DefaultStyledDocument();
 		String[] lines = state.split("\n");
+		int textRuns = 0;
+		int images = 0;
 		for (int i = 1; i < lines.length; i++) {
 			String line = lines[i];
 			if (line.isEmpty()) continue;
@@ -2421,6 +3929,7 @@ public class Controller {
 				}
 				String decoded = new String(Base64.getDecoder().decode(encodedText), StandardCharsets.UTF_8);
 				doc.insertString(doc.getLength(), decoded, attrs);
+				textRuns++;
 			} else if ("I".equals(p[0]) && p.length == 4) {
 				byte[] bytes = Base64.getDecoder().decode(p[3]);
 				Image image = ImageIO.read(new ByteArrayInputStream(bytes));
@@ -2428,8 +3937,11 @@ public class Controller {
 				SimpleAttributeSet attrs = new SimpleAttributeSet();
 				StyleConstants.setIcon(attrs, new ImageIcon(scaled));
 				doc.insertString(doc.getLength(), " ", attrs);
+				images++;
 			}
 		}
+		log.debug("[NOTES] aplicado remoto " + notesStateSummary(state)
+				+ " textRuns=" + textRuns + " images=" + images);
 		return doc;
 	}
 
@@ -2463,7 +3975,7 @@ public class Controller {
 		JButton biggerText = whiteboardToolButton(strokeIcon(true), "Aumentar tamaño/grosor", toolSize);
 		biggerText.addActionListener(e -> whiteboardCanvas.changeSelectedSizeOrStroke(2));
 		whiteboardColorButton = new JButton();
-		whiteboardColorButton.setToolTipText("Color actual");
+		whiteboardColorButton.setToolTipText(I18n.get("tooltip.currentColor"));
 		whiteboardColorButton.setIcon(colorIcon(Color.BLACK));
 		whiteboardColorButton.setContentAreaFilled(false);
 		whiteboardColorButton.setOpaque(false);
@@ -2479,10 +3991,7 @@ public class Controller {
 			if (selected != null) whiteboardCanvas.setDrawColor(selected);
 		});
 		JButton clear = whiteboardToolButton(clearIcon(), "Limpiar pizarra", toolSize);
-		clear.addActionListener(e -> {
-			whiteboardCanvas.clear();
-			broadcastWhiteboard();
-		});
+		clear.addActionListener(e -> whiteboardCanvas.clear());
 		JButton export = whiteboardToolButton(exportIcon(), "Guardar pizarra como PNG", toolSize);
 		export.addActionListener(e -> exportWhiteboardImage());
 		JButton[] extraButtons = {smallerText, biggerText, whiteboardColorButton, clear, export};
@@ -2534,15 +4043,22 @@ public class Controller {
 	private void exportWhiteboardImage() {
 		if (whiteboardCanvas == null) return;
 		try {
-			File dir = new File(view.getjTextField4().getText());
+			File dir = new File(currentSessionDir != null ? currentSessionDir : getQfolderRootDir(), "whiteboard");
 			dir.mkdirs();
-			String path = uniqueFilePath(new File(dir, "pizarra.png").getAbsolutePath());
+			String filename = "pizarra-" + timestampForFilename() + ".png";
+			File target = new File(dir, filename);
+			if (target.exists()) target = new File(uniqueFilePath(target.getAbsolutePath()));
 			BufferedImage img = whiteboardCanvas.toImage();
-			ImageIO.write(img, "png", new File(path));
-			log.info("Pizarra guardada en " + path);
-			refreshLocalFilesAndNotify("Notifico Cambio en los archivos");
+			ImageIO.write(img, "png", target);
+			log.info("Pizarra guardada en " + target.getAbsolutePath());
+			javax.swing.JOptionPane.showMessageDialog(view,
+					"Pizarra guardada correctamente en:\n" + target.getAbsolutePath(),
+					"Pizarra guardada", javax.swing.JOptionPane.INFORMATION_MESSAGE);
 		} catch (Exception e) {
 			log.err("No se pudo guardar la pizarra: " + e.getMessage());
+			javax.swing.JOptionPane.showMessageDialog(view,
+					"No se pudo guardar la pizarra:\n" + e.getMessage(),
+					"Error al guardar", javax.swing.JOptionPane.ERROR_MESSAGE);
 		}
 	}
 
@@ -2560,33 +4076,33 @@ public class Controller {
 		JButton underline = toolbarButton("U", new StyledEditorKit.UnderlineAction());
 		JButton image = new JButton(notesImageIcon());
 		image.setFocusable(false);
-		image.setToolTipText("Insertar imagen en la nota");
+		image.setToolTipText(I18n.get("tooltip.insertImage"));
 		image.addActionListener(e -> chooseNotesImage());
 		JButton smallerImage = new JButton(notesImageSizeIcon(false));
 		smallerImage.setFocusable(false);
-		smallerImage.setToolTipText("Achicar imagen seleccionada en la nota");
+		smallerImage.setToolTipText(I18n.get("tooltip.shrinkImage"));
 		smallerImage.addActionListener(e -> resizeSelectedNotesImage(0.8));
 		JButton biggerImage = new JButton(notesImageSizeIcon(true));
 		biggerImage.setFocusable(false);
-		biggerImage.setToolTipText("Agrandar imagen seleccionada en la nota");
+		biggerImage.setToolTipText(I18n.get("tooltip.growImage"));
 		biggerImage.addActionListener(e -> resizeSelectedNotesImage(1.25));
 		toolbar.add(bold);
 		toolbar.add(italic);
 		toolbar.add(underline);
 		JButton smaller = new JButton("A-");
 		smaller.setFocusable(false);
-		smaller.setToolTipText("Reducir tamaño del texto seleccionado o próximo texto");
+		smaller.setToolTipText(I18n.get("tooltip.reduceText"));
 		smaller.addActionListener(e -> changeNotesFontSize(-2));
 		JButton bigger = new JButton("A+");
 		bigger.setFocusable(false);
-		bigger.setToolTipText("Aumentar tamaño del texto seleccionado o próximo texto");
+		bigger.setToolTipText(I18n.get("tooltip.increaseText"));
 		bigger.addActionListener(e -> changeNotesFontSize(2));
 		JButton fontColor = new JButton(colorIcon(Color.BLACK));
 		fontColor.setFocusable(false);
-		fontColor.setToolTipText("Cambiar color de fuente");
+		fontColor.setToolTipText(I18n.get("tooltip.fontColor"));
 		fontColor.addActionListener(e -> chooseNotesFontColor());
-		JCheckBox translucent = new JCheckBox("Traslúcida");
-		translucent.setToolTipText("Vuelve la ventana semitransparente y superpuesta");
+		JCheckBox translucent = new JCheckBox(I18n.get("notes.translucent"));
+		translucent.setToolTipText(I18n.get("tooltip.translucent"));
 		translucent.addActionListener(e -> setNotesOverlayMode(translucent.isSelected()));
 		toolbar.addSeparator();
 		toolbar.add(smaller);
@@ -2598,6 +4114,11 @@ public class Controller {
 		toolbar.add(biggerImage);
 		toolbar.addSeparator();
 		toolbar.add(translucent);
+		JButton exportNotes = new JButton(exportIcon());
+		exportNotes.setFocusable(false);
+		exportNotes.setToolTipText(I18n.get("tooltip.exportNotes"));
+		exportNotes.addActionListener(e -> exportNotesRtf());
+		toolbar.add(exportNotes);
 		notesSyncTimer = new Timer(900, e -> broadcastNotes());
 		notesSyncTimer.setRepeats(false);
 		notesPane.getInputMap().put(javax.swing.KeyStroke.getKeyStroke("control V"), "notesPaste");
@@ -2662,31 +4183,155 @@ public class Controller {
 	}
 
 	private void chooseNotesImage() {
+		long t0 = System.nanoTime();
+		log.debug("[PERF][NOTES-BUTTON] INICIO - t0=" + t0);
 		JFileChooser chooser = new JFileChooser();
 		if (chooser.showOpenDialog(view) == JFileChooser.APPROVE_OPTION) {
 			try {
-				insertImageIntoNotes(ImageIO.read(chooser.getSelectedFile()));
+				long t1 = System.nanoTime();
+				log.debug("[PERF][NOTES-BUTTON] Archivo seleccionado - dt=" + ((t1-t0)/1_000_000) + "ms");
+				BufferedImage img = ImageIO.read(chooser.getSelectedFile());
+				long t2 = System.nanoTime();
+				log.debug("[PERF][NOTES-BUTTON] ImageIO.read - dt=" + ((t2-t1)/1_000_000) + "ms, size=" + (img!=null?img.getWidth()+"x"+img.getHeight():"null"));
+				insertImageIntoNotes(img);
+				long t3 = System.nanoTime();
+				log.debug("[PERF][NOTES-BUTTON] FIN - total=" + ((t3-t0)/1_000_000) + "ms");
 			} catch (Exception e) {
 				log.err("No se pudo insertar imagen en notas: " + e.getMessage());
 			}
+		} else {
+			log.debug("[PERF][NOTES-BUTTON] CANCELADO por usuario");
 		}
 	}
 
 	private boolean pasteImageIntoNotes() {
-		try {
-			Transferable t = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().getContents(null);
-			if (t != null && t.isDataFlavorSupported(DataFlavor.imageFlavor)) {
-				insertImageIntoNotes((Image) t.getTransferData(DataFlavor.imageFlavor));
-				return true;
+		long t0 = System.nanoTime();
+		String transferId = "notes-img-" + System.currentTimeMillis();
+		log.debug("[PERF][NOTES-CLIPBOARD] INICIO Ctrl+V - t0=" + t0);
+		javax.swing.SwingUtilities.invokeLater(() -> {
+			updateTransferProgress(transferId, "Preparando imagen para notas...", 0, 5);
+		});
+		Thread t = new Thread(new Runnable() {
+			private volatile boolean warnedSlow = false;
+
+			@Override
+			public void run() {
+				long t1 = System.nanoTime();
+				log.debug("[PERF][NOTES-CLIPBOARD] Hilo iniciado - dt=" + ((t1-t0)/1_000_000) + "ms");
+				try {
+					long t1a = System.nanoTime();
+					log.debug("[PERF][NOTES-CLIPBOARD] Antes de getSystemClipboard - dt=" + ((t1a-t0)/1_000_000) + "ms");
+					java.awt.datatransfer.Clipboard clipboard = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
+					long t1b = System.nanoTime();
+					log.debug("[PERF][NOTES-CLIPBOARD] getSystemClipboard - dt=" + ((t1b-t1a)/1_000_000) + "ms");
+					long t1c = System.nanoTime();
+					log.debug("[PERF][NOTES-CLIPBOARD] Antes de clipboard.getContents - dt=" + ((t1c-t0)/1_000_000) + "ms");
+
+					final long clipboardStartTime = System.currentTimeMillis();
+					final Transferable[] transHolder = new Transferable[1];
+					final Exception[] holderEx = new Exception[1];
+					final boolean[] done = {false};
+					final boolean[] warned = {false};
+
+					Thread monitorThread = new Thread(() -> {
+						while (!done[0]) {
+							long waited = System.currentTimeMillis() - clipboardStartTime;
+							if (!warnedSlow && waited > 5000) {
+								warnedSlow = true;
+								warned[0] = true;
+								log.info("[PERF][NOTES-CLIPBOARD] Portapapeles lento, esperando... (ya esperaban " + waited + "ms). Esto puede ocurrir con imagenes grandes en Linux.");
+								javax.swing.SwingUtilities.invokeLater(() -> {
+									updateTransferProgress(transferId, "Portapapeles lento... (esperando)", 0, 5);
+								});
+							}
+							if (waited > 30000) {
+								log.err("[PERF][NOTES-CLIPBOARD] Timeout esperando portapapeles despues de 30s");
+								javax.swing.SwingUtilities.invokeLater(() -> {
+									updateTransferProgress(transferId, "Timeout de portapapeles", 5, 5);
+								});
+								done[0] = true;
+								return;
+							}
+							try { Thread.sleep(500); } catch (InterruptedException ie) { break; }
+						}
+					}, "notes-clipboard-monitor");
+					monitorThread.setDaemon(true);
+					monitorThread.start();
+
+					Thread workerThread = new Thread(() -> {
+						try {
+							transHolder[0] = clipboard.getContents(null);
+						} catch (Exception e) {
+							holderEx[0] = e;
+						} finally {
+							done[0] = true;
+						}
+					}, "notes-clipboard-worker");
+					workerThread.setDaemon(true);
+					workerThread.start();
+
+					while (!done[0]) {
+						try { Thread.sleep(100); } catch (InterruptedException ie) { break; }
+					}
+					if (holderEx[0] != null) {
+						log.err("[PERF][NOTES-CLIPBOARD] Error accediendo portapapeles: " + holderEx[0].getMessage());
+						javax.swing.SwingUtilities.invokeLater(() -> {
+							updateTransferProgress(transferId, "Error de portapapeles", 5, 5);
+						});
+						return;
+					}
+
+					long t2 = System.nanoTime();
+					log.debug("[PERF][NOTES-CLIPBOARD] clipboard.getContents - dt=" + ((t2-t1c)/1_000_000) + "ms, total=" + ((t2-t0)/1_000_000) + "ms" + (warned[0] ? " [WARNED]" : ""));
+					Transferable trans = transHolder[0];
+					boolean hasImage = trans != null && trans.isDataFlavorSupported(DataFlavor.imageFlavor);
+					log.debug("[PERF][NOTES-CLIPBOARD] Clipboard check - dt=" + ((t2-t1)/1_000_000) + "ms, hasImage=" + hasImage);
+					if (hasImage) {
+						long t2a = System.nanoTime();
+						log.debug("[PERF][NOTES-CLIPBOARD] Antes de getTransferData - dt=" + ((t2a-t0)/1_000_000) + "ms");
+						Image img = (Image) trans.getTransferData(DataFlavor.imageFlavor);
+						long t3 = System.nanoTime();
+						log.debug("[PERF][NOTES-CLIPBOARD] getTransferData - dt=" + ((t3-t2a)/1_000_000) + "ms, total=" + ((t3-t0)/1_000_000) + "ms, size=" + (img!=null?img.getWidth(null)+"x"+img.getHeight(null):"null"));
+						javax.swing.SwingUtilities.invokeLater(() -> {
+							updateTransferProgress(transferId, "Insertando imagen en notas...", 2, 5);
+						});
+						long t4 = System.nanoTime();
+						log.debug("[PERF][NOTES-CLIPBOARD] Antes de invokeAndWait - dt=" + ((t4-t0)/1_000_000) + "ms");
+						javax.swing.SwingUtilities.invokeAndWait(() -> {
+							long t5 = System.nanoTime();
+							log.debug("[PERF][NOTES-CLIPBOARD] invokeAndWait inicio (EDT) - dt=" + ((t5-t0)/1_000_000) + "ms");
+							insertImageIntoNotes(img);
+							long t6 = System.nanoTime();
+							log.debug("[PERF][NOTES-CLIPBOARD] insertImageIntoNotes FIN - dt=" + ((t6-t5)/1_000_000) + "ms, total desde t0=" + ((t6-t0)/1_000_000) + "ms");
+						});
+						long t7 = System.nanoTime();
+						log.debug("[PERF][NOTES-CLIPBOARD] Despues de invokeAndWait - dt=" + ((t7-t0)/1_000_000) + "ms");
+						javax.swing.SwingUtilities.invokeLater(() -> {
+							removeTransferProgress(transferId, transferRows.get(transferId));
+							long t8 = System.nanoTime();
+							log.debug("[PERF][NOTES-CLIPBOARD] FIN COMPLETO - total=" + ((t8-t0)/1_000_000) + "ms");
+						});
+					} else {
+						javax.swing.SwingUtilities.invokeLater(() -> {
+							updateTransferProgress(transferId, "No hay imagen en portapapeles", 5, 5);
+						});
+					}
+				} catch (Exception e) {
+					log.err("No se pudo pegar imagen en notas: " + e.getMessage());
+					javax.swing.SwingUtilities.invokeLater(() -> {
+						updateTransferProgress(transferId, "Error al pegar imagen", 5, 5);
+					});
+				}
 			}
-		} catch (Exception e) {
-			log.err("No se pudo pegar imagen en notas: " + e.getMessage());
-		}
-		return false;
+		}, "notes-clipboard-paste");
+		t.setDaemon(true);
+		t.start();
+		return true;
 	}
 
 	private void insertImageIntoNotes(Image image) {
 		if (image == null || notesPane == null) return;
+		long t0 = System.nanoTime();
 		int maxWidth = Math.max(120, notesPane.getWidth() - 40);
 		int width = image.getWidth(null);
 		int height = image.getHeight(null);
@@ -2694,13 +4339,20 @@ public class Controller {
 			height = Math.max(1, (int) Math.round(height * (maxWidth / (double) width)));
 			width = maxWidth;
 		}
+		long t1 = System.nanoTime();
 		Image scaled = image.getScaledInstance(width, height, Image.SCALE_SMOOTH);
+		long t2 = System.nanoTime();
+		log.debug("[PERF][NOTES-INSERT] scale=" + width + "x" + height + " - scaleTime=" + ((t2-t1)/1_000_000) + "ms");
 		SimpleAttributeSet attrs = new SimpleAttributeSet();
 		StyleConstants.setIcon(attrs, new ImageIcon(scaled));
 		notesPane.setCaretPosition(notesPane.getSelectionStart());
 		notesPane.replaceSelection(" ");
 		notesPane.getStyledDocument().setCharacterAttributes(notesPane.getCaretPosition() - 1, 1, attrs, false);
+		long t3 = System.nanoTime();
+		log.debug("[PERF][NOTES-INSERT] document insert - dt=" + ((t3-t2)/1_000_000) + "ms");
 		scheduleNotesBroadcast();
+		long t4 = System.nanoTime();
+		log.debug("[PERF][NOTES-INSERT] scheduleNotesBroadcast llamada - total insertImageIntoNotes=" + ((t4-t0)/1_000_000) + "ms");
 	}
 
 	private void resizeSelectedNotesImage(double factor) {
@@ -2772,18 +4424,6 @@ public class Controller {
 			this.tooltip = tooltip;
 			this.component = component;
 			this.icon = icon;
-		}
-	}
-
-	private static class HubCandidate {
-		final String userId;
-		final String name;
-		final String uri;
-
-		HubCandidate(String userId, String name, String uri) {
-			this.userId = userId;
-			this.name = name != null && !name.isBlank() ? name : userId;
-			this.uri = uri;
 		}
 	}
 
@@ -2935,9 +4575,14 @@ public class Controller {
 		} while (idx != -1);
 		chatArea = null;
 		chatInput = null;
+		membersContainerPanel = null;
+		membersTable = null;
 		transferPanel = null;
 		transferBars.clear();
+		transferRows.clear();
 		transferTargets.clear();
+		activeTransferRequests.clear();
+		transferPendingOpenLinks.clear();
 	}
 
 	private void refreshTables() {
@@ -2969,7 +4614,7 @@ public class Controller {
 	}
 
 	private void sendFileDirect(Event request, WebSocket directConn) {
-		String localFolder = view.getjTextField4().getText();
+		String localFolder = getSessionFilesDir().getAbsolutePath();
 		new Thread(() -> {
 			QFile requestedFile = request.getFile();
 			if (requestedFile == null || request.getUser() == null) {
@@ -2991,7 +4636,7 @@ public class Controller {
 
 			long totalParts = Math.max(1, (file.length() + FILE_CHUNK_SIZE - 1) / FILE_CHUNK_SIZE);
 			log.info("Enviando archivo '" + requestedFile.getName() + "' en " + totalParts + " partes");
-			updateTransferProgress(transferId, "Enviando " + requestedFile.getName(), 0, (int) totalParts);
+			updateTransferProgress(transferId, I18n.get("transfer.sending") + requestedFile.getName(), 0, (int) totalParts);
 
 			try (FileInputStream fis = new FileInputStream(file)) {
 				byte[] buffer = new byte[FILE_CHUNK_SIZE];
@@ -3010,7 +4655,7 @@ public class Controller {
 					qfile.setContent(Base64.getEncoder().encodeToString(Arrays.copyOf(buffer, read)));
 
 					sendTransferEvent(directConn, targetId, new Event("Parte de archivo", user, qfile));
-					updateTransferProgress(transferId, "Enviando " + requestedFile.getName(), part + 1, (int) totalParts);
+					updateTransferProgress(transferId, I18n.get("transfer.sending") + " " + requestedFile.getName(), part + 1, (int) totalParts);
 					part++;
 				}
 				log.info("Archivo '" + requestedFile.getName() + "' enviado");
@@ -3028,7 +4673,7 @@ public class Controller {
 				directConn.send(EventUtils.toJsonBase64(event));
 			} else if (wsClient != null) {
 				event.setName("__to:" + targetId + ":" + event.getName());
-				wsClient.sendEvent(event);
+				sendEvent(event);
 			}
 		} catch (Exception e) {
 			log.err("Error al enviar evento de transferencia: " + e.getMessage());
@@ -3042,7 +4687,7 @@ public class Controller {
 			if (localPath == null) {
 				String filePath = qfile.getRelativePath() != null && !qfile.getRelativePath().isEmpty()
 						? qfile.getRelativePath() : qfile.getName();
-				localPath = uniqueFilePath(view.getjTextField4().getText() + File.separator + filePath);
+				localPath = uniqueFilePath(getSessionFilesDir().getAbsolutePath() + File.separator + filePath);
 				transferTargets.put(transferId, localPath);
 			}
 
@@ -3058,7 +4703,7 @@ public class Controller {
 			}
 
 			int completed = qfile.getCurrentPart() + 1;
-			updateTransferProgress(transferId, "Descargando " + qfile.getName(), completed, qfile.getTotalParts());
+			updateTransferProgress(transferId, I18n.get("transfer.downloading") + " " + qfile.getName(), completed, qfile.getTotalParts());
 			if (completed >= qfile.getTotalParts()) {
 				File finalFile = new File(localPath);
 				if (!file.renameTo(finalFile)) {
@@ -3069,15 +4714,45 @@ public class Controller {
 				if (chatLinkId != null) {
 					chatFileLinks.put(chatLinkId, finalFile.getAbsolutePath());
 				}
-				if (QFile.OPERATION_OPEN.equals(qfile.getOperation())) {
-					exec.open(localPath);
-				} else {
-					refreshLocalFilesAndNotify("Notifico Cambio en los archivos");
-				}
+				if (QFile.OPERATION_OPEN.equals(qfile.getOperation())) exec.open(localPath);
 				transferTargets.remove(transferId);
 			}
 		} catch (Exception ex) {
 			log.err("Error al recibir archivo: " + ex.getMessage());
+		}
+	}
+
+	private void completeCoreChunkDownload(String transferId, FileMetadata metadata, QFile original, byte[] bytes) {
+		try {
+			String localPath = uniqueFilePath(getSessionFilesDir().getAbsolutePath() + File.separator + metadata.name());
+			File target = new File(localPath);
+			File parent = target.getParentFile();
+			if (parent != null) parent.mkdirs();
+			Files.write(target.toPath(), bytes);
+			log.info("Archivo '" + metadata.name() + "' descargado desde chunks distribuidos");
+			String chatLinkId = chatTransferLinks.remove(transferId);
+			if (chatLinkId != null) {
+				chatFileLinks.put(chatLinkId, target.getAbsolutePath());
+			}
+			String openLinkId = transferPendingOpenLinks.remove(transferId);
+			if (openLinkId != null) {
+				chatFileLinks.put(openLinkId, target.getAbsolutePath());
+			}
+			if (original != null && QFile.OPERATION_OPEN.equals(original.getOperation())) exec.open(target.getAbsolutePath());
+			org.q3s.p2p.core.model.Event reShareEvent = core.shareFile(target.toPath());
+			publishCoreEvent(reShareEvent);
+			refreshArchivosTable();
+			activeTransferRequests.remove(transferId);
+		} catch (Exception e) {
+			log.err("No se pudo finalizar descarga distribuida: " + e.getMessage());
+			finishTransferWithError(transferId, "Error finalizando descarga");
+		}
+	}
+
+	private void fallbackCoreChunkDownload(QFile original, String reason) {
+		log.err(reason + ". Descarga P2P por chunks no completada.");
+		if (original != null) {
+			finishTransferWithError(original.getTransferId(), "Error: " + reason);
 		}
 	}
 
@@ -3088,11 +4763,14 @@ public class Controller {
 		javax.swing.SwingUtilities.invokeLater(() -> {
 			transferPanel.setVisible(true);
 			JProgressBar bar = transferBars.get(transferId);
+			JPanel row = transferRows.get(transferId);
 			if (bar == null) {
 				bar = new JProgressBar(0, Math.max(total, 1));
 				bar.setStringPainted(true);
-				transferPanel.add(bar);
+				row = transferRow(transferId, bar);
+				transferPanel.add(row);
 				transferBars.put(transferId, bar);
+				transferRows.put(transferId, row);
 			} else {
 				bar.setMaximum(Math.max(total, 1));
 			}
@@ -3102,18 +4780,95 @@ public class Controller {
 			transferPanel.revalidate();
 			transferPanel.repaint();
 			if (current >= total) {
-				final JProgressBar completedBar = bar;
+				final JPanel completedRow = row;
 				Timer timer = new Timer(1800, e -> {
-					transferBars.remove(transferId);
-					transferPanel.remove(completedBar);
-					transferPanel.setVisible(transferPanel.getComponentCount() > 0);
-					transferPanel.revalidate();
-					transferPanel.repaint();
+					removeTransferProgress(transferId, completedRow);
 				});
 				timer.setRepeats(false);
 				timer.start();
 			}
 		});
+	}
+
+	private JPanel transferRow(String transferId, JProgressBar bar) {
+		JPanel row = new JPanel(new BorderLayout(4, 0));
+		row.add(bar, BorderLayout.CENTER);
+		JButton retry = new JButton(I18n.get("transfer.retry"));
+		retry.setFocusable(false);
+		retry.addActionListener(e -> retryTransfer(transferId));
+		JButton cancel = new JButton(I18n.get("transfer.cancel"));
+		cancel.setFocusable(false);
+		cancel.addActionListener(e -> cancelTransfer(transferId));
+		JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
+		buttons.add(retry);
+		buttons.add(cancel);
+		row.add(buttons, BorderLayout.EAST);
+		return row;
+	}
+
+	private void removeTransferProgress(String transferId, JPanel row) {
+		transferBars.remove(transferId);
+		transferRows.remove(transferId);
+		activeTransferRequests.remove(transferId);
+		transferPendingOpenLinks.remove(transferId);
+		chatTransferLinks.remove(transferId);
+		if (row != null) transferPanel.remove(row);
+		transferPanel.setVisible(transferPanel.getComponentCount() > 0);
+		transferPanel.revalidate();
+		transferPanel.repaint();
+	}
+
+	private void finishTransferWithError(String transferId, String message) {
+		if (transferId == null) return;
+		javax.swing.SwingUtilities.invokeLater(() -> {
+			JProgressBar bar = transferBars.get(transferId);
+			if (bar != null) {
+				bar.setString(message + " - " + I18n.get("transfer.retry") + " / " + I18n.get("transfer.cancel"));
+			}
+		});
+	}
+
+	private void registerActiveTransfer(QFile qFile) {
+		if (qFile != null && qFile.getTransferId() != null) {
+			activeTransferRequests.put(qFile.getTransferId(), copyTransferRequest(qFile));
+		}
+	}
+
+	private QFile copyTransferRequest(QFile src) {
+		QFile copy = new QFile();
+		copy.setName(src.getName());
+		copy.setSize(src.getSize());
+		copy.setDate(src.getDate());
+		copy.setRelativePath(src.getRelativePath());
+		copy.setMd5(src.getMd5());
+		copy.setOperation(src.getOperation());
+		copy.setOwner(src.getOwner());
+		copy.setTransferId(src.getTransferId());
+		return copy;
+	}
+
+	private void retryTransfer(String transferId) {
+		QFile original = activeTransferRequests.get(transferId);
+		if (original == null) return;
+		if (coreChunkTransfer != null) coreChunkTransfer.cancel(transferId);
+		String newTransferId = UUIDUtils.generate();
+		String linkId = chatTransferLinks.remove(transferId);
+		String openLinkId = transferPendingOpenLinks.remove(transferId);
+		original.setTransferId(newTransferId);
+		if (linkId != null) chatTransferLinks.put(newTransferId, linkId);
+		if (openLinkId != null) transferPendingOpenLinks.put(newTransferId, openLinkId);
+		removeTransferProgress(transferId, transferRows.get(transferId));
+		registerActiveTransfer(original);
+		updateTransferProgress(newTransferId, I18n.get("transfer.retrying") + " " + original.getName(), 0, 1);
+		if (!requestCoreChunkDownload(original)) {
+			finishTransferWithError(newTransferId, I18n.get("transfer.error") + " " + original.getName());
+		}
+	}
+
+	private void cancelTransfer(String transferId) {
+		if (coreChunkTransfer != null) coreChunkTransfer.cancel(transferId);
+		removeTransferProgress(transferId, transferRows.get(transferId));
+		log.info("Transferencia cancelada");
 	}
 
 	private String uniqueFilePath(String preferredPath) {
@@ -3147,34 +4902,130 @@ public class Controller {
 			if (sessionDir == null) return;
 			sessionDir.mkdirs();
 
+			File chatDir = new File(sessionDir, "chat");
+			File notesDir = new File(sessionDir, "notes");
+			File whiteboardDir = new File(sessionDir, "whiteboard");
+			File logsDir = new File(sessionDir, "logs");
+			File membersDir = new File(sessionDir, "members");
+
+			chatDir.mkdirs();
+			notesDir.mkdirs();
+			whiteboardDir.mkdirs();
+			logsDir.mkdirs();
+			membersDir.mkdirs();
+
 			if (chatArea != null) {
-				Files.writeString(new File(sessionDir, "chat.txt").toPath(), chatArea.getText(), StandardCharsets.UTF_8);
+				Files.writeString(new File(chatDir, "chat.txt").toPath(), chatArea.getText(), StandardCharsets.UTF_8);
 			}
 			if (notesPane != null) {
-				try (OutputStream out = new FileOutputStream(new File(sessionDir, "notas.rtf"))) {
+				try (OutputStream out = new FileOutputStream(new File(notesDir, "notas.rtf"))) {
 					new RTFEditorKit().write(out, notesPane.getDocument(), 0, notesPane.getDocument().getLength());
 				}
-				Files.writeString(new File(sessionDir, "notas.txt").toPath(),
-						notesPane.getDocument().getText(0, notesPane.getDocument().getLength()), StandardCharsets.UTF_8);
 			}
 			if (whiteboardCanvas != null) {
-				ImageIO.write(whiteboardCanvas.toImage(), "png", new File(sessionDir, "pizarra.png"));
+				ImageIO.write(whiteboardCanvas.toImage(), "png", new File(whiteboardDir, "pizarra.png"));
 			}
-			saveLogHistory(new File(sessionDir, "logs.log"));
-			Files.writeString(new File(sessionDir, "sesion.txt").toPath(),
+			saveLogHistory(new File(logsDir, "logs.log"));
+			Files.writeString(new File(logsDir, "sesion.txt").toPath(),
 					"Workspace: " + workspaceName + "\n"
 							+ "Creada: " + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(createdDate) + "\n"
 							+ "Guardada: " + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()) + "\n"
 							+ "Motivo: " + reason + "\n",
 					StandardCharsets.UTF_8);
+			saveMembersSnapshot(membersDir, workspaceName);
 			log.info("Historial de sesion guardado en " + sessionDir.getAbsolutePath());
 		} catch (Exception e) {
 			log.err("No se pudo guardar el historial de sesion: " + e.getMessage());
 		}
 	}
 
-	private File getApplicationDirectory() {
-		return new File(System.getProperty("user.home", "."), "qfolder").getAbsoluteFile();
+	private void saveMembersSnapshot(File membersDir, String workspaceName) {
+		try {
+			if (user != null) trackMemberWithoutRefresh(user, true);
+
+			Set<String> localConnections = p2pMesh != null ? p2pMesh.connectedPeers() : Set.of();
+
+			JsonArrayBuilder members = Json.createArrayBuilder();
+
+			for (User member : knownMembers.values()) {
+				if (member == null || member.getId() == null) continue;
+
+				boolean isSelf = member.equals(user);
+				boolean connectedToMe = localConnections.contains(member.getId())
+						|| isDirectPeerConnected(member.getId());
+				boolean online = isSelf || connectedToMe;
+
+				Set<String> distributedConnections = new java.util.LinkedHashSet<>(corePeerConnections.getOrDefault(member.getId(), Set.of()));
+
+				if (isSelf) distributedConnections.addAll(localConnections);
+				if (!isSelf && connectedToMe && user != null) distributedConnections.add(user.getId());
+				if (!online) distributedConnections.clear();
+
+				JsonArrayBuilder connectedWith = Json.createArrayBuilder();
+				for (String peerId : distributedConnections) connectedWith.add(peerId);
+
+				JsonObjectBuilder item = Json.createObjectBuilder()
+					.add("id", member.getId())
+					.add("name", member.getName() != null ? member.getName() : "")
+					.add("connected", online)
+					.add("local", isSelf)
+					.add("peer_url", member.getPeerUrl() != null ? member.getPeerUrl() : "")
+					.add("peer_count", distributedConnections.size())
+					.add("connected_with", connectedWith);
+
+				Long connectedAt = memberConnectedAt.get(member.getId());
+				if (connectedAt != null && connectedAt > 0) {
+					item.add("connected_at", connectedAt);
+				} else {
+					item.addNull("connected_at");
+				}
+
+				members.add(item);
+			}
+
+			JsonObject root = Json.createObjectBuilder()
+				.add("workspace_id", wk != null ? wk.getId() : "")
+				.add("workspace_name", workspaceName != null ? workspaceName : "")
+				.add("saved_at", Instant.now().toString())
+				.add("members", members)
+				.build();
+
+			Files.writeString(
+				new File(membersDir, "members.json").toPath(),
+				root.toString(),
+				StandardCharsets.UTF_8
+			);
+		} catch (Exception e) {
+			log.debug("No se pudo guardar snapshot de miembros: " + e.getMessage());
+		}
+	}
+
+	private String timestampForFilename() {
+		return new SimpleDateFormat("yyyy-MM-dd-HHmmss").format(new java.util.Date());
+	}
+
+	private void exportNotesRtf() {
+		if (notesPane == null) return;
+		try {
+			prepareWorkspaceSessionDirectories();
+			File dir = new File(currentSessionDir != null ? currentSessionDir : getQfolderRootDir(), "notes");
+			dir.mkdirs();
+			String filename = "notas-" + timestampForFilename() + ".rtf";
+			File target = new File(dir, filename);
+			if (target.exists()) target = new File(uniqueFilePath(target.getAbsolutePath()));
+			try (java.io.OutputStream out = new java.io.FileOutputStream(target)) {
+				new javax.swing.text.rtf.RTFEditorKit().write(out, notesPane.getDocument(), 0, notesPane.getDocument().getLength());
+			}
+			log.info("Notas guardadas en " + target.getAbsolutePath());
+			JOptionPane.showMessageDialog(view,
+					"Notas guardadas correctamente en:\n" + target.getAbsolutePath(),
+					"Notas guardadas", JOptionPane.INFORMATION_MESSAGE);
+		} catch (Exception e) {
+			log.err("No se pudieron guardar las notas: " + e.getMessage());
+			JOptionPane.showMessageDialog(view,
+					"No se pudieron guardar las notas:\n" + e.getMessage(),
+					"Error al guardar", JOptionPane.ERROR_MESSAGE);
+		}
 	}
 
 	private String safeFileName(String value) {
@@ -3194,8 +5045,11 @@ public class Controller {
 	}
 
 	private class WhiteboardCanvas extends JPanel {
+		private static final String STATE_PREFIX = "QWBSTATE1";
+		private static final String ACTION_PREFIX = "QWBA1";
 		private final List<String> operations = new ArrayList<>();
 		private final List<String> currentStroke = new ArrayList<>();
+		private final Map<String, String> cachedImageData = new LinkedHashMap<>();
 		private String tool = "Seleccionar";
 		private Color drawColor = Color.BLACK;
 		private int fontSize = 18;
@@ -3271,11 +5125,11 @@ public class Controller {
 					}
 					selectedIndex = findElementAt(e.getX(), e.getY());
 					if ("Seleccionar".equals(tool) && selectedIndex >= 0) {
-						if (e.getClickCount() == 2 && operations.get(selectedIndex).startsWith("T|")) {
+						if (e.getClickCount() == 2 && elementOp(operations.get(selectedIndex)).startsWith("T|")) {
 							editSelectedText();
 							return;
 						}
-						Rectangle r = boundsOf(operations.get(selectedIndex));
+						Rectangle r = boundsOf(elementOp(operations.get(selectedIndex)));
 						resizing = r != null && nearResizeCorner(r, e.getX(), e.getY());
 						dragOffset = r == null ? null : new Point(e.getX() - r.x, e.getY() - r.y);
 						loadSelectedStyle();
@@ -3318,26 +5172,118 @@ public class Controller {
 						dragOffset = null;
 						resizing = false;
 						repaint();
-						broadcastWhiteboard();
+						broadcastWhiteboardAction("update", elementId(operations.get(selectedIndex)), elementOp(operations.get(selectedIndex)));
 					} else if ("Lápiz".equals(tool) && !currentStroke.isEmpty()) {
-						operations.add(strokeOp(currentStroke));
+						recordWhiteboardStrokeInCore(new ArrayList<>(currentStroke));
+						addElement(strokeOp(currentStroke));
 						selectedIndex = operations.size() - 1;
 						tool = "Seleccionar";
 						currentStroke.clear();
 						repaint();
-						broadcastWhiteboard();
 					} else if (isShapeTool() && previewShape != null) {
-						operations.add(previewShape);
+						addElement(previewShape);
 						selectedIndex = operations.size() - 1;
 						tool = "Seleccionar";
 						previewShape = null;
 						repaint();
-						broadcastWhiteboard();
 					}
 				}
 			};
 			addMouseListener(mouse);
 			addMouseMotionListener(mouse);
+		}
+
+		private String elementEntry(String id, String op) {
+			return id + "\t" + op;
+		}
+
+		private String elementId(String entry) {
+			int idx = entry.indexOf('\t');
+			return idx > 0 ? entry.substring(0, idx) : UUIDUtils.generate();
+		}
+
+		private String elementOp(String entry) {
+			int idx = entry.indexOf('\t');
+			return idx > 0 ? entry.substring(idx + 1) : entry;
+		}
+
+		private String addElement(String op) {
+			String id = UUIDUtils.generate();
+			operations.add(elementEntry(id, op));
+			broadcastWhiteboardAction("add", id, op);
+			return id;
+		}
+
+		private void updateSelectedElement(String op) {
+			if (selectedIndex < 0 || selectedIndex >= operations.size()) return;
+			String id = elementId(operations.get(selectedIndex));
+			operations.set(selectedIndex, elementEntry(id, op));
+			broadcastWhiteboardAction("update", id, op);
+		}
+
+		String actionPayload(String action, String elementId, String operation) {
+			String encodedOp = operation == null ? "" : Base64.getEncoder().encodeToString(operation.getBytes(StandardCharsets.UTF_8));
+			return ACTION_PREFIX + "\n" + action + "\n" + (elementId == null ? "" : elementId) + "\n" + encodedOp;
+		}
+
+		void applyAction(String payload) {
+			if (payload == null || !payload.startsWith(ACTION_PREFIX + "\n")) return;
+			String[] parts = payload.split("\n", 4);
+			if (parts.length < 3) return;
+			String action = parts[1];
+			String id = parts[2];
+			String op = "";
+			if (parts.length == 4 && !parts[3].isEmpty()) {
+				op = new String(Base64.getDecoder().decode(parts[3]), StandardCharsets.UTF_8);
+			}
+			if ("clear".equals(action)) {
+				operations.clear();
+				cachedImageData.clear();
+				selectedIndex = -1;
+			} else if ("delete".equals(action)) {
+				int idx = findElementIndexById(id);
+				if (idx >= 0) operations.remove(idx);
+				cachedImageData.remove(id);
+				selectedIndex = -1;
+			} else if ("add".equals(action)) {
+				if (findElementIndexById(id) < 0) {
+					if (op.startsWith("I|") && op.indexOf('|', 2) >= 0) {
+						String[] opParts = op.split("\\|", 3);
+						if (opParts.length >= 3 && !opParts[2].isEmpty()) {
+							cachedImageData.put(id, opParts[2]);
+						}
+					}
+					operations.add(elementEntry(id, op));
+				}
+			} else if ("update".equals(action)) {
+				int idx = findElementIndexById(id);
+				if (idx >= 0) {
+					String existingOp = elementOp(operations.get(idx));
+					if (op.startsWith("I|") && op.indexOf('|', 2) < 0) {
+						String cached = cachedImageData.get(id);
+						if (cached != null) {
+							op = op + "|" + cached;
+						} else {
+							int bar = existingOp.indexOf('|', 2);
+							if (bar > 0) {
+								cached = existingOp.substring(bar + 1);
+								cachedImageData.put(id, cached);
+								op = op + "|" + cached;
+							}
+						}
+					}
+					operations.set(idx, elementEntry(id, op));
+				} else operations.add(elementEntry(id, op));
+			}
+			repaint();
+		}
+
+		private int findElementIndexById(String id) {
+			if (id == null || id.isEmpty()) return -1;
+			for (int i = 0; i < operations.size(); i++) {
+				if (id.equals(elementId(operations.get(i)))) return i;
+			}
+			return -1;
 		}
 
 		void setTool(String tool) { this.tool = tool; }
@@ -3351,7 +5297,7 @@ public class Controller {
 
 		void addText(String text) {
 			String encoded = Base64.getEncoder().encodeToString(text.getBytes(StandardCharsets.UTF_8));
-			operations.add("T|20,20,160,40|" + fontSize + "|" + colorToHex(drawColor) + "|" + encoded);
+			addElement("T|20,20,160,40|" + fontSize + "|" + colorToHex(drawColor) + "|" + encoded);
 			tool = "Seleccionar";
 			repaint();
 		}
@@ -3362,6 +5308,9 @@ public class Controller {
 
 		void addImage(Image image, int x, int y, boolean showProgressImmediately, String transferId) {
 			if (image == null) return;
+			long t0 = System.nanoTime();
+			String threadName = Thread.currentThread().getName();
+			log.debug("[PERF][WB-ADD] INICIO - t0=" + t0 + ", showProgress=" + showProgressImmediately + ", thread=" + threadName);
 			String progressId = transferId != null ? transferId : UUIDUtils.generate();
 			java.util.concurrent.atomic.AtomicBoolean progressVisible = new java.util.concurrent.atomic.AtomicBoolean(false);
 			Timer progressDelay = new Timer(700, e -> {
@@ -3377,33 +5326,50 @@ public class Controller {
 			}
 			new Thread(() -> {
 				try {
+					long t1 = System.nanoTime();
+					log.debug("[PERF][WB-ADD] Hilo iniciado - dt=" + ((t1-t0)/1_000_000) + "ms");
 					if (progressVisible.get()) {
 						updateTransferProgress(progressId, "Convirtiendo imagen", 2, 5);
 					}
+					long t2 = System.nanoTime();
+					log.debug("[PERF][WB-ADD] Antes BufferedImage - dt=" + ((t2-t0)/1_000_000) + "ms");
 					BufferedImage bi = new BufferedImage(image.getWidth(null), image.getHeight(null), BufferedImage.TYPE_INT_ARGB);
+					long t3 = System.nanoTime();
+					log.debug("[PERF][WB-ADD] BufferedImage creado " + bi.getWidth() + "x" + bi.getHeight() + " - dt=" + ((t3-t2)/1_000_000) + "ms");
 					Graphics2D g = bi.createGraphics();
 					g.drawImage(image, 0, 0, null);
 					g.dispose();
+					long t4 = System.nanoTime();
+					log.debug("[PERF][WB-ADD] Graphics2D drawImage - dt=" + ((t4-t3)/1_000_000) + "ms");
 					if (progressVisible.get()) {
 						updateTransferProgress(progressId, "Comprimiendo imagen", 3, 5);
 					}
+					long t5 = System.nanoTime();
+					log.debug("[PERF][WB-ADD] Antes PNG write - dt=" + ((t5-t0)/1_000_000) + "ms");
 					ByteArrayOutputStream out = new ByteArrayOutputStream();
 					ImageIO.write(bi, "png", out);
-					String data = Base64.getEncoder().encodeToString(out.toByteArray());
+					byte[] pngBytes = out.toByteArray();
+					long t6 = System.nanoTime();
+					log.debug("[PERF][WB-ADD] PNG write - size=" + pngBytes.length + " bytes - dt=" + ((t6-t5)/1_000_000) + "ms");
+					long t7 = System.nanoTime();
+					String data = Base64.getEncoder().encodeToString(pngBytes);
+					long t8 = System.nanoTime();
+					log.debug("[PERF][WB-ADD] Base64 encode - size=" + data.length() + " chars - dt=" + ((t8-t7)/1_000_000) + "ms");
 					if (progressVisible.get()) {
 						updateTransferProgress(progressId, "Sincronizando imagen de pizarra", 4, 5);
 					}
 					javax.swing.SwingUtilities.invokeLater(() -> {
-						if (!progressVisible.get()) {
-							progressDelay.stop();
-						}
-						operations.add("I|" + x + "," + y + "," + Math.min(220, bi.getWidth()) + "," + Math.min(160, bi.getHeight()) + "|" + data);
+						long t9 = System.nanoTime();
+						log.debug("[PERF][WB-ADD] EDT inicio - dt=" + ((t9-t0)/1_000_000) + "ms");
+						addElement("I|" + x + "," + y + "," + Math.min(220, bi.getWidth()) + "," + Math.min(160, bi.getHeight()) + "|" + data);
 						selectedIndex = operations.size() - 1;
 						tool = "Seleccionar";
 						repaint();
-						broadcastWhiteboard();
+						long t10 = System.nanoTime();
+						log.debug("[PERF][WB-ADD] addElement+repaint FIN - dt=" + ((t10-t9)/1_000_000) + "ms, total=" + ((t10-t0)/1_000_000) + "ms");
 						if (progressVisible.get()) {
 							updateTransferProgress(progressId, "Imagen de pizarra sincronizada", 5, 5);
+							removeTransferProgress(progressId, transferRows.get(progressId));
 						}
 					});
 				} catch (Exception e) {
@@ -3417,13 +5383,24 @@ public class Controller {
 		}
 
 		void chooseImage(int x, int y) {
+			long t0 = System.nanoTime();
+			log.debug("[PERF][WB-BUTTON] INICIO - t0=" + t0);
 			JFileChooser chooser = new JFileChooser();
 			if (chooser.showOpenDialog(view) == JFileChooser.APPROVE_OPTION) {
 				try {
-					addImage(ImageIO.read(chooser.getSelectedFile()), x, y);
+					long t1 = System.nanoTime();
+					log.debug("[PERF][WB-BUTTON] Archivo seleccionado - dt=" + ((t1-t0)/1_000_000) + "ms");
+					BufferedImage img = ImageIO.read(chooser.getSelectedFile());
+					long t2 = System.nanoTime();
+					log.debug("[PERF][WB-BUTTON] ImageIO.read - dt=" + ((t2-t1)/1_000_000) + "ms, size=" + (img!=null?img.getWidth()+"x"+img.getHeight():"null"));
+					addImage(img, x, y);
+					long t3 = System.nanoTime();
+					log.debug("[PERF][WB-BUTTON] addImage llamado - dt=" + ((t3-t2)/1_000_000) + "ms");
 				} catch (Exception e) {
 					log.err("No se pudo insertar imagen: " + e.getMessage());
 				}
+			} else {
+				log.debug("[PERF][WB-BUTTON] CANCELADO por usuario");
 			}
 		}
 
@@ -3476,48 +5453,151 @@ public class Controller {
 			activeTextEditor = null;
 			if (text != null && !text.trim().isEmpty()) {
 				String encoded = Base64.getEncoder().encodeToString(text.getBytes(StandardCharsets.UTF_8));
-				operations.add("T|" + r.x + "," + r.y + "," + r.width + "," + r.height + "|" + fontSize + "|" + colorToHex(drawColor) + "|" + encoded);
+				addElement("T|" + r.x + "," + r.y + "," + r.width + "," + r.height + "|" + fontSize + "|" + colorToHex(drawColor) + "|" + encoded);
 				selectedIndex = operations.size() - 1;
 				tool = "Seleccionar";
-				broadcastWhiteboard();
 			}
 			revalidate();
 			repaint();
 		}
 
 		void pasteImageFromClipboard(int x, int y) {
+			long t0 = System.nanoTime();
 			String transferId = UUIDUtils.generate();
-			updateTransferProgress(transferId, "Leyendo portapapeles", 0, 5);
-			try {
-				Transferable t = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().getContents(null);
-				if (t != null && t.isDataFlavorSupported(DataFlavor.imageFlavor)) {
-					addImage((Image) t.getTransferData(DataFlavor.imageFlavor), x, y, true, transferId);
-				} else {
-					updateTransferProgress(transferId, "No hay imagen en portapapeles", 5, 5);
+			log.debug("[PERF][WB-CLIPBOARD] INICIO Ctrl+V - t0=" + t0 + ", pos=" + x + "," + y);
+			javax.swing.SwingUtilities.invokeLater(() -> {
+				updateTransferProgress(transferId, "Preparando pegado...", 0, 5);
+			});
+			Thread t = new Thread(new Runnable() {
+				private volatile boolean warnedSlow = false;
+
+				@Override
+				public void run() {
+					try {
+						long t1 = System.nanoTime();
+						log.debug("[PERF][WB-CLIPBOARD] Hilo iniciado - dt=" + ((t1-t0)/1_000_000) + "ms");
+						long t1a = System.nanoTime();
+						log.debug("[PERF][WB-CLIPBOARD] Antes de getSystemClipboard - dt=" + ((t1a-t0)/1_000_000) + "ms");
+						java.awt.datatransfer.Clipboard clipboard = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
+						long t1b = System.nanoTime();
+						log.debug("[PERF][WB-CLIPBOARD] getSystemClipboard - dt=" + ((t1b-t1a)/1_000_000) + "ms");
+						long t1c = System.nanoTime();
+						log.debug("[PERF][WB-CLIPBOARD] Antes de clipboard.getContents - dt=" + ((t1c-t0)/1_000_000) + "ms");
+
+						final long clipboardStartTime = System.currentTimeMillis();
+						final Transferable[] transHolder = new Transferable[1];
+						final Exception[] holderEx = new Exception[1];
+						final boolean[] done = {false};
+						final boolean[] warned = {false};
+
+						Thread monitorThread = new Thread(() -> {
+							while (!done[0]) {
+								long waited = System.currentTimeMillis() - clipboardStartTime;
+								if (!warnedSlow && waited > 5000) {
+									warnedSlow = true;
+									warned[0] = true;
+									log.info("[PERF][WB-CLIPBOARD] Portapapeles lento, esperando... (ya esperaban " + waited + "ms). Esto puede ocurrir con imagenes grandes en Linux.");
+									javax.swing.SwingUtilities.invokeLater(() -> {
+										updateTransferProgress(transferId, "Portapapeles lento... (esperando)", 0, 5);
+									});
+								}
+								if (waited > 30000) {
+									log.err("[PERF][WB-CLIPBOARD] Timeout esperando portapapeles despues de 30s");
+									javax.swing.SwingUtilities.invokeLater(() -> {
+										updateTransferProgress(transferId, "Timeout de portapapeles", 5, 5);
+									});
+									done[0] = true;
+									return;
+								}
+								try { Thread.sleep(500); } catch (InterruptedException ie) { break; }
+							}
+						}, "wb-clipboard-monitor");
+						monitorThread.setDaemon(true);
+						monitorThread.start();
+
+						Thread workerThread = new Thread(() -> {
+							try {
+								transHolder[0] = clipboard.getContents(null);
+							} catch (Exception e) {
+								holderEx[0] = e;
+							} finally {
+								done[0] = true;
+							}
+						}, "wb-clipboard-worker");
+						workerThread.setDaemon(true);
+						workerThread.start();
+
+						while (!done[0]) {
+							try { Thread.sleep(100); } catch (InterruptedException ie) { break; }
+						}
+						if (holderEx[0] != null) {
+							log.err("[PERF][WB-CLIPBOARD] Error accediendo portapapeles: " + holderEx[0].getMessage());
+							javax.swing.SwingUtilities.invokeLater(() -> {
+								updateTransferProgress(transferId, "Error de portapapeles", 5, 5);
+							});
+							return;
+						}
+
+						long t2 = System.nanoTime();
+						log.debug("[PERF][WB-CLIPBOARD] clipboard.getContents - dt=" + ((t2-t1c)/1_000_000) + "ms, total=" + ((t2-t0)/1_000_000) + "ms" + (warned[0] ? " [WARNED]" : ""));
+						Transferable trans = transHolder[0];
+						boolean hasImage = trans != null && trans.isDataFlavorSupported(DataFlavor.imageFlavor);
+						log.debug("[PERF][WB-CLIPBOARD] isDataFlavorSupported check - dt=" + ((t2-t1)/1_000_000) + "ms, hasImage=" + hasImage);
+						if (hasImage) {
+							long t2a = System.nanoTime();
+							log.debug("[PERF][WB-CLIPBOARD] Antes de getTransferData - dt=" + ((t2a-t0)/1_000_000) + "ms");
+							Image img = (Image) trans.getTransferData(DataFlavor.imageFlavor);
+							long t3 = System.nanoTime();
+							log.debug("[PERF][WB-CLIPBOARD] getTransferData - dt=" + ((t3-t2a)/1_000_000) + "ms, total=" + ((t3-t0)/1_000_000) + "ms, size=" + (img!=null?img.getWidth(null)+"x"+img.getHeight(null):"null"));
+							javax.swing.SwingUtilities.invokeLater(() -> {
+								updateTransferProgress(transferId, "Imagen lista, insertando...", 2, 5);
+							});
+							addImage(img, x, y, true, transferId);
+							long t4 = System.nanoTime();
+							log.debug("[PERF][WB-CLIPBOARD] addImage llamado - dt=" + ((t4-t0)/1_000_000) + "ms");
+						} else {
+							javax.swing.SwingUtilities.invokeLater(() -> {
+								updateTransferProgress(transferId, "No hay imagen en portapapeles", 5, 5);
+							});
+						}
+					} catch (Exception e) {
+						log.err("No se pudo pegar imagen: " + e.getMessage());
+						javax.swing.SwingUtilities.invokeLater(() -> {
+							updateTransferProgress(transferId, "Error leyendo portapapeles", 5, 5);
+						});
+					}
 				}
-			} catch (Exception e) {
-				log.err("No se pudo pegar imagen: " + e.getMessage());
-				updateTransferProgress(transferId, "Error leyendo portapapeles", 5, 5);
-			}
+			}, "clipboard-paste");
+			t.setDaemon(true);
+			t.start();
 		}
 
 		void clear() {
 			operations.clear();
 			selectedIndex = -1;
 			repaint();
+			broadcastWhiteboardAction("clear", null, null);
 		}
 
 		void deleteSelected() {
 			if (selectedIndex >= 0 && selectedIndex < operations.size()) {
+				String id = elementId(operations.get(selectedIndex));
 				operations.remove(selectedIndex);
 				selectedIndex = -1;
 				repaint();
-				broadcastWhiteboard();
+				broadcastWhiteboardAction("delete", id, null);
 			}
 		}
 
 		String serialize() {
-			return String.join("\n", operations);
+			StringBuilder state = new StringBuilder(STATE_PREFIX);
+			for (String entry : operations) {
+				state.append('\n')
+						.append(elementId(entry))
+						.append('|')
+						.append(Base64.getEncoder().encodeToString(elementOp(entry).getBytes(StandardCharsets.UTF_8)));
+			}
+			return state.toString();
 		}
 
 		BufferedImage toImage() {
@@ -3526,10 +5606,12 @@ public class Controller {
 			Graphics2D g2 = img.createGraphics();
 			g2.setColor(Color.WHITE);
 			g2.fillRect(0, 0, img.getWidth(), img.getHeight());
-			for (String op : operations) {
+			for (String entry : operations) {
+				String op = elementOp(entry);
 				if (!op.startsWith("T|")) drawOperation(g2, op);
 			}
-			for (String op : operations) {
+			for (String entry : operations) {
+				String op = elementOp(entry);
 				if (op.startsWith("T|")) drawOperation(g2, op);
 			}
 			g2.dispose();
@@ -3539,7 +5621,30 @@ public class Controller {
 		void applyState(String state) {
 			operations.clear();
 			if (state != null && !state.isEmpty()) {
-				operations.addAll(Arrays.asList(state.split("\n")));
+				if (state.startsWith(STATE_PREFIX + "\n") || state.equals(STATE_PREFIX)) {
+					String[] lines = state.split("\n");
+					for (int i = 1; i < lines.length; i++) {
+						String[] parts = lines[i].split("\\|", 2);
+						if (parts.length == 2) {
+							String op = new String(Base64.getDecoder().decode(parts[1]), StandardCharsets.UTF_8);
+							if (op.startsWith("I|") && op.indexOf('|', 2) >= 0) {
+								String[] opParts = op.split("\\|", 3);
+								if (opParts.length >= 3 && !opParts[2].isEmpty()) {
+									cachedImageData.put(parts[0], opParts[2]);
+								}
+							}
+							if (op.startsWith("I|") && op.indexOf('|', 2) < 0) {
+								String cached = cachedImageData.get(parts[0]);
+								if (cached != null) op = op + "|" + cached;
+							}
+							operations.add(elementEntry(parts[0], op));
+						}
+					}
+				} else {
+					for (String op : Arrays.asList(state.split("\n"))) {
+						operations.add(elementEntry(UUIDUtils.generate(), op));
+					}
+				}
 			}
 			repaint();
 		}
@@ -3549,24 +5654,34 @@ public class Controller {
 			super.paintComponent(g);
 			Graphics2D g2 = (Graphics2D) g;
 			g2.setColor(Color.BLACK);
-			List<String> all = new ArrayList<>(operations);
+			List<String> all = new ArrayList<>();
+			List<String> allIds = new ArrayList<>();
+			for (String entry : operations) {
+				all.add(elementOp(entry));
+				allIds.add(elementId(entry));
+			}
 			all.addAll(currentStroke);
-			if (previewShape != null) all.add(previewShape);
+			allIds.addAll(java.util.Collections.nCopies(currentStroke.size(), (String) null));
+			if (previewShape != null) { all.add(previewShape); allIds.add(null); }
 			for (int i = 0; i < all.size(); i++) {
 				String op = all.get(i);
-				if (!op.startsWith("T|")) drawOperation(g2, op);
+				if (!op.startsWith("T|")) drawOperation(g2, op, allIds.get(i));
 			}
 			for (int i = 0; i < all.size(); i++) {
 				String op = all.get(i);
-				if (op.startsWith("T|")) drawOperation(g2, op);
+				if (op.startsWith("T|")) drawOperation(g2, op, allIds.get(i));
 			}
 			if (selectedIndex >= 0 && selectedIndex < operations.size()) {
-				Rectangle r = boundsOf(operations.get(selectedIndex));
+				Rectangle r = boundsOf(elementOp(operations.get(selectedIndex)));
 				if (r != null) drawHandles(g2, r);
 			}
 		}
 
 		private void drawOperation(Graphics2D g2, String op) {
+			drawOperation(g2, op, null);
+		}
+
+		private void drawOperation(Graphics2D g2, String op, String elementId) {
 				try {
 					if (op.startsWith("L|")) {
 						String[] parts = op.split("\\|");
@@ -3595,17 +5710,14 @@ public class Controller {
 						}
 						g2.setStroke(new BasicStroke(1));
 					} else if (op.startsWith("T|")) {
-						String[] p = op.split("\\|", 5);
-						String[] xy = p[1].split(",");
-						int x = Integer.parseInt(xy[0]);
-						int y = Integer.parseInt(xy[1]);
-						int w = Integer.parseInt(xy[2]);
-						int h = Integer.parseInt(xy[3]);
-						int size = Integer.parseInt(p[2]);
-						String text = new String(Base64.getDecoder().decode(p[4]), StandardCharsets.UTF_8);
+						String[] parts = op.split("\\|", 5);
+						int size = Integer.parseInt(parts[2]);
+						String[] bounds = parts[1].split(",");
+						int x = Integer.parseInt(bounds[0]), y = Integer.parseInt(bounds[1]), w = Integer.parseInt(bounds[2]), h = Integer.parseInt(bounds[3]);
+						String text = new String(Base64.getDecoder().decode(parts[4]), StandardCharsets.UTF_8);
 						JTextArea renderer = new JTextArea(text);
 						renderer.setOpaque(false);
-						renderer.setForeground(Color.decode(p[3]));
+						renderer.setForeground(Color.decode(parts[3]));
 						renderer.setFont(g2.getFont().deriveFont((float) size));
 						renderer.setLineWrap(true);
 						renderer.setWrapStyleWord(true);
@@ -3616,7 +5728,10 @@ public class Controller {
 					} else if (op.startsWith("I|")) {
 						String[] p = op.split("\\|", 3);
 						String[] xy = p[1].split(",");
-						BufferedImage img = ImageIO.read(new ByteArrayInputStream(Base64.getDecoder().decode(p[2])));
+						String imgData = p.length >= 3 && !p[2].isEmpty() ? p[2] : null;
+						if (imgData == null && elementId != null) imgData = cachedImageData.get(elementId);
+						if (imgData == null) return;
+						BufferedImage img = ImageIO.read(new ByteArrayInputStream(Base64.getDecoder().decode(imgData)));
 						g2.drawImage(img, Integer.parseInt(xy[0]), Integer.parseInt(xy[1]), Integer.parseInt(xy[2]), Integer.parseInt(xy[3]), null);
 					} else if (op.startsWith("S|")) {
 						String[] p = op.split("\\|");
@@ -3634,7 +5749,8 @@ public class Controller {
 						else g2.drawRect(x, y, w, h);
 						g2.setStroke(new BasicStroke(1));
 					}
-				} catch (Exception ignored) {
+				} catch (Exception e) {
+					log.debug("No se pudo dibujar operacion de pizarra: " + e.getMessage());
 				}
 		}
 
@@ -3710,7 +5826,7 @@ public class Controller {
 
 		private int findElementAt(int x, int y) {
 			for (int i = operations.size() - 1; i >= 0; i--) {
-				Rectangle r = boundsOf(operations.get(i));
+				Rectangle r = boundsOf(elementOp(operations.get(i)));
 				if (r != null && r.contains(x, y)) return i;
 			}
 			return -1;
@@ -3727,12 +5843,14 @@ public class Controller {
 					String[] xy = p[2].split(",");
 					return new Rectangle(Integer.parseInt(xy[0]), Integer.parseInt(xy[1]), Integer.parseInt(xy[2]), Integer.parseInt(xy[3]));
 				}
-			} catch (Exception ignored) {}
+			} catch (RuntimeException e) {
+				log.debug("No se pudo editar texto de pizarra: " + e.getMessage());
+			}
 			return null;
 		}
 
 		private void moveOrResizeSelected(int x, int y) {
-			String op = operations.get(selectedIndex);
+			String op = elementOp(operations.get(selectedIndex));
 			String[] parts = op.split("\\|");
 			int coordIdx = op.startsWith("S|") ? 2 : 1;
 			String[] xy = parts[coordIdx].split(",");
@@ -3748,31 +5866,40 @@ public class Controller {
 				oy = y - dragOffset.y;
 			}
 			String coords = ox + "," + oy + "," + w + "," + h;
-			if (op.startsWith("S|")) operations.set(selectedIndex, parts[0] + "|" + parts[1] + "|" + coords + "|" + parts[3] + (parts.length > 4 ? "|" + parts[4] : ""));
-			else if (op.startsWith("I|")) operations.set(selectedIndex, parts[0] + "|" + coords + "|" + parts[2]);
-			else if (op.startsWith("P|")) operations.set(selectedIndex, parts[0] + "|" + coords + "|" + parts[2] + "|" + parts[3] + "|" + parts[4]);
-			else if (op.startsWith("T|")) operations.set(selectedIndex, parts[0] + "|" + coords + "|" + parts[2] + "|" + parts[3] + "|" + parts[4]);
+			String nextOp = op;
+			String id = elementId(operations.get(selectedIndex));
+			if (op.startsWith("I|")) {
+				String imgData = parts.length >= 3 ? parts[2] : cachedImageData.get(id);
+				if (imgData != null) {
+					nextOp = parts[0] + "|" + coords + "|" + imgData;
+					cachedImageData.put(id, imgData);
+				} else {
+					nextOp = parts[0] + "|" + coords;
+				}
+			} else if (op.startsWith("S|")) nextOp = parts[0] + "|" + parts[1] + "|" + coords + "|" + parts[3] + (parts.length > 4 ? "|" + parts[4] : "");
+			else if (op.startsWith("P|")) nextOp = parts[0] + "|" + coords + "|" + parts[2] + "|" + parts[3] + "|" + parts[4];
+			else if (op.startsWith("T|")) nextOp = parts[0] + "|" + coords + "|" + parts[2] + "|" + parts[3] + "|" + parts[4];
+			operations.set(selectedIndex, elementEntry(id, nextOp));
 		}
 
 		void changeSelectedSizeOrStroke(int delta) {
-			if (selectedIndex >= 0 && operations.get(selectedIndex).startsWith("T|")) {
-				String[] p = operations.get(selectedIndex).split("\\|", 5);
+			if (selectedIndex >= 0 && elementOp(operations.get(selectedIndex)).startsWith("T|")) {
+				String[] p = elementOp(operations.get(selectedIndex)).split("\\|", 5);
 				int size = Math.max(8, Math.min(72, Integer.parseInt(p[2]) + delta));
 				fontSize = size;
-				operations.set(selectedIndex, p[0] + "|" + p[1] + "|" + size + "|" + p[3] + "|" + p[4]);
+				updateSelectedElement(p[0] + "|" + p[1] + "|" + size + "|" + p[3] + "|" + p[4]);
 				repaint();
-				broadcastWhiteboard();
-			} else if (selectedIndex >= 0 && (operations.get(selectedIndex).startsWith("S|") || operations.get(selectedIndex).startsWith("P|"))) {
-				String[] p = operations.get(selectedIndex).split("\\|");
+			} else if (selectedIndex >= 0 && (elementOp(operations.get(selectedIndex)).startsWith("S|") || elementOp(operations.get(selectedIndex)).startsWith("P|"))) {
+				String op = elementOp(operations.get(selectedIndex));
+				String[] p = op.split("\\|");
 				int width = Math.max(1, Math.min(20, (p.length > 4 ? Integer.parseInt(p[4]) : 1) + delta));
 				strokeWidth = width;
-				if (operations.get(selectedIndex).startsWith("S|")) {
-					operations.set(selectedIndex, p[0] + "|" + p[1] + "|" + p[2] + "|" + p[3] + "|" + width);
+				if (op.startsWith("S|")) {
+					updateSelectedElement(p[0] + "|" + p[1] + "|" + p[2] + "|" + p[3] + "|" + width);
 				} else {
-					operations.set(selectedIndex, p[0] + "|" + p[1] + "|" + p[2] + "|" + width + "|" + p[4]);
+					updateSelectedElement(p[0] + "|" + p[1] + "|" + p[2] + "|" + width + "|" + p[4]);
 				}
 				repaint();
-				broadcastWhiteboard();
 			} else {
 				strokeWidth = Math.max(1, Math.min(20, strokeWidth + delta));
 			}
@@ -3780,19 +5907,18 @@ public class Controller {
 
 		private void applyColorToSelected(Color color) {
 			if (selectedIndex < 0) return;
-			String op = operations.get(selectedIndex);
+			String op = elementOp(operations.get(selectedIndex));
 			String hex = colorToHex(color);
 			String[] p = op.split("\\|", 5);
-			if (op.startsWith("T|") && p.length == 5) operations.set(selectedIndex, p[0] + "|" + p[1] + "|" + p[2] + "|" + hex + "|" + p[4]);
-			else if (op.startsWith("S|") && p.length >= 4) operations.set(selectedIndex, p[0] + "|" + p[1] + "|" + p[2] + "|" + hex + (p.length > 4 ? "|" + p[4] : "|" + strokeWidth));
-			else if (op.startsWith("P|") && p.length == 5) operations.set(selectedIndex, p[0] + "|" + p[1] + "|" + hex + "|" + p[3] + "|" + p[4]);
+			if (op.startsWith("T|") && p.length == 5) updateSelectedElement(p[0] + "|" + p[1] + "|" + p[2] + "|" + hex + "|" + p[4]);
+			else if (op.startsWith("S|") && p.length >= 4) updateSelectedElement(p[0] + "|" + p[1] + "|" + p[2] + "|" + hex + (p.length > 4 ? "|" + p[4] : "|" + strokeWidth));
+			else if (op.startsWith("P|") && p.length == 5) updateSelectedElement(p[0] + "|" + p[1] + "|" + hex + "|" + p[3] + "|" + p[4]);
 			repaint();
-			broadcastWhiteboard();
 		}
 
 		private void loadSelectedStyle() {
 			if (selectedIndex < 0) return;
-			String op = operations.get(selectedIndex);
+			String op = elementOp(operations.get(selectedIndex));
 			try {
 				if (op.startsWith("T|")) {
 					String[] p = op.split("\\|", 5);
@@ -3812,7 +5938,9 @@ public class Controller {
 		}
 
 		private void editSelectedText() {
-			String op = operations.get(selectedIndex);
+			String entry = operations.get(selectedIndex);
+			String id = elementId(entry);
+			String op = elementOp(entry);
 			try {
 				String[] p = op.split("\\|", 5);
 				String[] xy = p[1].split(",");
@@ -3820,11 +5948,14 @@ public class Controller {
 				drawColor = Color.decode(p[3]);
 				String text = new String(Base64.getDecoder().decode(p[4]), StandardCharsets.UTF_8);
 				operations.remove(selectedIndex);
+				broadcastWhiteboardAction("delete", id, null);
 				selectedIndex = -1;
 				startTextEditor(Integer.parseInt(xy[0]), Integer.parseInt(xy[1]));
 				activeTextEditor.setBounds(Integer.parseInt(xy[0]), Integer.parseInt(xy[1]), Integer.parseInt(xy[2]), Integer.parseInt(xy[3]));
 				activeTextEditor.setText(text);
-			} catch (Exception ignored) {}
+			} catch (RuntimeException e) {
+				log.debug("No se pudo editar texto de pizarra: " + e.getMessage());
+			}
 		}
 	}
 
@@ -3832,20 +5963,22 @@ public class Controller {
 		if (qFile == null || qFile.getOwner() == null) return;
 		log.info("Solicitando descargar el archivo '" + qFile.getName() + "'");
 		qFile.setOperation(QFile.OPERATION_DOWNLOAD);
-		qFile.setTransferId(UUIDUtils.generate());
-		updateTransferProgress(qFile.getTransferId(), "Solicitando " + qFile.getName(), 0, 1);
-		if (requestFileDirect(qFile)) {
+		if (qFile.getTransferId() == null || qFile.getTransferId().isBlank()) {
+			qFile.setTransferId(UUIDUtils.generate());
+		}
+		registerActiveTransfer(qFile);
+		updateTransferProgress(qFile.getTransferId(), I18n.get("transfer.requesting") + " " + qFile.getName(), 0, 1);
+		if (requestCoreChunkDownload(qFile)) {
 			return;
 		}
-		String targetId = qFile.getOwner().getId();
-		Event event = new Event("__to:" + targetId + ":Quiero descargar el archivo", user, qFile);
-		sendEvent(event);
+		finishTransferWithError(qFile.getTransferId(), I18n.get("transfer.error") + " " + qFile.getName());
+		requestLegacyFileDownload(qFile);
 	}
 
 	public void openFile(User user2, QFile qFile) {
 		if (qFile == null) return;
 		if (qFile.getOwner() != null && qFile.getOwner().equals(this.user)) {
-			String baseDir = view.getjTextField4().getText();
+			String baseDir = getSessionFilesDir().getAbsolutePath();
 			String filePath = qFile.getRelativePath() != null && !qFile.getRelativePath().isEmpty()
 					? qFile.getRelativePath() : qFile.getName();
 			try {
@@ -3858,53 +5991,21 @@ public class Controller {
 		log.info("Solicitando abrir el archivo '" + qFile.getName() + "'");
 		qFile.setOperation(QFile.OPERATION_OPEN);
 		qFile.setTransferId(UUIDUtils.generate());
-		updateTransferProgress(qFile.getTransferId(), "Solicitando " + qFile.getName(), 0, 1);
-		if (requestFileDirect(qFile)) {
+		registerActiveTransfer(qFile);
+		updateTransferProgress(qFile.getTransferId(), I18n.get("transfer.requesting") + " " + qFile.getName(), 0, 1);
+		if (requestCoreChunkDownload(qFile)) {
 			return;
 		}
-		String targetId = qFile.getOwner().getId();
-		Event event = new Event("__to:" + targetId + ":Quiero descargar el archivo", user, qFile);
-		sendEvent(event);
+		finishTransferWithError(qFile.getTransferId(), I18n.get("transfer.error") + " " + qFile.getName());
+		requestLegacyFileDownload(qFile);
 	}
 
-	private boolean requestFileDirect(QFile qFile) {
-		User owner = qFile.getOwner();
-		if (owner == null || owner.getPeerUrl() == null || owner.getPeerUrl().isBlank()
-				|| owner.equals(user) || wk == null) {
-			return false;
-		}
+	private void requestLegacyFileDownload(QFile qFile) {
+		log.err("Archivo no disponible por chunks P2P: " + (qFile != null ? qFile.getName() : ""));
+	}
 
-		new Thread(() -> {
-			try {
-				String uri = "ws://" + owner.getPeerUrl() + "/ws?wkId="
-						+ java.net.URLEncoder.encode(wk.getId(), "UTF-8")
-						+ "&userId=" + java.net.URLEncoder.encode(user.getId(), "UTF-8")
-						+ "&direct=true";
-				WsClient directClient = new WsClient(new URI(uri), log, event -> {
-					if ("Parte de archivo".equals(event.getName())) {
-						receiveFilePart(event.getFile());
-					} else if ("Error al transferir archivo".equals(event.getName())) {
-						log.err(event.getResponse());
-					}
-				}, error -> log.err("Error en conexion directa: " + error), null);
-
-				if (!directClient.connectBlocking()) {
-					log.err("No se pudo conectar directo con '" + owner.getName() + "'. Uso el canal del hub.");
-					String targetId = owner.getId();
-					wsClient.sendEvent(new Event("__to:" + targetId + ":Quiero descargar el archivo", user, qFile));
-					return;
-				}
-
-				directClient.sendEvent(new Event("Quiero descargar el archivo", user, qFile));
-			} catch (Exception e) {
-				log.err("No se pudo iniciar descarga directa: " + e.getMessage());
-				String targetId = owner.getId();
-				if (wsClient != null) {
-					wsClient.sendEvent(new Event("__to:" + targetId + ":Quiero descargar el archivo", user, qFile));
-				}
-			}
-		}, "direct-download").start();
-		return true;
+	private boolean requestCoreChunkDownload(QFile qFile) {
+		return coreChunkTransfer != null && coreChunkTransfer.request(qFile);
 	}
 
 	public Component getView() {
@@ -3916,36 +6017,71 @@ public class Controller {
 		try {
 			String filename = qFile.getRelativePath() != null && !qFile.getRelativePath().isEmpty()
 					? qFile.getRelativePath() : qFile.getName();
-			String filepath = view.getjTextField4().getText();
+			String filepath = getSessionFilesDir().getAbsolutePath();
 			String fullname = filepath + File.separator + filename;
 			FileUtils.remove(Paths.get(fullname));
-			Event event = new Event("Se borro un archivo");
-			event.setUser(user2);
-			event.setFile(qFile);
-			refreshLocalFilesAndNotify(event);
+			indexedCoreFiles.remove(filename);
+
+			String hash = qFile.getMd5();
+			if (hash != null && !hash.isBlank()) {
+				if (hash.startsWith("core:")) {
+					String fileId = hash.substring(5);
+					fileRegistry.entrySet().removeIf(entry -> fileId.equals(entry.getValue().fileId()));
+				} else {
+					fileRegistry.remove(hash);
+				}
+				filePeers.remove(hash);
+			}
+
+			saveIndexedCoreFilesCache();
+			refreshLocalFilesAndNotify("Notifico Cambio en los archivos");
 		} catch (Exception e) {
-			log.err("Error al intentar borrar el archivo: " + qFile.getName());
+			log.err("Error al intentar borrar el archivo: " + qFile.getName() + ": " + e.getMessage());
 		}
 	}
 
 	public void refreshFiles(User user2) {
-		refreshLocalFilesAndNotify("Notifico Cambio en los archivos");
+		if (user2 == null || user2.equals(user)) {
+			refreshLocalFilesAndNotify("Notifico Cambio en los archivos");
+		} else {
+			refreshArchivosTable();
+			refreshTables();
+		}
 	}
 
 	public String getNavigationPath(String userId) {
 		return navigationPaths.getOrDefault(userId, "");
 	}
 
-	public void navigateTo(String userId, String relativePath) {
-		selectedArchivosUserId = userId;
-		if (archivosFilterBtn != null) {
-			archivosFilterBtn.setText(getArchivosFilterLabel() + " ▼");
+	private String fileNavigationPayload(String requestId, String path) {
+		String safePath = path == null ? "" : path;
+		String encodedPath = Base64.getEncoder().encodeToString(safePath.getBytes(StandardCharsets.UTF_8));
+		return "QFILES1\n" + (requestId == null ? "" : requestId) + "\n" + encodedPath;
+	}
+
+	private FileNavigationPayload parseFileNavigationPayload(String payload) {
+		if (payload != null && payload.startsWith("QFILES1\n")) {
+			String[] parts = payload.split("\n", 3);
+			if (parts.length == 3) {
+				String path = new String(Base64.getDecoder().decode(parts[2]), StandardCharsets.UTF_8);
+				return new FileNavigationPayload(parts[1].isEmpty() ? null : parts[1], path);
+			}
 		}
+		return new FileNavigationPayload(null, payload == null ? "" : payload);
+	}
+
+	private String nextFileNavigationRequest(String userId) {
+		String requestId = UUIDUtils.generate();
+		fileNavigationRequestIds.put(userId, requestId);
+		return requestId;
+	}
+
+	public void navigateTo(String userId, String relativePath) {
 		navigationPaths.put(userId, relativePath);
 		if (userId.equals(this.user.getId())) {
 			refreshLocalFilesAndNotify("Notifico Cambio en los archivos");
-		} else if (wsClient != null) {
-			wsClient.sendEvent(new Event("__to:" + userId + ":Solicitar archivos de directorio", user, relativePath));
+		} else {
+			log.debug("Navegacion remota legacy deshabilitada; usando metadata core de archivos.");
 		}
 	}
 
@@ -3956,8 +6092,18 @@ public class Controller {
 		navigationPaths.put(userId, newPath);
 		if (userId.equals(this.user.getId())) {
 			refreshLocalFilesAndNotify("Notifico Cambio en los archivos");
-		} else if (wsClient != null) {
-			wsClient.sendEvent(new Event("__to:" + userId + ":Solicitar archivos de directorio", user, newPath));
+		} else {
+			log.debug("Navegacion remota legacy deshabilitada; usando metadata core de archivos.");
+		}
+	}
+
+	private static class FileNavigationPayload {
+		final String requestId;
+		final String path;
+
+		FileNavigationPayload(String requestId, String path) {
+			this.requestId = requestId;
+			this.path = path == null ? "" : path;
 		}
 	}
 
@@ -4017,11 +6163,7 @@ public class Controller {
 	}
 
 	public void shutdown() {
-		if (wsServer != null && wk != null && user != null) {
-			try {
-				wsServer.getHubService().sendToWk(wk.getId(), new Event("Usuario desconectado", user));
-			} catch (Exception ignored) {}
-		}
+		if (p2pMesh != null) p2pMesh.disconnectAll();
 		try { Thread.sleep(350); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
 		if (cloudflareTunnel != null) {
 			cloudflareTunnel.stop();
@@ -4030,8 +6172,13 @@ public class Controller {
 			wsServer.shutdown();
 		}
 		if (wsClient != null) {
-			try { wsClient.close(); } catch (Exception | NoClassDefFoundError ignored) {}
+			try {
+				wsClient.close();
+			} catch (Exception | NoClassDefFoundError e) {
+				log.debug("No se pudo cerrar wsClient: " + e.getMessage());
+			}
 			wsClient = null;
 		}
+		outboundEventQueue.shutdownNow();
 	}
 }

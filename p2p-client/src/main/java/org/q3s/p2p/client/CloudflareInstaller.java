@@ -8,6 +8,8 @@ import java.net.URLConnection;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import org.q3s.p2p.client.util.Logger;
 
@@ -18,8 +20,17 @@ public class CloudflareInstaller {
 	private static final String MAC_URL = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz";
 
 	private static boolean installed = false;
+	private static final CountDownLatch installLatch = new CountDownLatch(1);
 
 	public static void ensureInstalled(Logger log) {
+		try {
+			ensureInstalledInternal(log);
+		} finally {
+			installLatch.countDown();
+		}
+	}
+
+	private static void ensureInstalledInternal(Logger log) {
 		if (Config.isTunnelMockEnabled()) {
 			log.info("Modo tunnel mock activo. No se instala cloudflared.");
 			return;
@@ -104,6 +115,15 @@ public class CloudflareInstaller {
 			return true;
 		}
 		return false;
+	}
+
+	public static boolean awaitInstallation(long timeoutSeconds) {
+		try {
+			return installLatch.await(timeoutSeconds, TimeUnit.SECONDS);
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			return false;
+		}
 	}
 
 	private static String getInstallDir() {

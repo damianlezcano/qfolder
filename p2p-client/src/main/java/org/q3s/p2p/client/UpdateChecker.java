@@ -1,6 +1,6 @@
 package org.q3s.p2p.client;
 
-import java.io.File;
+import java.awt.Desktop;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.URI;
@@ -12,6 +12,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -21,8 +23,9 @@ import org.q3s.p2p.client.util.Logger;
 
 public class UpdateChecker {
 
-	private static final String VERSION = "1.0.6";
+	private static final String VERSION = "1.0.7";
 	private static final String GITHUB_API = "https://api.github.com/repos/damianlezcano/qfolder/releases/latest";
+	private static final String RELEASES_URL = "https://github.com/damianlezcano/qfolder/releases/latest";
 	private static final Pattern TAG_PATTERN = Pattern.compile("\"tag_name\"\\s*:\\s*\"([^\"]+)\"");
 	private static final Pattern URL_PATTERN = Pattern.compile("\"browser_download_url\"\\s*:\\s*\"([^\"]+)\"");
 
@@ -48,16 +51,33 @@ public class UpdateChecker {
 				Matcher tagMatcher = TAG_PATTERN.matcher(body);
 				if (!tagMatcher.find()) return;
 				String latestTag = tagMatcher.group(1).replace("v", "").trim();
-				if (isNewer(VERSION, latestTag)) {
-					Matcher urlMatcher = URL_PATTERN.matcher(body);
-					if (!urlMatcher.find()) return;
-					String downloadUrl = urlMatcher.group(1);
-					javax.swing.SwingUtilities.invokeLater(() -> showUpdateDialog(parent, log, latestTag, downloadUrl));
-				}
+				if (!isNewer(VERSION, latestTag)) return;
+
+				List<String> urls = collectAssetUrls(body);
+				boolean hasJar = urls.stream().anyMatch(u -> u.endsWith("qfolder.jar"));
+				boolean hasPackage = urls.stream().anyMatch(u -> u.contains("-x64."));
+
+				if (!hasJar && !hasPackage) return;
+
+				javax.swing.SwingUtilities.invokeLater(() -> {
+					if (hasPackage) {
+						showMajorUpdateDialog(parent, log, latestTag);
+					} else {
+						String jarUrl = urls.stream().filter(u -> u.endsWith("qfolder.jar")).findFirst().orElse(null);
+						if (jarUrl != null) showUpdateDialog(parent, log, latestTag, jarUrl);
+					}
+				});
 			} catch (Exception e) {
 				log.debug("Update check skipped: " + e.getMessage());
 			}
 		}, "update-check").start();
+	}
+
+	private static List<String> collectAssetUrls(String json) {
+		List<String> urls = new ArrayList<>();
+		Matcher m = URL_PATTERN.matcher(json);
+		while (m.find()) urls.add(m.group(1));
+		return urls;
 	}
 
 	private static boolean isNewer(String current, String latest) {
@@ -81,6 +101,21 @@ public class UpdateChecker {
 			nums[i] = Integer.parseInt(parts[i].replaceAll("[^0-9]", ""));
 		}
 		return nums;
+	}
+
+	private static void showMajorUpdateDialog(java.awt.Component parent, Logger log, String newVersion) {
+		int opt = JOptionPane.showConfirmDialog(parent,
+				"Major update " + newVersion + " available (current: " + VERSION + ").\n"
+				+ "This update includes platform changes and requires downloading the full package.\n"
+				+ "Open the release page to download?",
+				"qfolder Major Update", JOptionPane.YES_NO_OPTION);
+		if (opt == JOptionPane.YES_OPTION) {
+			try {
+				Desktop.getDesktop().browse(URI.create(RELEASES_URL));
+			} catch (Exception e) {
+				log.err("Could not open browser: " + e.getMessage());
+			}
+		}
 	}
 
 	private static void showUpdateDialog(java.awt.Component parent, Logger log, String newVersion, String downloadUrl) {

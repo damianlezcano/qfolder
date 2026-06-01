@@ -18,6 +18,7 @@ public class Event {
     private Workspace wk;
     private String response;
     private QFile file;
+    private long sequence;
     
     public Event(){}
     
@@ -120,6 +121,14 @@ public class Event {
 
 	public void setFile(QFile file) {
 		this.file = file;
+	}
+
+	public long getSequence() {
+		return sequence;
+	}
+
+	public void setSequence(long sequence) {
+		this.sequence = sequence;
 	}
 
 }

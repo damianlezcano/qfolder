@@ -10,6 +10,8 @@ import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JTextField;
 
+import org.q3s.p2p.client.util.I18n;
+
 /**
  *
  * @author damianlezcano
@@ -21,6 +23,13 @@ public class View extends javax.swing.JFrame {
      */
     public View() {
         initComponents();
+        setIconImage(new javax.swing.ImageIcon(getClass().getResource("/group.png")).getImage());
+    }
+
+    @Override
+    public void pack() {
+        super.pack();
+        setSize((int)(getWidth() * 1.2), (int)(getHeight() * 1.2));
     }
 
     /**
@@ -103,7 +112,7 @@ public class View extends javax.swing.JFrame {
         jLabel4.setEnabled(false);
 
         jButton6.setIcon(new javax.swing.ImageIcon(getClass().getResource("/proxy.png"))); // NOI18N
-        jButton6.setToolTipText("Configurar Proxy");
+        jButton6.setToolTipText(I18n.get("tooltip.configureProxy"));
         jButton6.addActionListener(new java.awt.event.ActionListener() {
             public void actionPerformed(java.awt.event.ActionEvent evt) {
                 jButton6ActionPerformed(evt);
@@ -362,13 +371,13 @@ public class View extends javax.swing.JFrame {
         });
         jScrollPane2.setViewportView(jList2);
 
-        jTabbedPane.addTab("Log", new javax.swing.ImageIcon(getClass().getResource("/tab-log.png")), jScrollPane2, "Registros de eventos"); // NOI18N
+        jTabbedPane.addTab(I18n.get("tab.log"), new javax.swing.ImageIcon(getClass().getResource("/tab-log.png")), jScrollPane2, I18n.get("log.tabTooltip")); // NOI18N
 
         jLabel2.setText(" Nombre Usuario");
 
         jTextField3.setText("Sin nombre");
 
-        jLabel3.setText(" Directorio a compartir");
+        jLabel3.setText(" Raíz local de qfolder");
 
         jTextField4.setText(".");
         jTextField4.setOpaque(true);
@@ -436,7 +445,7 @@ public class View extends javax.swing.JFrame {
                 .addGap(24, 24, 24))
         );
 
-        jTabbedPane.addTab("Configuración", new javax.swing.ImageIcon(getClass().getResource("/tab-settings.png")), jPanel3, ""); // NOI18N
+        jTabbedPane.addTab(I18n.get("tab.config"), new javax.swing.ImageIcon(getClass().getResource("/tab-settings.png")), jPanel3, ""); // NOI18N
 
         jLayeredPane.setLayer(jPanelJoin, javax.swing.JLayeredPane.DEFAULT_LAYER);
         jLayeredPane.setLayer(jPanelCreateWorkspace, javax.swing.JLayeredPane.DEFAULT_LAYER);
@@ -527,6 +536,31 @@ public class View extends javax.swing.JFrame {
         jPanelJoin.setVisible(true);
         jTabbedPane.setVisible(false);
         jPanelProxy.setVisible(false);
+    }
+
+    public void applyI18nTexts() {
+        jLabel2.setText(" " + I18n.get("config.user"));
+        jLabel3.setText(" " + I18n.get("config.folder"));
+        jLabel6.setText(I18n.get("config.reset"));
+        jLabel10.setText(I18n.get("workspace.id"));
+        jLabel4.setText(I18n.get("workspace.create"));
+        jLabel7.setText(" " + I18n.get("workspace.name"));
+        jLabel8.setText(I18n.get("login.enterPassword"));
+        jLabel9.setText(I18n.get("login.confirmPassword"));
+        jLabel12.setText(I18n.get("login.userName"));
+        jLabel13.setText(I18n.get("login.password"));
+        jLabel14.setText(" " + I18n.get("login.proxy"));
+        jLabel15.setText(" " + I18n.get("login.port"));
+        jButton2.setText(I18n.get("workspace.join"));
+        jButton4.setText(I18n.get("login.createButton"));
+        jButton5.setText(I18n.get("login.back"));
+        jButton7.setText(I18n.get("login.back"));
+        jButton8.setText(I18n.get("approve.accept"));
+        jCheckBox1.setText(I18n.get("login.usePassword"));
+        jCheckBox2.setText(I18n.get("login.usePassword"));
+        jCheckBox3.setText(I18n.get("login.configureProxy"));
+        jButton6.setToolTipText(I18n.get("login.configureProxy"));
+        jButton3.setToolTipText(I18n.get("config.folderChoose"));
     }
 
     public javax.swing.JButton getjButton2() {

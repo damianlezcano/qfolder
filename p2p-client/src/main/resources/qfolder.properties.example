@@ -8,3 +8,7 @@ qfolder.tunnel.mock.host=localhost
 # WebSocket server port. For multiple clients on the same machine,
 # run each distribution copy with a different qfolder.ws.port.
 qfolder.ws.port=18765
+
+# Local qfolder storage root. Sessions are created under this directory.
+# Default: ~/qfolder
+# qfolder.shared.dir=~/qfolder
