@@ -2,10 +2,8 @@ package org.q3s.p2p.client.hub;
 
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 import org.java_websocket.WebSocket;
 import org.java_websocket.handshake.ClientHandshake;
@@ -15,26 +13,26 @@ import org.q3s.p2p.model.util.EventUtils;
 
 public class EmbeddedWebSocketServer extends WebSocketServer {
 
-	private final WsHubService hubService;
-	private final ScheduledExecutorService scheduler;
 	private final Runnable onStarted;
  	private final BiConsumer<WebSocket, Event> directMessageHandler;
+	private final Consumer<String> onPeerDisconnected;
 
 	public EmbeddedWebSocketServer(int port, Runnable onStarted) {
-		this(port, onStarted, null);
+		this(port, onStarted, null, null);
 	}
 
 	public EmbeddedWebSocketServer(int port, Runnable onStarted, BiConsumer<WebSocket, Event> directMessageHandler) {
+		this(port, onStarted, directMessageHandler, null);
+	}
+
+	public EmbeddedWebSocketServer(int port, Runnable onStarted, BiConsumer<WebSocket, Event> directMessageHandler,
+			Consumer<String> onPeerDisconnected) {
 		super(new InetSocketAddress(port));
-		this.hubService = new WsHubService();
 		this.onStarted = onStarted;
 		this.directMessageHandler = directMessageHandler;
-		this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-			Thread t = new Thread(r, "ws-verify");
-			t.setDaemon(true);
-			return t;
-		});
+		this.onPeerDisconnected = onPeerDisconnected;
 		setReuseAddr(true);
+		setConnectionLostTimeout(25);
 	}
 
 	@Override
@@ -42,7 +40,6 @@ public class EmbeddedWebSocketServer extends WebSocketServer {
 		if (onStarted != null) {
 			onStarted.run();
 		}
-		scheduler.scheduleAtFixedRate(() -> hubService.verify(), 5, 5, TimeUnit.SECONDS);
 	}
 
 	@Override
@@ -57,9 +54,6 @@ public class EmbeddedWebSocketServer extends WebSocketServer {
 
 		if (wkId != null && userId != null) {
 			conn.setAttachment(new SessionInfo(wkId, userId, direct, failover));
-			if (!direct) {
-				hubService.connect(conn, wkId, userId, failover);
-			}
 		} else {
 			err("wkId or userId is null, closing connection");
 			conn.close();
@@ -69,8 +63,8 @@ public class EmbeddedWebSocketServer extends WebSocketServer {
 	@Override
 	public void onClose(WebSocket conn, int code, String reason, boolean remote) {
 		SessionInfo si = conn.getAttachment();
-		if (si != null && !si.direct) {
-			hubService.dispose(conn, si.wkId, si.userId);
+		if (si != null && si.direct && onPeerDisconnected != null && si.userId != null) {
+			onPeerDisconnected.accept(si.userId);
 		}
 	}
 
@@ -90,43 +84,11 @@ public class EmbeddedWebSocketServer extends WebSocketServer {
 			String name = event.getName();
 			debug("onMessage: " + name);
 
-			if (si.direct) {
-				if (directMessageHandler != null) {
-					directMessageHandler.accept(conn, event);
-				}
-				return;
-			}
-
-			if (name.startsWith("__hub:")) {
-				handleHubCommand(conn, si, name, event);
-			} else if (name.startsWith("__to:")) {
-				String rest = name.substring(5);
-				int colonIdx = rest.indexOf(':');
-				if (colonIdx > 0) {
-					String targetUserId = rest.substring(0, colonIdx);
-					String actualName = rest.substring(colonIdx + 1);
-					event.setName(actualName);
-					hubService.sendToUser(si.wkId, targetUserId, event);
-				}
-			} else {
-				hubService.sendToWk(si.wkId, event);
+			if (directMessageHandler != null) {
+				directMessageHandler.accept(conn, event);
 			}
 		} catch (Exception e) {
 			err("onMessage error: " + e.getMessage());
-		}
-	}
-
-	private void handleHubCommand(WebSocket conn, SessionInfo si, String name, Event event) {
-		if (name.equals("__hub:withoutAuth")) {
-			hubService.withoutAuth(si.wkId, event.getUser(), si.failover);
-		} else if (name.equals("__hub:withAuth")) {
-			hubService.withAuth(si.wkId, event.getUser());
-		} else if (name.startsWith("__hub:approved:")) {
-			String targetUserId = name.substring(15);
-			hubService.approved(si.wkId, targetUserId);
-		} else if (name.startsWith("__hub:refuse:")) {
-			String targetUserId = name.substring(13);
-			hubService.refuse(si.wkId, targetUserId);
 		}
 	}
 
@@ -138,12 +100,7 @@ public class EmbeddedWebSocketServer extends WebSocketServer {
 	public void onError(WebSocket conn, Exception ex) {
 	}
 
-	public WsHubService getHubService() {
-		return hubService;
-	}
-
 	public void shutdown() {
-		scheduler.shutdown();
 		try {
 			stop(1000);
 		} catch (InterruptedException e) {

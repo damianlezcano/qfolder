@@ -24,7 +24,11 @@ echo "JAVA_HOME=$JAVA_HOME"
 java -version 2>&1 | head -1
 
 cd "$CLIENT_DIR"
-mvn clean package -DskipTests -q
+if [ "${QFOLDER_RUN_TESTS:-false}" = "true" ]; then
+    mvn clean package -q
+else
+    mvn clean package -DskipTests -q
+fi
 
 mkdir -p "$DIST_DIR"
 cp "$CLIENT_DIR/target/p2p-client-1.0-SNAPSHOT-fat.jar" "$DIST_DIR/qfolder.jar"

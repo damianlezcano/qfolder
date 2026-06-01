@@ -8,17 +8,16 @@ import java.nio.file.Paths;
 
 public class Config {
 
-	public static String TEMP_PATH = "temp";
+	public static final String TEMP_PATH = "temp";
 
 	public static final int WS_SERVER_PORT = AppConfig.getInt("qfolder.ws.port", 18765);
 
 	public static final String USER_NAME = AppConfig.get("qfolder.user.name", System.getenv("USER"));
 
 	public static final String SHARED_DIR = resolveHome(AppConfig.get("qfolder.shared.dir",
-			"~/qfolder/temporal"));
+			"~/qfolder"));
 
-	public static final String HISTORY_DIR = resolveHome(AppConfig.get("qfolder.history.dir",
-			"~/qfolder/history"));
+	public static final boolean UI_VERBOSE_LOG = AppConfig.getBoolean("qfolder.ui.verbose", false);
 
 	private static String resolveHome(String path) {
 		if (path == null) return null;
@@ -33,7 +32,11 @@ public class Config {
 	}
 
 	public static String getTunnelMockHost() {
-		return AppConfig.get("qfolder.tunnel.mock.host", "localhost");
+		return AppConfig.get("qfolder.tunnel.mock.host", "0.0.0.0");
+	}
+
+	public static int getTunnelMockDelay() {
+		return AppConfig.getInt("qfolder.tunnel.mock.delay", 3000);
 	}
 
 	public static String getCloudflaredPath() {

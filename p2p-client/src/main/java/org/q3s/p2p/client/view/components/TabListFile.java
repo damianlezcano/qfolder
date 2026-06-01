@@ -10,13 +10,16 @@ import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
 
+import javax.swing.ImageIcon;
 import javax.swing.JMenuItem;
 import javax.swing.JPopupMenu;
 import javax.swing.JTable;
+import javax.swing.ListSelectionModel;
 import javax.swing.RowFilter;
 import javax.swing.table.TableModel;
 import javax.swing.table.TableRowSorter;
 
+import org.q3s.p2p.client.util.I18n;
 import org.q3s.p2p.client.view.Controller;
 import org.q3s.p2p.model.QFile;
 import org.q3s.p2p.model.User;
@@ -40,10 +43,11 @@ public class TabListFile extends javax.swing.JPanel {
         initComponents();
         jPanel1.setVisible(false);
         this.setTabType(tabType);
+        jTable1.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         back = jTable1.getBackground();
         JPopupMenu popupMenu = new JPopupMenu();
 
-        JMenuItem menuItemOpen = new JMenuItem("Abrir");
+        JMenuItem menuItemOpen = new JMenuItem(I18n.get("menu.open"));
         menuItemOpen.addActionListener(new java.awt.event.ActionListener() {
             public void actionPerformed(java.awt.event.ActionEvent evt) {
                 openMenuItemActionPerformed(evt);
@@ -51,7 +55,7 @@ public class TabListFile extends javax.swing.JPanel {
         });
         popupMenu.add(menuItemOpen);
 
-        JMenuItem menuItemDownload = new JMenuItem("Descargar");
+        JMenuItem menuItemDownload = new JMenuItem(I18n.get("menu.download"));
         menuItemDownload.addActionListener(new java.awt.event.ActionListener() {
             public void actionPerformed(java.awt.event.ActionEvent evt) {
                 downloadMenuItemActionPerformed(evt);
@@ -59,7 +63,7 @@ public class TabListFile extends javax.swing.JPanel {
         });
         popupMenu.add(menuItemDownload);
 
-        JMenuItem menuItemRemove = new JMenuItem("Eliminar");
+        JMenuItem menuItemRemove = new JMenuItem(I18n.get("menu.delete"));
         menuItemRemove.addActionListener(new java.awt.event.ActionListener() {
             public void actionPerformed(java.awt.event.ActionEvent evt) {
                 removeMenuItemActionPerformed(evt);
@@ -67,7 +71,7 @@ public class TabListFile extends javax.swing.JPanel {
         });
         popupMenu.add(menuItemRemove);
 
-        JMenuItem menuItemRefresh = new JMenuItem("Actualizar");
+        JMenuItem menuItemRefresh = new JMenuItem(I18n.get("menu.refresh"));
         menuItemRefresh.addActionListener(new java.awt.event.ActionListener() {
             public void actionPerformed(java.awt.event.ActionEvent evt) {
                 refreshMenuItemActionPerformed(evt);
@@ -192,7 +196,7 @@ public class TabListFile extends javax.swing.JPanel {
         jPanel1 = new javax.swing.JPanel();
         jTextField1 = new javax.swing.JTextField();
         jPanel2 = new javax.swing.JPanel();
-        backButton = new javax.swing.JButton("← Atrás");
+        backButton = new javax.swing.JButton("← " + I18n.get("files.back"));
         breadcrumbLabel = new javax.swing.JLabel("");
 
         backButton.setVisible(false);
@@ -205,6 +209,7 @@ public class TabListFile extends javax.swing.JPanel {
 
         jTable1.setAutoCreateRowSorter(true);
         jTable1.setBackground(new java.awt.Color(255, 255, 242));
+        jTable1.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         jTable1.addKeyListener(new java.awt.event.KeyAdapter() {
             public void keyReleased(java.awt.event.KeyEvent evt) {
                 jTable1KeyReleased(evt);
@@ -330,6 +335,23 @@ public class TabListFile extends javax.swing.JPanel {
 	public void updateBackButton(boolean hasNavigationPath) {
 		backButton.setVisible(hasNavigationPath);
 		breadcrumbLabel.setVisible(hasNavigationPath);
+	}
+
+	public void updateBackButtonText() {
+		backButton.setText("← " + I18n.get("files.back"));
+	}
+
+	public void updateMenuTexts() {
+		for (java.awt.Component c : jTable1.getComponentPopupMenu().getComponents()) {
+			if (c instanceof JMenuItem) {
+				JMenuItem mi = (JMenuItem) c;
+				String text = mi.getText();
+				if (text.equals("Abrir") || text.equals("Open")) mi.setText(I18n.get("menu.open"));
+				else if (text.equals("Descargar") || text.equals("Download")) mi.setText(I18n.get("menu.download"));
+				else if (text.equals("Eliminar") || text.equals("Delete")) mi.setText(I18n.get("menu.delete"));
+				else if (text.equals("Actualizar") || text.equals("Refresh")) mi.setText(I18n.get("menu.refresh"));
+			}
+		}
 	}
 
 	public void updateBreadcrumb(String path) {
