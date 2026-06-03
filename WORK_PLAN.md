@@ -1,75 +1,80 @@
 # Plan de Trabajo — qfolder
 
-Plan actualizado el 3 de junio de 2026. **Fase 11 completada. BUGS críticos (BUG-1..6) corregidos, FASE11-FIX-1/2 resueltos, DOC-1 actualizado.**
+Plan revisado el 3 de junio de 2026. **279 tests, 0 failures, BUILD SUCCESS.**
+
+BUG-1 a BUG-6 corregidos. FASE11-FIX-2 completado. FASE11-FIX-1 documentado como futuro. DOC-1 parcialmente aplicado. Se identificaron **gaps residuales** y **nuevos pendientes menores** durante la revisión.
 
 > **Nota para el LLM ejecutor:** Antes de cada cambio, leer el archivo completo (o la sección relevante) para confirmar que las líneas coinciden. Después de cada grupo de cambios, ejecutar `cd p2p-client && mvn test`. Ejecutar `./build.sh` al final.
 
 ## Resumen
 
-### Bugs en Fase 11 (código nuevo, requieren fix)
+### Bugs Fase 11 — todos corregidos, gaps residuales pendientes
 
-| ID | Tarea | Severidad | Estado |
+| ID | Tarea | Estado | Gap residual |
 |---|---|---|---|
-| BUG-1 | SyncEngine descarta eventos efímeros en P2P inbound (rompe mesh) | **Crítica** | ⏳ Pendiente |
-| BUG-2 | CRDT notes: character offset tratado como line index en UI | **Alta** | ⏳ Pendiente |
-| BUG-3 | EventValidator cache no es efectivo (new instance por cada llamada) | **Media** | ⏳ Pendiente |
-| BUG-4 | MeshProjector: cache estático global sin aislamiento por workspace | **Media** | ⏳ Pendiente |
-| BUG-5 | Snapshot delta boundary: eventos con mismo ms pueden perderse | **Media** | ⏳ Pendiente |
-| BUG-6 | CoreApplicationService.eventsSinceSnapshot no es volatile | **Baja** | ⏳ Pendiente |
+| BUG-1 | SyncEngine efímeros P2P | ✅ Corregido | `SimulatedNetworkAdapter` no tiene bypass efímero (solo afecta tests de simulación) |
+| BUG-2 | CRDT offset notas | ✅ Corregido | `deleteNoteText()` ignora `length` (solo borra línea completa); CRDT es line-based, no character-based |
+| BUG-3 | EventValidator cache | ✅ Corregido | Sin test de regresión dedicado para reuso de cache |
+| BUG-4 | MeshProjector isolation | ✅ Corregido | `clearLiveCache(workspaceId)` definido pero NO llamado al desconectar workspace |
+| BUG-5 | Snapshot delta boundary | ✅ Corregido | — |
+| BUG-6 | eventsSinceSnapshot volatile | ✅ Corregido | Sin test de regresión dedicado |
 
-### Fase 11 — items con implementación incompleta
+### Fase 11 — integración
 
-| ID | Tarea | Severidad | Estado |
-|---|---|---|---|
-| FASE11-FIX-1 | EventPipeline existe pero NO está conectado a producción | **Media** | ⏳ Pendiente |
-| FASE11-FIX-2 | ChunkReplicator existe pero NO está integrado en Controller | **Media** | ⏳ Pendiente |
+| ID | Tarea | Estado |
+|---|---|---|
+| FASE11-FIX-1 | EventPipeline en producción | ⏸️ Documentado como futuro (Javadoc explica que producción usa `EventService` directamente) |
+| FASE11-FIX-2 | ChunkReplicator en Controller | ✅ Completado (`enable()`, `onFileAvailable()`, `runStartupCache()`) |
 
 ### Documentación
 
+| ID | Tarea | Estado | Gap residual |
+|---|---|---|---|
+| DOC-1 | AGENTS.md | ✅ Mayormente completado | Línea 139: `SnapshotService` aún dice "no asumir snapshot+delta" (desactualizado); Línea 220: menciona chunk replication como pendiente (ya implementado) |
+
+### Nuevos pendientes encontrados en esta revisión
+
 | ID | Tarea | Severidad | Estado |
 |---|---|---|---|
-| DOC-1 | AGENTS.md desactualizado (tests, Event model, Fase 11) | **Alta** | ⏳ Pendiente |
+| RESIDUAL-1 | `clearLiveCache(workspaceId)` no se llama al desconectar workspace | **Baja** | ⏳ Pendiente |
+| RESIDUAL-2 | `deleteNoteText()` ignora parámetro `length` — solo borra línea completa | **Baja** | ⏳ Pendiente |
+| RESIDUAL-3 | Faltan tests de regresión para BUG-3 y BUG-6 | **Baja** | ⏳ Pendiente |
+| RESIDUAL-4 | `ChunkReplicator.processEvents()` no se llama para eventos `file.shared` incrementales post-startup | **Baja** | ⏳ Pendiente |
+| RESIDUAL-5 | AGENTS.md líneas 139 y 220 desactualizadas (SnapshotService y chunk replication) | **Baja** | ⏳ Pendiente |
+| RESIDUAL-6 | `EventValidatorTest` nombre misleading: `memberJoinApprovalEsAceptadoPorAutor` asserta `false` | **Muy baja** | ⏳ Pendiente |
+| RESIDUAL-7 | `System.err.println` en producción (EmbeddedWebSocketServer, UpdateChecker, AppConfig) | **Muy baja** | ⏳ Pendiente |
 
-### Pendientes originales (sin cambios)
+### Pendientes originales
 
 | ID | Tarea | Severidad | Estado |
 |---|---|---|---|
-| PENDIENTE-1 | DirectBootstrap.join() WsClient leak en success | Alta | ✅ Completado |
-| PENDIENTE-2 | UpdateChecker regex → JsonReader | Media | ✅ Completado |
-| PENDIENTE-3 | Eliminar 35 System.out.println de Controller | Baja | ✅ Completado |
-| PENDIENTE-4 | Locale deprecated en I18n.setLocale | Baja | ✅ Completado |
-| PENDIENTE-5 | Dead code serializeNotesStateInBackground | Baja | ✅ Completado |
-| PENDIENTE-6 | Duplicados en messages_en.properties | Baja | ✅ Completado |
-| PENDIENTE-7 | Renombrar test caso25 | Muy baja | ✅ Completado |
-| PENDIENTE-8 | Crear AppConfigTest | Media | ✅ Completado |
-| PENDIENTE-9 | SpotBugs en CI | Media | ✅ Completado |
-| PENDIENTE-10 | Actualizar maven-compiler-plugin | Baja | ✅ Completado |
-| PENDIENTE-11 | Refactorización de Controller.java (God Object, ~6190 líneas, ~333 métodos) | Alta | ⏳ Pendiente |
+| PENDIENTE-1 a 10 | Fixes iniciales | — | ✅ Todos completados |
+| PENDIENTE-11 | Refactorización Controller.java (~6190 líneas, ~333 métodos) | Alta | ⏳ Pendiente |
 | PENDIENTE-12 | Almacenamiento seguro de privateKey Ed25519 | Alta | ⏳ Pendiente |
-| PENDIENTE-13 | Tests unitarios dedicados para adapters/network (hay cobertura parcial por integración) | Media | ⏳ Pendiente |
-| PENDIENTE-14 | Tests unitarios dedicados para client/hub y client/ws (hay cobertura parcial por CoreWsClientTest) | Media | ⏳ Pendiente |
-| PENDIENTE-15 | Tests unitarios dedicados para adapters/filesystem (hay cobertura parcial por BackendExtendedSimulation) | Media | ⏳ Pendiente |
+| PENDIENTE-13 | Tests unitarios dedicados adapters/network | Media | ⏳ Pendiente |
+| PENDIENTE-14 | Tests unitarios dedicados client/hub y client/ws | Media | ⏳ Pendiente |
+| PENDIENTE-15 | Tests unitarios dedicados adapters/filesystem | Media | ⏳ Pendiente |
 | PENDIENTE-16 | Unificación de ramas CI/release | Baja | ⏳ Pendiente |
 | PENDIENTE-17 | Métricas de performance y profiling | Baja | ⏳ Pendiente |
 | PENDIENTE-18 | Documentación de API pública | Muy baja | ⏳ Pendiente |
-| PENDIENTE-19 | Separar tests de performance/ruidosos del suite normal | Baja | ⏳ Pendiente |
+| PENDIENTE-19 | Separar tests ruidosos del suite normal | Baja | ⏳ Pendiente |
 | PENDIENTE-20 | Limpiar warnings Maven Shade/SLF4J | Baja | ⏳ Pendiente |
 | PENDIENTE-21 | Automatizar smoke E2E multi-instancia | Media | ⏳ Pendiente |
 
-### Fase 11 — estado real
+### Fase 11 — estado verificado
 
-| Ítem | Estado real |
+| Ítem | Estado |
 |---|---|
-| 11.1 EventPipeline | ⚠️ Código existe, **NO conectado a producción** (ver FASE11-FIX-1) |
+| 11.1 EventPipeline | ⏸️ Código preparatorio; producción usa `EventService` (documentado) |
 | 11.2 Proyecciones separadas | ✅ Completado |
-| 11.3 PEER_STATUS efímero | ⚠️ Marcado efímero, pero **SyncEngine lo descarta** (ver BUG-1) |
+| 11.3 PEER_STATUS efímero | ✅ Corregido (BUG-1 fix: `P2PNetworkAdapter` bypass + `onEphemeralCoreEvent` callback) |
 | 11.4 SnapshotService startup | ✅ Completado |
-| 11.5 CRDT notas | ⚠️ Core OK, **UI wiring roto** (ver BUG-2) |
-| 11.6 EventValidator cache | ⚠️ Cache existe, **no es efectivo** (ver BUG-3) |
+| 11.5 CRDT notas | ✅ Corregido (BUG-2 fix: `charOffsetToLineIndex()` en Controller) |
+| 11.6 EventValidator cache | ✅ Corregido (BUG-3 fix: `remoteEventService` compartido) |
 | 11.7 Auto-reconnect mesh | ✅ Completado |
-| 11.8 Eliminar model.Event legacy | ✅ Completado (reemplazado por CoreEnvelope) |
+| 11.8 Eliminar model.Event legacy | ✅ Completado |
 | Controller snapshot | ✅ Completado |
-| Chunk replicator | ✅ Integración completa en `Controller.initializeCoreServices`/`activateWorkspaceFromCore` |
+| Chunk replicator | ✅ Completado (FASE11-FIX-2: integrado en Controller) |
 
 ---
 
