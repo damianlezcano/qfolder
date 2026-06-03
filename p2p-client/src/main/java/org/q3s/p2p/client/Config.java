@@ -8,11 +8,13 @@ import java.nio.file.Paths;
 
 public class Config {
 
-	public static final String TEMP_PATH = "temp";
+	public static final String TEMP_PATH = resolveHome(AppConfig.get("qfolder.temp.dir",
+		"~/qfolder/temp"));
 
 	public static final int WS_SERVER_PORT = AppConfig.getInt("qfolder.ws.port", 18765);
 
-	public static final String USER_NAME = AppConfig.get("qfolder.user.name", System.getenv("USER"));
+	public static final String USER_NAME = AppConfig.get("qfolder.user.name",
+		firstNonBlank(System.getenv("USER"), System.getenv("USERNAME"), System.getProperty("user.name")));
 
 	public static final String SHARED_DIR = resolveHome(AppConfig.get("qfolder.shared.dir",
 			"~/qfolder"));
@@ -25,6 +27,13 @@ public class Config {
 			return System.getProperty("user.home") + path.substring(1);
 		}
 		return new File(path).getAbsolutePath();
+	}
+
+	private static String firstNonBlank(String... values) {
+		for (String v : values) {
+			if (v != null && !v.isBlank()) return v;
+		}
+		return null;
 	}
 
 	public static boolean isTunnelMockEnabled() {

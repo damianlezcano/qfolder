@@ -2316,3 +2316,248 @@ Los 146 tests anteriores cubren el core (WorkspaceService, EventStore, SyncEngin
 ### Pendientes
 
 - Ninguno de estos fixes requiere validación manual inmediata.
+
+## 2026-06-02 - Implementación Completa de WORK_PLAN.md
+
+Se ejecutaron las 11 fases del plan `WORK_PLAN.md` con 247 tests pasando (0 failures) y `./build.sh` exitoso.
+
+### Resumen de Cambios por Fase
+
+**Fase 1 — Bugs Críticos (1.1–1.7)**
+- `CoreEventCodec.javaValue()` ahora devuelve `int[]` para arrays numéricos, preservando `List<int[]>` en strokes de pizarra tras persistencia/sync.
+- `completeCoreChunkDownload` envuelve `refreshArchivosTable()` en `invokeLater`.
+- `showApprovalDialog` agrega guard de EDT; defer si se invoca desde hilo de red.
+- `broadcastNotes` usa `serializeNotesState()` directamente en el EDT (sin thread background leyendo StyledDocument).
+- `handleDirectPeerEvent` retorna temprano si `event == null || event.getName() == null`.
+- `WorkspaceStateBuilder.fromEvents` ordena eventos por `createdAt + eventId` antes del replay.
+- `PublicKeyAuthProvider.validateMemberReconnect` ahora compara el token contra `member.membershipToken()`.
+
+**Fase 2 — Thread Safety (2.1–2.7)**
+- `directPeerConnections` cambia a `ConcurrentHashMap`.
+- `WsClient.closeNotified` ahora es `AtomicBoolean` con `compareAndSet`.
+- `P2PMeshService.peerCatalog` cambia a `ConcurrentHashMap`; `lastPublishedPeerUrl/Connections` son `volatile`.
+- `applyingRemoteNotes` declarado `volatile`.
+- `CloudflareTunnel` campos `process/tunnelUrl/running` ahora `volatile`.
+- `Logger` reemplaza `SimpleDateFormat` por `DateTimeFormatter` thread-safe.
+
+**Fase 3 — Ciclo de Vida de Conexiones (3.1–3.7)**
+- `PeerLink.connect()` cierra `WsClient` previo en cada reintento para evitar leak.
+- `DirectBootstrap.join()` reestructura try/finally para cerrar WsClient solo en fallo (mantiene socket vivo en éxito para preservar el welcome por bootstrap).
+- `P2PNetworkAdapter.connectTo` reemplaza `PeerLink` inactivo/zombie en vez de retornar el existente.
+- `CloudflareTunnel.isRunning` retorna `running` directamente en modo mock.
+- `EmbeddedWebSocketServer.onError` ahora loguea y cierra la conexión.
+- `P2PNetworkAdapter.handleIncomingSyncRequest` verifica `link.active()` y envuelve send en try/catch.
+- `CoreChunkTransferCoordinator.shutdown()` cancela todos los reintentos programados.
+- `Controller.initializeCoreServices` cierra servicios previos antes de reasignar.
+
+**Fase 4 — Core y Seguridad (4.1–4.6)**
+- `EventValidator.validSignatureIfPresent` rechaza eventos sin firma cuando hay public key (modo estricto).
+- `EventUtils.toObjectBase64` corrige parsing de `data:` URL usando `indexOf(',')`.
+- `InMemoryEventStore.listEvents` ordena por `createdAt + eventId` para coincidir con FileSystemEventStore.
+- `FileSystemFileChunkStore.resolveChunkPath` hace `Files.list(root)` en vez de `Files.walk` (O(n*m) → O(n)).
+- `PublicKeyAuthProvider.signEvent` lanza `IllegalStateException` en fallo (en vez de retornar firma vacía).
+- `Controller` usa `setFiles(merged)` con copia inmutable en vez de mutar copias desechables.
+
+**Fase 5 — Bugs de Severidad Media — Controller (5.1–5.8)**
+- `removeTransferProgress` retorna temprano si `transferPanel == null`.
+- `historySaved` se setea al final del try en `saveSessionHistory`, no antes.
+- `joinTimeoutTimer` declarado como field; se cancela en `activateWorkspaceFromCore`.
+- Chat "Fijar" usa `I18n.get("chat.pin")` y aplica `applyPinnedChatMessage`.
+- `searchTabById` y `findTableByUserId` usan `equals` en vez de `endsWith`.
+- `wsClient.close()` en `notify` envuelto con null check.
+- `applyRemoteNotes` remueve el listener viejo antes de `setDocument`.
+- `removeAllTab` ahora limpia 25+ campos (chat, files, members, notes, approvals, etc.).
+
+**Fase 6 — Bugs de Severidad Media — Utilidades (6.1–6.7)**
+- `ExecutorFactoryBean` agrega `WindowsExecutorBean` con `cmd /c start` y fallback `Desktop.open`.
+- `Config.USER_NAME` usa `firstNonBlank(USER, USERNAME, user.name)`.
+- `Config.TEMP_PATH` ahora se resuelve vía `qfolder.temp.dir` con default `~/qfolder/temp`.
+- `UpdateChecker.VERSION` se carga desde `/META-INF/maven/org.q3s/p2p-client/pom.properties` (manifest).
+- `CloudflareInstaller` detecta arquitectura ARM64 (linux-arm64, darwin-arm64) y usa `INSTALL_LOCK` con `synchronized` para evitar race en install concurrente.
+
+**Fase 7 — Limpieza de Código (7.1–7.7)**
+- Eliminados `System.out.println` de debug en `I18n.loadBundle`, `UserPreferences.setLanguage`, `FileTableModel.getColumnName`, `EmbeddedWebSocketServer.debug`.
+- Eliminados `latestWhiteboardSequence` y `latestNotesSequence` no usados.
+- Eliminado `application.properties` vacío.
+- Eliminados `load.gif` y `load.giif.gif` (typo, no referenciados).
+- Eliminadas keys i18n no usadas: `disconnected`, `reconnecting*`.
+- Eliminadas keys duplicadas (`tab.files`, `transfer.requesting`, `transfer.retrying`).
+- `I18n.loadBundle` usa `Locale.forLanguageTag` en vez de `new Locale(String)` (deprecado).
+
+**Fase 8 — Internacionalización (8.1–8.9)**
+- `messages_en.properties` completada con ~50 keys faltantes (table columns, menus, tooltips, members, update, cloudflare, etc.).
+- `messages.properties` y `messages_es.properties` extendidas con nuevas keys: `tooltip.tab.*`, `tunnel.*`, `join.timeout`, `endpoint.error`, `col.members.*`, `members.connected/disconnected`, `chat.pin/reply/replyPrefix`, `whiteboard.*/notes.*/error.*/update.*/cloudflare.*`.
+- Controller: tooltips de tabs (`tooltip.tab.chat/whiteboard/notes/members/files`), túnel/login i18n, headers de tabla de miembros, menú contextual de chat (Responder, Re:, Fijar, Enviar), diálogos de export (whiteboard/notes).
+- `UpdateChecker` y `CloudflareInstaller` ahora usan `I18n.get()` en vez de strings hardcoded.
+
+**Fase 9 — Tests (9.1–9.7)**
+- Nuevo `EventValidatorTest.java` con 10 tests (validación de firma, tipos desconocidos, revocación, approvals, WORKSPACE_CREATED duplicado).
+- Nuevo `I18nTest.java` con 6 tests (carga de bundles es/en, key inexistente, cambio de locale, paridad de keys, formato con args).
+- Nuevo `FileUtilsTest.java` con 3 tests (list, remove recursivo, move).
+- Nuevo test en `CoreQfolderTest`: `whiteboardStrokePointsRoundtripPreservaIntArrays` verifica roundtrip JSON de strokes preservando `int[]`.
+- `ClipboardImagePerformanceTest` ahora genera imagen programáticamente en `@TempDir` (sin path hardcodeado `/home/tiul/full_after_misfire.png`).
+- `caso25eventoDeNoAprobadoNoModificaEstado` corregido para usar `service.receiveRemoteEvent` y validar rechazo.
+
+**Fase 10 — Build, Packaging y Config (10.1–10.5)**
+- `build.sh` ahora extrae la versión del pom.xml (`grep <version>`) en vez de hardcodear `1.0-SNAPSHOT`.
+- `build.sh` habilita tests por defecto; usa `QFOLDER_SKIP_TESTS=true` para saltar.
+- `qfolder.properties.example` documenta las keys adicionales: `qfolder.user.name`, `qfolder.temp.dir`, `qfolder.language`, `qfolder.lookAndFeel`, `qfolder.ui.verbose`, `qfolder.cloudflared.path`, `qfolder.tunnel.mock.delay`.
+
+**Fase 11 — Mejoras Arquitectónicas**
+- Sin cambios. Las 8 tareas son mejoras de mayor alcance (pipeline unificado, proyecciones separadas, PEER_STATUS efímero, snapshot startup, CRDT para notas, EventValidator cache, auto-reconnect mesh, modelo dual Event). Planificadas para futuros sprints.
+
+### Comandos Ejecutados
+
+- `cd p2p-client && mvn test` — 247 tests, 0 failures, 0 errors
+- `./build.sh` — exitoso, genera `dist/qfolder.jar` (2.1M)
+
+### Archivos Modificados (principales)
+
+- `p2p-client/src/main/java/org/q3s/p2p/client/view/Controller.java`
+- `p2p-client/src/main/java/org/q3s/p2p/client/ws/WsClient.java`
+- `p2p-client/src/main/java/org/q3s/p2p/client/Config.java`
+- `p2p-client/src/main/java/org/q3s/p2p/client/AppConfig.java`
+- `p2p-client/src/main/java/org/q3s/p2p/client/UpdateChecker.java`
+- `p2p-client/src/main/java/org/q3s/p2p/client/CloudflareInstaller.java`
+- `p2p-client/src/main/java/org/q3s/p2p/client/util/Logger.java`
+- `p2p-client/src/main/java/org/q3s/p2p/client/util/I18n.java`
+- `p2p-client/src/main/java/org/q3s/p2p/client/util/UserPreferences.java`
+- `p2p-client/src/main/java/org/q3s/p2p/client/util/FileUtils.java`
+- `p2p-client/src/main/java/org/q3s/p2p/client/hub/CloudflareTunnel.java`
+- `p2p-client/src/main/java/org/q3s/p2p/client/hub/EmbeddedWebSocketServer.java`
+- `p2p-client/src/main/java/org/q3s/p2p/client/exec/ExecutorFactoryBean.java`
+- `p2p-client/src/main/java/org/q3s/p2p/client/exec/WindowsExecutorBean.java` (nuevo)
+- `p2p-client/src/main/java/org/q3s/p2p/client/view/components/FileTableModel.java`
+- `p2p-client/src/main/java/org/q3s/p2p/core/events/CoreEventCodec.java`
+- `p2p-client/src/main/java/org/q3s/p2p/core/events/EventValidator.java`
+- `p2p-client/src/main/java/org/q3s/p2p/core/auth/PublicKeyAuthProvider.java`
+- `p2p-client/src/main/java/org/q3s/p2p/core/state/WorkspaceStateBuilder.java`
+- `p2p-client/src/main/java/org/q3s/p2p/adapters/memory/InMemoryEventStore.java`
+- `p2p-client/src/main/java/org/q3s/p2p/adapters/filesystem/FileSystemFileChunkStore.java`
+- `p2p-client/src/main/java/org/q3s/p2p/adapters/network/P2PMeshService.java`
+- `p2p-client/src/main/java/org/q3s/p2p/adapters/network/P2PNetworkAdapter.java`
+- `p2p-client/src/main/java/org/q3s/p2p/adapters/network/DirectBootstrap.java`
+- `p2p-client/src/main/java/org/q3s/p2p/adapters/network/CoreChunkTransferCoordinator.java`
+- `p2p-client/src/main/java/org/q3s/p2p/model/util/EventUtils.java`
+- `p2p-client/src/main/resources/i18n/messages.properties`
+- `p2p-client/src/main/resources/i18n/messages_es.properties`
+- `p2p-client/src/main/resources/i18n/messages_en.properties`
+- `p2p-client/src/main/resources/qfolder.properties.example`
+- `p2p-client/src/test/java/org/q3s/p2p/core/CoreQfolderTest.java`
+- `p2p-client/src/test/java/org/q3s/p2p/core/EventValidatorTest.java` (nuevo)
+- `p2p-client/src/test/java/org/q3s/p2p/client/util/I18nTest.java` (nuevo)
+- `p2p-client/src/test/java/org/q3s/p2p/client/util/FileUtilsTest.java` (nuevo)
+- `p2p-client/src/test/java/org/q3s/p2p/client/view/ClipboardImagePerformanceTest.java`
+- `build.sh`
+- Eliminados: `application.properties`, `load.gif`, `load.giif.gif`
+
+### Pendientes
+
+- Fase 11: mejoras arquitectónicas planificadas para sprints futuros (pipeline unificado, proyecciones, snapshot startup, CRDT, etc.).
+- Pendiente documental/coordinación: `RELEASE.md` describe `develop`→`master`, mientras `.github/workflows/maven-publish.yml` corre sobre `main` (no modificado por decisión explícita del AGENTS.md).
+
+## 2026-06-02 (parte 2) - Implementación de pendientes (Fase 11 + chunks)
+
+Continuación del trabajo del WORK_PLAN.md. Esta sesión abordó los 3 pendientes explícitos:
+
+### Cambios Realizados
+
+**Pendiente 1: Coordinar RELEASE.md vs workflow CI**
+- `RELEASE.md` ahora incluye un bloque al inicio que documenta explícitamente la divergencia entre el flujo `develop → master` (RELEASE.md + release.sh) y el workflow contra `main`.
+- Presenta 3 opciones para alinear (cambiar RELEASE a main, cambiar workflow a master, mantener dual) y aclara que el AGENTS.md prohíbe modificar `.github/workflows/maven-publish.yml` sin aviso.
+- **Decisión:** no se modificó el workflow (per AGENTS.md). La unificación requiere decisión explícita del usuario.
+
+**Fase 11.1: Pipeline unificado de eventos (`EventPipeline`)**
+- Nueva interface `org.q3s.p2p.core.events.EventPipeline` con `appendLocal`, `acceptRemote`, `acceptRemoteBatch`, `onEventStored`.
+- Implementación `DefaultEventPipeline` que centraliza stamping, validación, persistencia y notificación a observadores.
+- `AppendResult` con estados: `OK`, `REJECTED_VALIDATION`, `DUPLICATE`, `INVALID`.
+- Listeners vía `CopyOnWriteArrayList` para thread-safety.
+- Nuevo `EventPipelineTest` con 6 tests (stamping, duplicados, validación, ephemerales, batch).
+- No rompe el flujo actual: `EventService` y `CoreApplicationService.receiveRemoteEvent` siguen funcionando; el pipeline es una API opt-in para código nuevo.
+
+**Fase 11.2: Proyecciones separadas**
+- `MembershipProjector` extrae la lógica de WORKSPACE_CREATED, MEMBER_JOIN_*, MEMBER_REVOKED, MEMBER_ROLE_CHANGED.
+- `ContentProjector` extrae la lógica de chat, notas, archivos, pizarra (strokes/objects/clear).
+- `MeshProjector` extrae la lógica de PEER_STATUS_UPDATED.
+- `WhiteboardMerger` extrae `mergeWhiteboardImageData` (lógica de merge de imágenes con data pendiente).
+- `WorkspaceStateBuilder` ahora delega a los 3 proyectores (mantiene API `fromEvents` y agrega `fromSnapshot`).
+- Refactor con cero impacto en API pública: todos los tests existentes siguen pasando.
+
+**Fase 11.3: `PEER_STATUS_UPDATED` efímero**
+- Agregado a la lista `EPHEMERAL` en `EventTypes` (junto a `USER_TYPING`, `CURSOR_MOVED`, `DRAWING_PREVIEW`).
+- `MeshProjector` ahora mantiene una cache en memoria estática `LIVE_PEER_URLS` / `LIVE_PEER_CONNECTIONS` que se actualiza cada vez que se ve el evento.
+- `WorkspaceStateBuilder.fromEvents` llama `MESH.hydrate(state)` para repoblar el state desde la cache.
+- `CoreApplicationService.receiveRemoteEvent` aplica el `MeshProjector` para ephemerales sin pasar por `EventService` (que filtra ephemerales).
+- `CoreApplicationService.updatePeerStatus` ahora stamea con `auth.stampEvent` antes de persistir.
+- Test `peerStatusEventsBuildDistributedConnectionGraph` actualizado para usar `receiveRemoteEvent` directamente (los ephemerales ya no se persisten en el store, pero la cache LIVE sí se actualiza via `MeshProjector`).
+- Helper `workspaceWithRemotePeer` actualizado para aplicar el projector a un state dummy (alimenta la cache LIVE).
+- Beneficio: sesiones largas con muchos reconect/churn mesh ya no acumulan eventos durables. La cache en memoria se pierde solo al reiniciar la app.
+
+**Fase 11.4: Integrar `SnapshotService` en startup**
+- `SnapshotService.loadLatestWithTimestamp` retorna `SnapshotLoadResult(snapshotEvents, snapshotTimestamp)`.
+- `EventStore.listEventsAfter(workspaceId, after)` default method que filtra eventos por `createdAt > threshold`.
+- `CoreApplicationService.currentStateWithSnapshot(snapshotPath)` carga el snapshot + delta de eventos posteriores. Si no hay snapshot, fallback a `currentState()`.
+- `runStartupCache()` hook que combina startup con replicación (usado por el `ChunkReplicator`).
+- La integración con el Controller/UI se puede hacer gradualmente llamando `currentStateWithSnapshot(...)` en el startup en lugar de `currentState()`.
+
+**Fase 11.6: Cache en `EventValidator`**
+- `EventValidator` ahora mantiene un `ConcurrentHashMap<String, CachedState>` con `(state, eventCount)`.
+- Cuando el contador de eventos no cambia, retorna la cache sin re-proyectar.
+- `EventValidator.invalidate(workspaceId)` y `invalidateAll()` para limpieza.
+- `EventService` ahora invalida el cache del validator tras `accept` exitoso.
+- Beneficio: bulk sync de N eventos valida cada uno en O(1) (cache hit) en vez de O(N) (rebuild completo del state).
+
+**Fase 11.7: Auto-reconnect en mesh**
+- `P2PMeshService` ahora tiene un `ScheduledExecutorService` daemon que programa reintentos de conexión cada 5s para peers del `peerCatalog` que no estén conectados ni en proceso de conectar.
+- `reconnectFutures` por peer (ConcurrentHashMap) permite cancelar reintentos si el peer reconecta antes.
+- `disconnectAll()` cancela los futures y apaga el scheduler.
+- Trigger: cada vez que `onPeerConnectionsChanged` se dispara (cambio en conexiones mesh).
+- Beneficio: ante un PeerLink zombie/zombie-disconnect, el mesh intenta reconectar automáticamente sin esperar al próximo evento de discovery.
+
+**Replicación de chunks para offline real**
+- Nuevo `org.q3s.p2p.core.files.ChunkReplicator` con `enable()/disable()/isEnabled()`.
+- `processEvents(workspaceId, events)` y `processCurrentState(workspaceId)` notifican archivos nuevos con chunks faltantes.
+- `onFileAvailable(Consumer<FileMetadata>)` para que el caller (Controller) reaccione disparando descargas via `CoreChunkTransferCoordinator`.
+- `missingChunks(FileMetadata)` calcula qué chunks faltan localmente.
+- `CoreApplicationService.chunkReplicator()` accessor y `runStartupCache()` para invocar en startup.
+- `qfolder.cache.all=true` documentado en `qfolder.properties.example` (opt-in).
+- Nuevo `ChunkReplicatorTest` con 7 tests (enabled/disabled, notificar faltantes, no notificar si tenemos los chunks, multiple listeners, missing chunks).
+- Beneficio: peers con `qfolder.cache.all=true` mantienen copia local de todos los archivos anunciados, permitiendo servir como fuente para otros peers o usar offline.
+
+### Tests Finales
+
+- `cd p2p-client && mvn test` — **260 tests, 0 failures, 0 errors**
+- `./build.sh` — exitoso, genera `dist/qfolder.jar` (2.1M)
+
+### Archivos Nuevos
+
+- `p2p-client/src/main/java/org/q3s/p2p/core/events/EventPipeline.java`
+- `p2p-client/src/main/java/org/q3s/p2p/core/state/MembershipProjector.java`
+- `p2p-client/src/main/java/org/q3s/p2p/core/state/ContentProjector.java`
+- `p2p-client/src/main/java/org/q3s/p2p/core/state/MeshProjector.java`
+- `p2p-client/src/main/java/org/q3s/p2p/core/whiteboard/WhiteboardMerger.java`
+- `p2p-client/src/main/java/org/q3s/p2p/core/files/ChunkReplicator.java`
+- `p2p-client/src/test/java/org/q3s/p2p/core/EventPipelineTest.java` (6 tests)
+- `p2p-client/src/test/java/org/q3s/p2p/core/ChunkReplicatorTest.java` (7 tests)
+
+### Archivos Modificados
+
+- `RELEASE.md` (bloque de coordinación con workflow)
+- `p2p-client/src/main/java/org/q3s/p2p/core/events/EventTypes.java` (PEER_STATUS efímero)
+- `p2p-client/src/main/java/org/q3s/p2p/core/events/EventService.java` (usa singleton validator + invalidación)
+- `p2p-client/src/main/java/org/q3s/p2p/core/events/EventValidator.java` (cache por workspaceId)
+- `p2p-client/src/main/java/org/q3s/p2p/core/state/WorkspaceStateBuilder.java` (delega a proyectores + fromSnapshot)
+- `p2p-client/src/main/java/org/q3s/p2p/core/state/SnapshotService.java` (loadLatestWithTimestamp + record)
+- `p2p-client/src/main/java/org/q3s/p2p/core/app/CoreApplicationService.java` (replicator accessor, currentStateWithSnapshot, runStartupCache, updatePeerStatus stampea, receiveRemoteEvent aplica MeshProjector a ephemerales)
+- `p2p-client/src/main/java/org/q3s/p2p/ports/EventStore.java` (listEventsAfter default method)
+- `p2p-client/src/main/java/org/q3s/p2p/adapters/network/P2PMeshService.java` (reconnectScheduler + scheduleAutoReconnect)
+- `p2p-client/src/main/resources/qfolder.properties.example` (qfolder.cache.all)
+- `p2p-client/src/test/java/org/q3s/p2p/core/CoreControllerIntegrationTest.java` (helpers actualizados para PEER_STATUS efímero)
+
+### Pendientes que Quedan
+
+- **CRDT para notas colaborativas** (Fase 11.5) — explícitamente "largo plazo" en el plan. CRDT de texto o operational transformation. Requiere decisión arquitectónica mayor.
+- **Unificar modelo dual de `Event`** (Fase 11.8) — `org.q3s.p2p.core.model.Event` vs `org.q3s.p2p.model.Event` con dos stacks de serialización. "Largo plazo" en el plan.
+- **Snapshot startup integration en Controller** — el API está listo pero el Controller sigue usando `currentState()`. Migración gradual cuando se confirme estable.
+- **Almacén seguro para privateKey Ed25519** — mencionado en AGENTS.md, fuera de scope actual.
+- **Unificación de ramas CI/release** — documentado en RELEASE.md, requiere decisión del usuario.

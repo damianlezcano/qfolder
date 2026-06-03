@@ -108,6 +108,20 @@ public class CoreChunkTransferCoordinator {
 		}
 	}
 
+	public void shutdown() {
+		synchronized (lock) {
+			for (String transferId : new java.util.ArrayList<>(files.keySet())) {
+				terminalTransfers.put(transferId, TransferStatus.FAILED);
+				cleanup(transferId);
+			}
+			for (ScheduledFuture<?> future : retryFutures.values()) {
+				if (future != null && !future.isDone()) future.cancel(false);
+			}
+			retryFutures.clear();
+		}
+		retries.shutdownNow();
+	}
+
 	public boolean handle(Event event, WebSocket directConn) {
 		if (event == null || event.getName() == null) return false;
 		return switch (event.getName()) {

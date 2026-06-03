@@ -176,7 +176,7 @@ public class Controller {
 	private String indexedCoreFilesWorkspaceId;
 	private final Map<String, String> pendingMemberPublicKeys = new LinkedHashMap<>();
 	private final Map<String, JDialog> approvalDialogs = new LinkedHashMap<>();
-	private final Map<String, WebSocket> directPeerConnections = new LinkedHashMap<>();
+	private final Map<String, WebSocket> directPeerConnections = new java.util.concurrent.ConcurrentHashMap<>();
 	private final Map<String, User> knownMembers = new LinkedHashMap<>();
 	private final Map<String, Long> memberConnectedAt = new LinkedHashMap<>();
 	private final Map<String, String> corePeerUrls = new LinkedHashMap<>();
@@ -196,7 +196,8 @@ public class Controller {
 	private JTextField whiteboardTextInput;
 	private JButton whiteboardColorButton;
 	private JTextPane notesPane;
-	private boolean applyingRemoteNotes;
+	private volatile boolean applyingRemoteNotes;
+	private javax.swing.Timer joinTimeoutTimer;
 	private Timer notesSyncTimer;
 	private int notesFontSize = 14;
 	private String lastSentNotesState = "";
@@ -220,8 +221,6 @@ public class Controller {
 		return t;
 	});
 	private volatile long lastLocalWhiteboardChangeAt;
-	private long latestWhiteboardSequence;
-	private long latestNotesSequence;
 
 	private View view = new View();
 
@@ -765,26 +764,26 @@ public class Controller {
 
 	private void ensureChatTabVisible() {
 		if (chatContainerPanel != null && findTabByTitle("Chat") < 0) {
-			insertSystemTab("Chat", chatIcon(), chatContainerPanel, "Chat grupal del workspace");
+			insertSystemTab("Chat", chatIcon(), chatContainerPanel, I18n.get("tooltip.tab.chat"));
 			chatContainerPanel.revalidate();
 		}
 	}
 
 	private void ensureWhiteboardTabVisible() {
 		if (whiteboardContainerPanel != null && findTabByTitle("Pizarra") < 0) {
-			insertSystemTab("Pizarra", boardIcon(), whiteboardContainerPanel, "Pizarra colaborativa simple");
+			insertSystemTab("Pizarra", boardIcon(), whiteboardContainerPanel, I18n.get("tooltip.tab.whiteboard"));
 		}
 	}
 
 	private void ensureNotesTabVisible() {
 		if (notesContainerPanel != null && findTabByTitle("Notas") < 0) {
-			insertSystemTab("Notas", noteIcon(), notesContainerPanel, "Notas compartidas con formato básico");
+			insertSystemTab("Notas", noteIcon(), notesContainerPanel, I18n.get("tooltip.tab.notes"));
 		}
 	}
 
 	private void ensureMembersTabVisible() {
 		if (membersContainerPanel != null && findTabByTitle("Miembros") < 0) {
-			insertSystemTab("Miembros", groupIcon(), membersContainerPanel, "Miembros del workspace");
+			insertSystemTab("Miembros", groupIcon(), membersContainerPanel, I18n.get("tooltip.tab.members"));
 		}
 	}
 
@@ -986,8 +985,8 @@ public class Controller {
 
 		log.info("Iniciando endpoint local del peer...");
 		if (!Config.isTunnelMockEnabled() && !CloudflareInstaller.isInstalled()) {
-			javax.swing.SwingUtilities.invokeLater(() -> 
-				mostrarErrorEnPantallaLogin("Preparando túnel... por favor espere"));
+			javax.swing.SwingUtilities.invokeLater(() ->
+				mostrarErrorEnPantallaLogin(I18n.get("tunnel.preparing")));
 			new Thread(() -> {
 				log.info("Esperando instalación de cloudflared...");
 				if (!CloudflareInstaller.awaitInstallation(150)) {
@@ -1011,13 +1010,13 @@ public class Controller {
 					return;
 				}
 				javax.swing.SwingUtilities.invokeLater(() -> {
-					mostrarErrorEnPantallaLogin("Iniciando túnel Cloudflare...");
+					mostrarErrorEnPantallaLogin(I18n.get("tunnel.starting"));
 					startPeerEndpointServer(onReady, onError);
 				});
 			}, "wait-cloudflared").start();
 			return;
 		}
-		String tunnelMessage = Config.isTunnelMockEnabled() ? "Iniciando túnel (mock)..." : "Iniciando túnel Cloudflare...";
+		String tunnelMessage = Config.isTunnelMockEnabled() ? I18n.get("tunnel.starting.mock") : I18n.get("tunnel.starting");
 		mostrarErrorEnPantallaLogin(tunnelMessage);
 		startPeerEndpointServer(onReady, onError);
 	}
@@ -1044,6 +1043,7 @@ public class Controller {
 	}
 
 	private void handleDirectPeerEvent(WebSocket conn, Event event) {
+		if (event == null || event.getName() == null) return;
 		if (event != null) {
 			String chunkProtocolName = event != null && event.getName() != null && (event.getName().contains("Core chunk") || event.getName().contains("core chunk")) ? event.getName() : null;
 			if (chunkProtocolName != null) {
@@ -1240,14 +1240,14 @@ public class Controller {
 			ensurePeerEndpoint(() -> {
 				if (directBootstrap != null && directBootstrap.join(invite, user.getId(), user.getName(), localPublicKey, localPrivateKey)) {
 					log.info("Solicitud/conexion P2P enviada. Esperando autorizacion o sync...");
-					Timer timeout = new Timer(30000, e -> {
+					joinTimeoutTimer = new Timer(30000, e -> {
 						if (view.getjPanelJoin().isVisible() && !view.getjButton2().isEnabled()) {
 							setJoinControlsEnabled(true);
-							mostrarErrorEnPantallaLogin("Solicitud enviada, pero no llego autorizacion. Puede reintentar.");
+							mostrarErrorEnPantallaLogin(I18n.get("join.timeout"));
 						}
 					});
-					timeout.setRepeats(false);
-					timeout.start();
+					joinTimeoutTimer.setRepeats(false);
+					joinTimeoutTimer.start();
 				} else {
 					javax.swing.SwingUtilities.invokeLater(() -> {
 						setJoinControlsEnabled(true);
@@ -1256,7 +1256,7 @@ public class Controller {
 				}
 			}, error -> javax.swing.SwingUtilities.invokeLater(() -> {
 				setJoinControlsEnabled(true);
-				mostrarErrorEnPantallaLogin("Error al iniciar endpoint local: " + error);
+				mostrarErrorEnPantallaLogin(I18n.get("endpoint.error") + " " + error);
 			}));
 		}
 	}
@@ -1283,6 +1283,10 @@ public class Controller {
 	}
 
 	private void showApprovalDialog(User to) {
+		if (!javax.swing.SwingUtilities.isEventDispatchThread()) {
+			javax.swing.SwingUtilities.invokeLater(() -> showApprovalDialog(to));
+			return;
+		}
 		if (to == null || to.getId() == null) return;
 		closeApprovalDialog(to.getId());
 		JDialog dialog = new JDialog(view, I18n.get("approve.title"), false);
@@ -1413,7 +1417,7 @@ public class Controller {
 					showApprovalDialog(event.getUser());
 				} else if ("Usuario rechazado!".equals(event.getName())) {
 					log.info("Tu ingreso fue rechazado por los usuarios del workspace");
-					wsClient.close();
+					if (wsClient != null) wsClient.close();
 					mostrarErrorEnPantallaLogin(I18n.get("approve.rejected"));
 				} else if ("Bienvenido usuario al grupo!".equals(event.getName())) {
 					log.info("Bienvenido al grupo");
@@ -1869,6 +1873,18 @@ public class Controller {
 	}
 
 	private void initializeCoreServices(Path root) {
+		if (p2pMesh != null) {
+			try { p2pMesh.disconnectAll(); } catch (Exception ignored) {}
+			p2pMesh = null;
+		}
+		if (coreChunkTransfer != null) {
+			try { coreChunkTransfer.shutdown(); } catch (Exception ignored) {}
+			coreChunkTransfer = null;
+		}
+		if (p2pNetwork != null) {
+			try { p2pNetwork.disconnectAll(); } catch (Exception ignored) {}
+			p2pNetwork = null;
+		}
 		core = currentSessionDir != null
 				? CoreApplicationService.filesystemWorkspace(root)
 				: CoreApplicationService.filesystem(root);
@@ -1892,6 +1908,10 @@ public class Controller {
 	}
 
 	private void activateWorkspaceFromCore() {
+		if (joinTimeoutTimer != null) {
+			joinTimeoutTimer.stop();
+			joinTimeoutTimer = null;
+		}
 		javax.swing.SwingUtilities.invokeLater(() -> {
 			try {
 				WorkspaceState state = core.currentState();
@@ -2230,15 +2250,13 @@ public class Controller {
 			}
 			us.copy(user);
 			us.setOnline(true);
+			List<QFile> merged = new ArrayList<>(us.getFiles());
 			for (QFile coreFile : coreFiles) {
-				boolean alreadyPresent = us.getFiles().stream()
+				boolean alreadyPresent = merged.stream()
 						.anyMatch(f -> f.getName().equals(coreFile.getName()) && f.getSize() == coreFile.getSize());
-				if (!alreadyPresent) us.getFiles().add(coreFile);
+				if (!alreadyPresent) merged.add(coreFile);
 			}
-			if (user.getFiles().isEmpty()) {
-				us.setFiles(us.getFiles() == null || us.getFiles().isEmpty()
-						? new ArrayList<>() : us.getFiles());
-			}
+			us.setFiles(merged);
 		} else {
 			remoteUsers.add(user);
 		}
@@ -2303,13 +2321,14 @@ public class Controller {
 		membersContainerPanel = new JPanel(new BorderLayout(4, 4));
 		membersContainerPanel.add(new JScrollPane(membersTable), BorderLayout.CENTER);
 		refreshMembersTable();
-		insertSystemTab("Miembros", groupIcon(), membersContainerPanel, "Miembros del workspace");
+		insertSystemTab("Miembros", groupIcon(), membersContainerPanel, I18n.get("tooltip.tab.members"));
 	}
 
 	private void refreshMembersTable() {
 		if (membersTable == null) return;
 		trackMemberWithoutRefresh(user, true);
-		String[] columns = {"Nombre", "Estado", "Conectado desde", "Peers", "Conectado con", "URL publica"};
+		String[] columns = {I18n.get("col.members.name"), I18n.get("col.members.status"), I18n.get("col.members.connectedSince"),
+				I18n.get("col.members.peers"), I18n.get("col.members.connectedWith"), I18n.get("col.members.publicUrl")};
 		DefaultTableModel model = new DefaultTableModel(columns, 0) {
 			@Override public boolean isCellEditable(int row, int column) { return false; }
 		};
@@ -2331,7 +2350,7 @@ public class Controller {
 			String peerCount = String.valueOf(distributedConnections.size());
 			model.addRow(new Object[] {
 					member.getName() != null ? member.getName() : member.getId(),
-					online ? "Conectado" : "Desconectado",
+					online ? I18n.get("members.connected") : I18n.get("members.disconnected"),
 					formatMemberConnectedAt(member.getId()),
 					peerCount,
 					connectedWith,
@@ -2413,7 +2432,7 @@ public class Controller {
 	private void showArchivosTab() {
 		ensureArchivosTab();
 		if (findTabByTitle("Archivos") < 0) {
-			insertSystemTab("Archivos", boardIcon(), archivosContainerPanel, "Vista unificada de archivos");
+			insertSystemTab("Archivos", boardIcon(), archivosContainerPanel, I18n.get("tooltip.tab.files"));
 		}
 	}
 
@@ -2613,10 +2632,10 @@ public class Controller {
 		});
 
 		chatInput = new JTextField();
-		chatReplyLabel = new JLabel("Re:");
+		chatReplyLabel = new JLabel(I18n.get("chat.replyPrefix"));
 		chatReplyLabel.setForeground(Color.GRAY);
 		chatReplyLabel.setVisible(false);
-		JButton sendButton = new JButton("Enviar");
+		JButton sendButton = new JButton(I18n.get("chat.send"));
 		sendButton.setDefaultCapable(false);
 		sendButton.setFocusable(false);
 		JButton fileButton = new JButton(attachmentIcon());
@@ -2687,7 +2706,7 @@ public class Controller {
 		scroll.setTransferHandler(chatFileTransferHandler);
 
 		chatContainerPanel = panel;
-		insertSystemTab("Chat", chatIcon(), chatContainerPanel, "Chat grupal del workspace");
+		insertSystemTab("Chat", chatIcon(), chatContainerPanel, I18n.get("tooltip.tab.chat"));
 	}
 
 	private void chooseAndSendChatFile() {
@@ -2934,7 +2953,7 @@ public class Controller {
 		ChatMessage message = chatMessageAt(e.getPoint());
 		if (message == null) return;
 		JPopupMenu menu = new JPopupMenu();
-		JMenuItem reply = new JMenuItem("Responder");
+		JMenuItem reply = new JMenuItem(I18n.get("chat.reply"));
 		reply.addActionListener(ev -> {
 			replyingToChatMessage = message;
 			chatInput.setText("");
@@ -2942,8 +2961,8 @@ public class Controller {
 			if (chatReplyLabel != null) chatReplyLabel.setVisible(true);
 			chatInput.requestFocusInWindow();
 		});
-		JMenuItem pin = new JMenuItem("Fijar");
-		pin.addActionListener(ev -> {});
+		JMenuItem pin = new JMenuItem(I18n.get("chat.pin", "Fijar"));
+		pin.addActionListener(ev -> applyPinnedChatMessage(message));
 		menu.add(reply);
 		menu.add(pin);
 		menu.show(chatArea, e.getX(), e.getY());
@@ -3699,21 +3718,11 @@ public class Controller {
 		if (notesPane == null || applyingRemoteNotes || System.currentTimeMillis() < suppressNotesBroadcastUntil) {
 			return;
 		}
-		String currentState = lastSentNotesState;
-		StyledDocument doc = notesPane.getStyledDocument();
-		int docLength = doc.getLength();
-		new Thread(() -> {
-			String state = serializeNotesStateInBackground(doc, docLength);
-			if (state == null || state.equals(currentState)) {
-				return;
-			}
-			javax.swing.SwingUtilities.invokeLater(() -> {
-				if (!state.equals(lastSentNotesState)) {
-					lastSentNotesState = state;
-					recordNotesUpdateInCore(state);
-				}
-			});
-		}, "notes-serialize").start();
+		String state = serializeNotesState();
+		if (state != null && !state.equals(lastSentNotesState)) {
+			lastSentNotesState = state;
+			recordNotesUpdateInCore(state);
+		}
 	}
 
 	private String serializeNotesStateInBackground(StyledDocument doc, int docLength) {
@@ -3880,6 +3889,9 @@ public class Controller {
 			int oldCaret = notesPane.getCaretPosition();
 			DefaultStyledDocument doc = text.startsWith("QNOTES1\n") || text.startsWith("QNOTES2\n")
 					? parseNotesState(text) : parsePlainOrLegacyNotes(text);
+			if (notesDocumentListener != null && notesPane.getDocument() != null) {
+				notesPane.getDocument().removeDocumentListener(notesDocumentListener);
+			}
 			notesPane.setDocument(doc);
 			attachNotesDocumentListener();
 			notesPane.setCaretPosition(Math.min(oldCaret, notesPane.getDocument().getLength()));
@@ -4010,7 +4022,7 @@ public class Controller {
 		panel.add(toolbar, BorderLayout.WEST);
 		panel.add(whiteboardCanvas, BorderLayout.CENTER);
 		whiteboardContainerPanel = panel;
-		insertSystemTab("Pizarra", boardIcon(), whiteboardContainerPanel, "Pizarra colaborativa simple");
+		insertSystemTab("Pizarra", boardIcon(), whiteboardContainerPanel, I18n.get("tooltip.tab.whiteboard"));
 	}
 
 	private JPanel whiteboardToolRow() {
@@ -4052,13 +4064,15 @@ public class Controller {
 			ImageIO.write(img, "png", target);
 			log.info("Pizarra guardada en " + target.getAbsolutePath());
 			javax.swing.JOptionPane.showMessageDialog(view,
-					"Pizarra guardada correctamente en:\n" + target.getAbsolutePath(),
-					"Pizarra guardada", javax.swing.JOptionPane.INFORMATION_MESSAGE);
+					I18n.get("whiteboard.saved", target.getAbsolutePath()),
+					I18n.get("whiteboard.savedTitle", "Pizarra guardada"),
+					javax.swing.JOptionPane.INFORMATION_MESSAGE);
 		} catch (Exception e) {
 			log.err("No se pudo guardar la pizarra: " + e.getMessage());
 			javax.swing.JOptionPane.showMessageDialog(view,
-					"No se pudo guardar la pizarra:\n" + e.getMessage(),
-					"Error al guardar", javax.swing.JOptionPane.ERROR_MESSAGE);
+					I18n.get("whiteboard.saveError", e.getMessage()),
+					I18n.get("error.saveTitle", "Error al guardar"),
+					javax.swing.JOptionPane.ERROR_MESSAGE);
 		}
 	}
 
@@ -4134,7 +4148,7 @@ public class Controller {
 		panel.add(toolbar, BorderLayout.NORTH);
 		panel.add(new JScrollPane(notesPane), BorderLayout.CENTER);
 		notesContainerPanel = panel;
-		insertSystemTab("Notas", noteIcon(), notesContainerPanel, "Notas compartidas con formato básico");
+		insertSystemTab("Notas", noteIcon(), notesContainerPanel, I18n.get("tooltip.tab.notes"));
 	}
 
 	private JButton toolbarButton(String text, javax.swing.Action action) {
@@ -4550,7 +4564,7 @@ public class Controller {
 		Component[] cos = view.getjTabbedPane().getComponents();
 		for (int i = 0; i < cos.length; i++) {
 			if (cos[i] instanceof TabListFile) {
-				if (cos[i].getName().endsWith(id)) {
+				if (id != null && id.equals(cos[i].getName())) {
 					return view.getjTabbedPane().indexOfComponent(cos[i]);
 				}
 			}
@@ -4583,6 +4597,31 @@ public class Controller {
 		transferTargets.clear();
 		activeTransferRequests.clear();
 		transferPendingOpenLinks.clear();
+		appliedCoreChatIds.clear();
+		chatMessages.clear();
+		chatMessageRanges.clear();
+		chatFileLinks.clear();
+		chatTransferLinks.clear();
+		fileRegistry.clear();
+		filePeers.clear();
+		knownMembers.clear();
+		memberConnectedAt.clear();
+		corePeerUrls.clear();
+		corePeerConnections.clear();
+		pendingMemberPublicKeys.clear();
+		indexedCoreFiles.clear();
+		indexedCoreFilesWorkspaceId = null;
+		if (notesSyncTimer != null) {
+			notesSyncTimer.stop();
+			notesSyncTimer = null;
+		}
+		for (JDialog d : approvalDialogs.values()) {
+			try { d.dispose(); } catch (Exception ignored) {}
+		}
+		approvalDialogs.clear();
+		lastSentNotesState = null;
+		lastAppliedNotesState = null;
+		historySaved = false;
 	}
 
 	private void refreshTables() {
@@ -4601,7 +4640,7 @@ public class Controller {
 		Component[] cos = view.getjTabbedPane().getComponents();
 		for (int i = 0; i < cos.length; i++) {
 			if (cos[i] instanceof TabListFile) {
-				if (cos[i].getName().endsWith(id)) {
+				if (id != null && id.equals(cos[i].getName())) {
 					return (TabListFile) cos[i];
 				}
 			}
@@ -4741,7 +4780,7 @@ public class Controller {
 			if (original != null && QFile.OPERATION_OPEN.equals(original.getOperation())) exec.open(target.getAbsolutePath());
 			org.q3s.p2p.core.model.Event reShareEvent = core.shareFile(target.toPath());
 			publishCoreEvent(reShareEvent);
-			refreshArchivosTable();
+			javax.swing.SwingUtilities.invokeLater(this::refreshArchivosTable);
 			activeTransferRequests.remove(transferId);
 		} catch (Exception e) {
 			log.err("No se pudo finalizar descarga distribuida: " + e.getMessage());
@@ -4812,6 +4851,7 @@ public class Controller {
 		activeTransferRequests.remove(transferId);
 		transferPendingOpenLinks.remove(transferId);
 		chatTransferLinks.remove(transferId);
+		if (transferPanel == null) return;
 		if (row != null) transferPanel.remove(row);
 		transferPanel.setVisible(transferPanel.getComponentCount() > 0);
 		transferPanel.revalidate();
@@ -4893,7 +4933,6 @@ public class Controller {
 
 	private void saveSessionHistory(String reason) {
 		if (historySaved || wk == null) return;
-		historySaved = true;
 		try {
 			long createdAt = sessionCreatedAt > 0 ? sessionCreatedAt : System.currentTimeMillis();
 			Date createdDate = new Date(createdAt);
@@ -4934,6 +4973,7 @@ public class Controller {
 					StandardCharsets.UTF_8);
 			saveMembersSnapshot(membersDir, workspaceName);
 			log.info("Historial de sesion guardado en " + sessionDir.getAbsolutePath());
+			historySaved = true;
 		} catch (Exception e) {
 			log.err("No se pudo guardar el historial de sesion: " + e.getMessage());
 		}
@@ -5018,13 +5058,15 @@ public class Controller {
 			}
 			log.info("Notas guardadas en " + target.getAbsolutePath());
 			JOptionPane.showMessageDialog(view,
-					"Notas guardadas correctamente en:\n" + target.getAbsolutePath(),
-					"Notas guardadas", JOptionPane.INFORMATION_MESSAGE);
+					I18n.get("notes.saved", target.getAbsolutePath()),
+					I18n.get("notes.savedTitle", "Notas guardadas"),
+					JOptionPane.INFORMATION_MESSAGE);
 		} catch (Exception e) {
 			log.err("No se pudieron guardar las notas: " + e.getMessage());
 			JOptionPane.showMessageDialog(view,
-					"No se pudieron guardar las notas:\n" + e.getMessage(),
-					"Error al guardar", JOptionPane.ERROR_MESSAGE);
+					I18n.get("notes.saveError", e.getMessage()),
+					I18n.get("error.saveTitle", "Error al guardar"),
+					JOptionPane.ERROR_MESSAGE);
 		}
 	}
 

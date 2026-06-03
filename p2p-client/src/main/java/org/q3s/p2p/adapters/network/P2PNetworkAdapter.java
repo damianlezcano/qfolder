@@ -81,8 +81,16 @@ public class P2PNetworkAdapter implements NetworkAdapter {
 			PeerLink link = new PeerLink(peerId, uri);
 			PeerLink existing = peers.putIfAbsent(peerId, link);
 			if (existing != null) {
-				if (onReady != null) onReady.run();
-				return;
+				if (existing.active()) {
+					if (onReady != null) onReady.run();
+					return;
+				}
+				peers.remove(peerId, existing);
+				try { existing.close(); } catch (Exception ignored) {}
+				if (peers.putIfAbsent(peerId, link) != null) {
+					if (onReady != null) onReady.run();
+					return;
+				}
 			}
 			link.connect(onReady);
 		} catch (Exception e) {
@@ -178,6 +186,10 @@ public class P2PNetworkAdapter implements NetworkAdapter {
 			boolean connected = false;
 			for (int attempt = 1; attempt <= 3; attempt++) {
 				if (shuttingDown) break;
+				if (client != null) {
+					try { client.close(); } catch (Exception ignored) {}
+					client = null;
+				}
 				try {
 					client = new WsClient(new URI(uri), null, event -> {
 						if (shuttingDown) return;
@@ -293,12 +305,16 @@ public class P2PNetworkAdapter implements NetworkAdapter {
 			java.util.List<Event> missing = store.getMissingEvents(wsId, knownIds);
 			if (!missing.isEmpty()) {
 				PeerLink link = clientForPeer(event.getUser() != null ? event.getUser().getId() : null);
-				if (link != null) {
-					org.q3s.p2p.model.Event response = new org.q3s.p2p.model.Event(
-							WebSocketNetworkAdapter.CORE_SYNC_RESPONSE_NAME,
-							User.build(localPeerId),
-							WebSocketNetworkAdapter.encodeSyncPayload(missing));
-					link.client.send(org.q3s.p2p.model.util.EventUtils.toJsonBase64(response));
+				if (link != null && link.active()) {
+					try {
+						org.q3s.p2p.model.Event response = new org.q3s.p2p.model.Event(
+								WebSocketNetworkAdapter.CORE_SYNC_RESPONSE_NAME,
+								User.build(localPeerId),
+								WebSocketNetworkAdapter.encodeSyncPayload(missing));
+						link.client.send(org.q3s.p2p.model.util.EventUtils.toJsonBase64(response));
+					} catch (Exception e) {
+						debug.accept("P2P error respondiendo sync: " + e.getMessage());
+					}
 				}
 			}
 		} catch (Exception e) {

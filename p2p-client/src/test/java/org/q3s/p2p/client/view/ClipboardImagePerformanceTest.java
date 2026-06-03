@@ -1,8 +1,10 @@
 package org.q3s.p2p.client.view;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.condition.OS;
+import org.junit.jupiter.api.io.TempDir;
 
 import javax.swing.*;
 import javax.swing.text.AttributeSet;
@@ -15,6 +17,7 @@ import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
+import java.nio.file.Path;
 import java.util.Base64;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -24,7 +27,28 @@ import static org.junit.jupiter.api.Assertions.*;
 
 public class ClipboardImagePerformanceTest {
 
-    private static final String TEST_IMAGE_PATH = "/home/tiul/full_after_misfire.png";
+    @TempDir
+    Path tempDir;
+    private Path testImagePath;
+
+    @BeforeEach
+    void setup() throws Exception {
+        BufferedImage img = new BufferedImage(3440, 1440, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = img.createGraphics();
+        java.util.Random random = new java.util.Random(42);
+        for (int y = 0; y < 1440; y += 4) {
+            for (int x = 0; x < 3440; x += 4) {
+                int r = random.nextInt(256);
+                int gg = random.nextInt(256);
+                int b = random.nextInt(256);
+                g.setColor(new java.awt.Color(r, gg, b));
+                g.fillRect(x, y, 4, 4);
+            }
+        }
+        g.dispose();
+        testImagePath = tempDir.resolve("test_image.png");
+        javax.imageio.ImageIO.write(img, "png", testImagePath.toFile());
+    }
 
     @Test
     @EnabledOnOs(OS.LINUX)
@@ -33,19 +57,18 @@ public class ClipboardImagePerformanceTest {
         BufferedImage image = null;
 
         long start = System.nanoTime();
-        image = javax.imageio.ImageIO.read(new java.io.File(TEST_IMAGE_PATH));
+        image = javax.imageio.ImageIO.read(testImagePath.toFile());
         loadTime = System.nanoTime() - start;
 
         assertNotNull(image, "Test image should load");
-        System.out.println("[PERF] Image loaded: " + image.getWidth() + "x" + image.getHeight()
-                + ", size on disk: 2.4MB");
+        System.out.println("[PERF] Image loaded: " + image.getWidth() + "x" + image.getHeight());
         System.out.println("[PERF] ImageIO read time: " + (loadTime / 1_000_000) + "ms");
     }
 
     @Test
     @EnabledOnOs(OS.LINUX)
     void testImageSerializationToBase64Time() throws Exception {
-        BufferedImage image = javax.imageio.ImageIO.read(new java.io.File(TEST_IMAGE_PATH));
+        BufferedImage image = javax.imageio.ImageIO.read(testImagePath.toFile());
         assertNotNull(image);
 
         final long[] serializationTime = {0};
@@ -79,7 +102,7 @@ public class ClipboardImagePerformanceTest {
     @Test
     @EnabledOnOs(OS.LINUX)
     void testNotesDocumentInsertTime() throws Exception {
-        BufferedImage image = javax.imageio.ImageIO.read(new java.io.File(TEST_IMAGE_PATH));
+        BufferedImage image = javax.imageio.ImageIO.read(testImagePath.toFile());
         assertNotNull(image);
 
         final long[] insertTime = {0};
@@ -127,7 +150,7 @@ public class ClipboardImagePerformanceTest {
         System.out.println("[PERF] === FULL CLIPBOARD PASTE FLOW TEST ===");
         System.out.println("[PERF] Image: 2.4MB on disk");
 
-        BufferedImage image = javax.imageio.ImageIO.read(new java.io.File(TEST_IMAGE_PATH));
+        BufferedImage image = javax.imageio.ImageIO.read(testImagePath.toFile());
         assertNotNull(image);
 
         final AtomicLong totalTime = new AtomicLong(0);
@@ -204,7 +227,7 @@ public class ClipboardImagePerformanceTest {
         System.out.println("[PERF] === DOCUMENT WITH LARGE IMAGE SERIALIZATION TEST ===");
         System.out.println("[PERF] Image: 2.4MB, scaling to 800px width (typical paste scenario)");
 
-        BufferedImage image = javax.imageio.ImageIO.read(new java.io.File(TEST_IMAGE_PATH));
+        BufferedImage image = javax.imageio.ImageIO.read(testImagePath.toFile());
         assertNotNull(image);
 
         final AtomicLong totalTime = new AtomicLong(0);
@@ -268,7 +291,7 @@ public class ClipboardImagePerformanceTest {
     void testWhiteboardImageAddTime() throws Exception {
         System.out.println("[PERF] === WHITEBOARD IMAGE ADD TEST ===");
 
-        BufferedImage image = javax.imageio.ImageIO.read(new java.io.File(TEST_IMAGE_PATH));
+        BufferedImage image = javax.imageio.ImageIO.read(testImagePath.toFile());
         assertNotNull(image);
 
         final AtomicLong totalTime = new AtomicLong(0);

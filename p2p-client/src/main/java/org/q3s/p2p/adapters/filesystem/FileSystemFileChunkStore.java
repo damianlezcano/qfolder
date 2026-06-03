@@ -53,10 +53,13 @@ public class FileSystemFileChunkStore implements FileChunkStore {
 
 	private Path resolveChunkPath(String hash) throws java.io.IOException {
 		if (!Files.isDirectory(root)) return null;
-		try (var files = Files.walk(root)) {
-			return files.filter(path -> path.getFileName().toString().equals(hash + ".chunk")
-					&& Files.isRegularFile(path)).findFirst().orElse(null);
+		try (var dirs = Files.list(root)) {
+			for (Path dir : (Iterable<Path>) dirs.toList()) {
+				Path candidate = dir.resolve(hash + ".chunk");
+				if (Files.isRegularFile(candidate)) return candidate;
+			}
 		}
+		return null;
 	}
 
 	@Override

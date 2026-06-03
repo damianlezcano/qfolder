@@ -34,7 +34,10 @@ public class EventUtils {
         try {
             String jsonBase64 = dataBase64;
             if(dataBase64.startsWith("data:")){
-                jsonBase64 = dataBase64.substring(5);
+                int comma = dataBase64.indexOf(',');
+                if (comma >= 0) {
+                    jsonBase64 = dataBase64.substring(comma + 1);
+                }
             }
             String json = new String(Base64.getDecoder().decode(jsonBase64), StandardCharsets.UTF_8);
             return jsonb.fromJson(json, clazz);

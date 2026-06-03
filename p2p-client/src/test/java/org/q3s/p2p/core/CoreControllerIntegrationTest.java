@@ -287,16 +287,27 @@ class CoreControllerIntegrationTest {
 		appA.authorizeKnownMember("B", "B", "devB", "tokB");
 		crossSync(storeA, storeB, wsId);
 
-		appA.updatePeerStatus("ws://peer-a", Set.of("B"));
-		appB.updatePeerStatus("ws://peer-b", Set.of("A"));
-		crossSync(storeA, storeB, wsId);
+		var peerA = new org.q3s.p2p.core.model.Event("ws_peer_a", wsId, org.q3s.p2p.core.events.EventTypes.PEER_STATUS_UPDATED,
+				created.creator().memberId(), java.time.Instant.now(), java.util.List.of(),
+				java.util.Map.of("member_id", created.creator().memberId(),
+						"peer_url", "ws://peer-a", "connected_peers", java.util.List.of("B")),
+				null, null, false);
+		var peerB = new org.q3s.p2p.core.model.Event("ws_peer_b", wsId, org.q3s.p2p.core.events.EventTypes.PEER_STATUS_UPDATED,
+				"B", java.time.Instant.now(), java.util.List.of(),
+				java.util.Map.of("member_id", "B",
+						"peer_url", "ws://peer-b", "connected_peers", java.util.List.of(created.creator().memberId())),
+				null, null, false);
+		appA.receiveRemoteEvent(peerA);
+		appA.receiveRemoteEvent(peerB);
+		appB.receiveRemoteEvent(peerA);
+		appB.receiveRemoteEvent(peerB);
 
 		WorkspaceState stateA = appA.currentState();
 		WorkspaceState stateB = appB.currentState();
 		assertEquals("ws://peer-a", stateA.peerUrls().get(created.creator().memberId()));
 		assertEquals("ws://peer-b", stateA.peerUrls().get("B"));
 		assertTrue(stateA.peerConnections().get(created.creator().memberId()).contains("B"));
-		assertTrue(stateB.peerConnections().get("B").contains("A"));
+		assertTrue(stateB.peerConnections().get("B").contains(created.creator().memberId()));
 	}
 
 	@Test void authorizedMemberReconnectsWithoutNewApproval() {
@@ -872,8 +883,9 @@ class CoreControllerIntegrationTest {
 		var f = new org.q3s.p2p.core.events.EventFactory(
 				new org.q3s.p2p.adapters.memory.UuidIdGenerator(),
 				new org.q3s.p2p.adapters.memory.SystemClockProvider());
-		store.append(f.create(wsId, org.q3s.p2p.core.events.EventTypes.PEER_STATUS_UPDATED, peerId,
-				Map.of("member_id", peerId, "peer_url", peerUrl, "connected_peers", new java.util.ArrayList<String>()), null));
+		var event = f.create(wsId, org.q3s.p2p.core.events.EventTypes.PEER_STATUS_UPDATED, peerId,
+				Map.of("member_id", peerId, "peer_url", peerUrl, "connected_peers", new java.util.ArrayList<String>()), null);
+		new org.q3s.p2p.core.state.MeshProjector().apply(new org.q3s.p2p.core.state.WorkspaceState(), event);
 	}
 
 	private void waitUntil(java.util.function.BooleanSupplier condition, String message) throws Exception {

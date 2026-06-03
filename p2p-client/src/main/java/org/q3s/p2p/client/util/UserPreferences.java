@@ -93,7 +93,6 @@ public final class UserPreferences {
 	public static void setLanguage(Locale locale) {
 		if (locale != null) {
 			String langCode = locale.getLanguage();
-			System.out.println("[UserPreferences] setLanguage called with: " + langCode + ", preferencesFile=" + preferencesFile);
 			set(PREF_LANGUAGE, langCode);
 		}
 	}

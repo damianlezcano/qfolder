@@ -5,10 +5,36 @@ qfolder.tunnel.mock=false
 # Use your LAN IP if testing from another machine without Cloudflare.
 qfolder.tunnel.mock.host=localhost
 
+# Mock tunnel delay in milliseconds (default: 3000)
+# qfolder.tunnel.mock.delay=3000
+
 # WebSocket server port. For multiple clients on the same machine,
 # run each distribution copy with a different qfolder.ws.port.
 qfolder.ws.port=18765
 
+# User name (default: system user)
+# qfolder.user.name=MyName
+
 # Local qfolder storage root. Sessions are created under this directory.
 # Default: ~/qfolder
 # qfolder.shared.dir=~/qfolder
+
+# Temp directory used by qfolder (default: ~/qfolder/temp)
+# qfolder.temp.dir=~/qfolder/temp
+
+# Language: es, en (default: system locale)
+# qfolder.language=es
+
+# Look and Feel: flat-light, flat-dark, flat-intellij, flat-darcula, metal, nimbus, system
+# qfolder.lookAndFeel=flat-light
+
+# Verbose UI logging (default: false)
+# qfolder.ui.verbose=false
+
+# Custom cloudflared path
+# qfolder.cloudflared.path=/usr/local/bin/cloudflared
+
+# Auto-cache all shared file chunks locally for offline access (default: false).
+# When true, every file.shared event triggers a background download of all chunks
+# via the mesh. Useful for laptops that may disconnect from the network.
+# qfolder.cache.all=false

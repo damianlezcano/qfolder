@@ -24,7 +24,10 @@ public class InMemoryEventStore implements EventStore {
 
 	@Override
 	public synchronized List<Event> listEvents(String workspaceId) {
-		return byWorkspace.getOrDefault(workspaceId, List.of()).stream().map(byId::get).toList();
+		return byWorkspace.getOrDefault(workspaceId, List.of()).stream()
+				.map(byId::get)
+				.sorted(java.util.Comparator.comparing(Event::createdAt).thenComparing(Event::eventId))
+				.toList();
 	}
 
 	@Override

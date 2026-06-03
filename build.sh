@@ -24,14 +24,18 @@ echo "JAVA_HOME=$JAVA_HOME"
 java -version 2>&1 | head -1
 
 cd "$CLIENT_DIR"
-if [ "${QFOLDER_RUN_TESTS:-false}" = "true" ]; then
-    mvn clean package -q
-else
+if [ "${QFOLDER_SKIP_TESTS:-false}" = "true" ]; then
     mvn clean package -DskipTests -q
+else
+    mvn clean package -q
 fi
 
 mkdir -p "$DIST_DIR"
-cp "$CLIENT_DIR/target/p2p-client-1.0-SNAPSHOT-fat.jar" "$DIST_DIR/qfolder.jar"
+VERSION=$(grep -m1 '<version>' "$CLIENT_DIR/pom.xml" | sed -E 's:.*<version>([^<]+)</version>.*:\1:')
+if [ -z "$VERSION" ]; then
+    VERSION="1.0-SNAPSHOT"
+fi
+cp "$CLIENT_DIR/target/p2p-client-${VERSION}-fat.jar" "$DIST_DIR/qfolder.jar"
 cp "$PROJECT_DIR/scripts/qfolder" "$DIST_DIR/qfolder"
 cp "$PROJECT_DIR/scripts/qfolder.bat" "$DIST_DIR/qfolder.bat"
 if [ ! -f "$DIST_DIR/qfolder.properties" ]; then

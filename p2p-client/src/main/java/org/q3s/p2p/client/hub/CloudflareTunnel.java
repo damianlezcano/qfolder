@@ -12,9 +12,9 @@ public class CloudflareTunnel {
 
 	private final Logger log;
 	private final String cloudflaredPath;
-	private Process process;
-	private String tunnelUrl;
-	private boolean running;
+	private volatile Process process;
+	private volatile String tunnelUrl;
+	private volatile boolean running;
 
 	public CloudflareTunnel(Logger log) {
 		this.log = log;
@@ -91,6 +91,9 @@ public class CloudflareTunnel {
 	}
 
 	public boolean isRunning() {
+		if (Config.isTunnelMockEnabled()) {
+			return running;
+		}
 		return running && process != null && process.isAlive();
 	}
 

@@ -62,44 +62,53 @@ public class DirectBootstrap {
 				+ "&direct=true";
 
 		Exception lastError = null;
-		for (int attempt = 1; attempt <= 3; attempt++) try {
-			final boolean[] welcomed = {false};
-			final Event pendingJoinRequest = joinRequest;
-			WsClient bootstrap = new WsClient(new URI(bootstrapUri), null, event -> {
-				if (WebSocketNetworkAdapter.CORE_EVENT_NAME.equals(event.getName())) {
-					Event coreEvent = WebSocketNetworkAdapter.decode(event);
-					if (coreEvent != null) {
-						core.receiveRemoteEvent(coreEvent);
-						welcomeIfAuthorized(localUserId, welcomed);
+		for (int attempt = 1; attempt <= 3; attempt++) {
+			WsClient bootstrap = null;
+			boolean success = false;
+			try {
+				final boolean[] welcomed = {false};
+				final Event pendingJoinRequest = joinRequest;
+				bootstrap = new WsClient(new URI(bootstrapUri), null, event -> {
+					if (WebSocketNetworkAdapter.CORE_EVENT_NAME.equals(event.getName())) {
+						Event coreEvent = WebSocketNetworkAdapter.decode(event);
+						if (coreEvent != null) {
+							core.receiveRemoteEvent(coreEvent);
+							welcomeIfAuthorized(localUserId, welcomed);
+						}
+					} else if (WebSocketNetworkAdapter.CORE_SYNC_REQUEST_NAME.equals(event.getName())) {
+						handleSyncRequest(event);
+					} else if (WebSocketNetworkAdapter.CORE_SYNC_RESPONSE_NAME.equals(event.getName())) {
+						handleSyncResponse(event, localUserId, welcomed);
 					}
-				} else if (WebSocketNetworkAdapter.CORE_SYNC_REQUEST_NAME.equals(event.getName())) {
-					handleSyncRequest(event);
-				} else if (WebSocketNetworkAdapter.CORE_SYNC_RESPONSE_NAME.equals(event.getName())) {
-					handleSyncResponse(event, localUserId, welcomed);
+				}, error -> debug.accept("Bootstrap error: " + error), () -> debug.accept("Bootstrap disconnected"), false);
+
+				bootstrap.setConnectionLostTimeout(25);
+				bootstrap.connectBlocking(6, java.util.concurrent.TimeUnit.SECONDS);
+				if (pendingJoinRequest != null) {
+					bootstrap.send(org.q3s.p2p.model.util.EventUtils.toJsonBase64(
+							new org.q3s.p2p.model.Event(WebSocketNetworkAdapter.CORE_EVENT_NAME, User.build(localUserId),
+									WebSocketNetworkAdapter.encodeCoreEvent(pendingJoinRequest))));
 				}
-			}, error -> debug.accept("Bootstrap error: " + error), () -> debug.accept("Bootstrap disconnected"), false);
+				org.q3s.p2p.model.Event request = new org.q3s.p2p.model.Event(
+						WebSocketNetworkAdapter.CORE_SYNC_REQUEST_NAME,
+						User.build(localUserId),
+						WebSocketNetworkAdapter.encodeKnownEventIds(core.eventIds()));
+				bootstrap.send(org.q3s.p2p.model.util.EventUtils.toJsonBase64(request));
+				mergeKnownPeers();
+				welcomeIfAuthorized(localUserId, welcomed);
 
-			bootstrap.setConnectionLostTimeout(25);
-			bootstrap.connectBlocking(6, java.util.concurrent.TimeUnit.SECONDS);
-			if (pendingJoinRequest != null) {
-				bootstrap.send(org.q3s.p2p.model.util.EventUtils.toJsonBase64(
-						new org.q3s.p2p.model.Event(WebSocketNetworkAdapter.CORE_EVENT_NAME, User.build(localUserId),
-								WebSocketNetworkAdapter.encodeCoreEvent(pendingJoinRequest))));
+				debug.accept("Bootstrap conectado a " + peerUrl + " para ws " + wsId);
+				success = true;
+			} catch (Exception e) {
+				lastError = e;
+				debug.accept("Bootstrap fallo intento " + attempt + ": " + e.getMessage());
+				try { Thread.sleep(250L * attempt); } catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); break; }
+			} finally {
+				if (!success && bootstrap != null) {
+					try { bootstrap.close(); } catch (Exception ignored) {}
+				}
 			}
-			org.q3s.p2p.model.Event request = new org.q3s.p2p.model.Event(
-					WebSocketNetworkAdapter.CORE_SYNC_REQUEST_NAME,
-					User.build(localUserId),
-					WebSocketNetworkAdapter.encodeKnownEventIds(core.eventIds()));
-			bootstrap.send(org.q3s.p2p.model.util.EventUtils.toJsonBase64(request));
-			mergeKnownPeers();
-			welcomeIfAuthorized(localUserId, welcomed);
-
-			debug.accept("Bootstrap conectado a " + peerUrl + " para ws " + wsId);
-			return true;
-		} catch (Exception e) {
-			lastError = e;
-			debug.accept("Bootstrap fallo intento " + attempt + ": " + e.getMessage());
-			try { Thread.sleep(250L * attempt); } catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); break; }
+			if (success) return true;
 		}
 		debug.accept("Bootstrap fallo: " + (lastError != null ? lastError.getMessage() : "sin conexion"));
 		return false;

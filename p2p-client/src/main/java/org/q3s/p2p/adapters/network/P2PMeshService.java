@@ -25,10 +25,10 @@ public class P2PMeshService {
 	private final Consumer<Event> onLocalStatusEvent;
 	private final Consumer<String> debug;
 	private final MeshPolicy policy;
-	private final java.util.Map<String, String> peerCatalog = new java.util.LinkedHashMap<>();
+	private final java.util.Map<String, String> peerCatalog = new java.util.concurrent.ConcurrentHashMap<>();
 	private final Set<String> connectingPeerIds = ConcurrentHashMap.newKeySet();
-	private String lastPublishedPeerUrl = null;
-	private Set<String> lastPublishedConnections = Set.of();
+	private volatile String lastPublishedPeerUrl = null;
+	private volatile Set<String> lastPublishedConnections = Set.of();
 	private volatile boolean shuttingDown = false;
 
 	private record PeerCandidate(String peerId, String peerUrl, int degree) {}
@@ -55,11 +55,54 @@ public class P2PMeshService {
 		p2p.onPeerConnectionsChanged(peers -> {
 			if (shuttingDown) return;
 			connectingPeerIds.removeIf(peers::contains);
+			scheduleAutoReconnect();
 			WorkspaceState state = core.currentState();
 			publishPeerStatusIfChanged();
 			rebalanceConnections(state);
 			onStateChanged.accept(state);
 		});
+	}
+
+	private final java.util.concurrent.ScheduledExecutorService reconnectScheduler =
+			java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+				Thread t = new Thread(r, "p2p-mesh-reconnect");
+				t.setDaemon(true);
+				return t;
+			});
+	private final java.util.Map<String, java.util.concurrent.ScheduledFuture<?>> reconnectFutures =
+			new java.util.concurrent.ConcurrentHashMap<>();
+
+	/**
+	 * Programa un reintento de reconexion para peers del catalogo que no esten conectados
+	 * ni en proceso de conectar. Reemplaza cualquier intento previo pendiente para el
+	 * mismo peer. Se cancela en shutdown o si el peer vuelve a estar conectado.
+	 */
+	private void scheduleAutoReconnect() {
+		if (shuttingDown) return;
+		for (var entry : peerCatalog.entrySet()) {
+			String peerId = entry.getKey();
+			if (peerId == null || peerId.isBlank()) continue;
+			if (p2p.hasPeer(peerId) || connectingPeerIds.contains(peerId)) {
+				java.util.concurrent.ScheduledFuture<?> existing = reconnectFutures.remove(peerId);
+				if (existing != null) existing.cancel(false);
+				continue;
+			}
+			if (reconnectFutures.containsKey(peerId)) continue;
+			java.util.concurrent.ScheduledFuture<?> future = reconnectScheduler.schedule(() -> {
+				reconnectFutures.remove(peerId);
+				if (shuttingDown) return;
+				if (p2p.hasPeer(peerId) || connectingPeerIds.contains(peerId)) return;
+				String peerUrl = peerCatalog.get(peerId);
+				if (peerUrl == null || peerUrl.isBlank()) return;
+				String wsId = workspaceId.get();
+				if (wsId == null || wsId.isBlank()) return;
+				debug.accept("P2P mesh: auto-reconnect a " + peerId);
+				User peer = User.build(peerId);
+				peer.setPeerUrl(peerUrl);
+				peerAppeared(peer);
+			}, 5, java.util.concurrent.TimeUnit.SECONDS);
+			reconnectFutures.put(peerId, future);
+		}
 	}
 
 	public void peerAppeared(User peer) {
@@ -143,6 +186,9 @@ public class P2PMeshService {
 		connectingPeerIds.clear();
 		peerCatalog.clear();
 		lastPublishedConnections = Set.of();
+		for (var future : reconnectFutures.values()) future.cancel(false);
+		reconnectFutures.clear();
+		reconnectScheduler.shutdownNow();
 		debug.accept("P2P mesh: desconectando todos los peers");
 		p2p.disconnectAll();
 	}

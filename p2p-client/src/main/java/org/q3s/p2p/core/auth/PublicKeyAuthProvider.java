@@ -53,8 +53,9 @@ public class PublicKeyAuthProvider implements AuthProvider {
 
 	@Override
 	public boolean validateMemberReconnect(String workspaceId, String memberId, String membershipToken, WorkspaceState state) {
-		if (state == null || memberId == null) return false;
-		return state.isAuthorized(memberId) && membershipToken != null && !membershipToken.isBlank();
+		if (state == null || memberId == null || membershipToken == null || membershipToken.isBlank()) return false;
+		Member member = state.authorizedMembers().get(memberId);
+		return member != null && !member.revoked() && membershipToken.equals(member.membershipToken());
 	}
 
 	@Override
@@ -97,7 +98,7 @@ public class PublicKeyAuthProvider implements AuthProvider {
 			signature.update(canonicalBytes(event));
 			return Base64.getEncoder().encodeToString(signature.sign());
 		} catch (Exception e) {
-			return "";
+			throw new IllegalStateException("Failed to sign event: " + e.getMessage(), e);
 		}
 	}
 

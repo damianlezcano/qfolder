@@ -26,8 +26,10 @@ import org.q3s.p2p.adapters.memory.SystemClockProvider;
 import org.q3s.p2p.adapters.memory.UuidIdGenerator;
 import org.q3s.p2p.adapters.network.SimulatedNetworkAdapter;
 import org.q3s.p2p.adapters.network.SimulatedNetworkAdapter.SimulatedNode;
+import org.q3s.p2p.core.app.CoreApplicationService;
 import org.q3s.p2p.core.auth.TokenAuthProvider;
 import org.q3s.p2p.core.chat.ChatService;
+import org.q3s.p2p.core.events.CoreEventCodec;
 import org.q3s.p2p.core.events.EventFactory;
 import org.q3s.p2p.core.events.EventTypes;
 import org.q3s.p2p.core.files.FileService;
@@ -354,12 +356,13 @@ class CoreQfolderTest {
 
 	@Test void caso25eventoDeNoAprobadoNoModificaEstado() {
 		var store = new InMemoryEventStore();
-		var auth = new TokenAuthProvider(ids);
-		var created = new WorkspaceService(store, auth, ids, events).createWorkspace("W", "A", 2);
+		var service = new CoreApplicationService(store, new InMemoryFileChunkStore(), ids);
+		var created = service.createWorkspace("W", "A", 2);
 		Event msg = events.create(created.workspaceId(), EventTypes.CHAT_MESSAGE_CREATED, "intruso", Map.of("message_id", "m1", "text", "intruso"), null);
-		store.append(msg);
+		boolean accepted = service.receiveRemoteEvent(msg);
+		assertFalse(accepted);
 		WorkspaceState state = WorkspaceStateBuilder.fromEvents(store.listEvents(created.workspaceId()));
-		assertEquals(1, state.chatMessages().size());
+		assertEquals(0, state.chatMessages().size());
 	}
 
 	@Test void caso26eventoConWorkspaceIdIncorrectoRechazado() {
@@ -1578,5 +1581,40 @@ class CoreQfolderTest {
 		Path identity = layout.identityFile();
 
 		assertEquals(tmp.resolve("systemdata").resolve("identity.properties"), identity);
+	}
+
+	@Test void whiteboardStrokePointsRoundtripPreservaIntArrays() {
+		Map<String, Object> payload = new LinkedHashMap<>();
+		payload.put("stroke_id", "stroke-1");
+		payload.put("color", "#FF0000");
+		payload.put("width", 3);
+		List<int[]> points = new ArrayList<>();
+		points.add(new int[] {10, 20});
+		points.add(new int[] {30, 40});
+		points.add(new int[] {50, 60});
+		payload.put("points", points);
+		Event stroke = new Event("evt-1", "ws-x", EventTypes.WHITEBOARD_STROKE_ADDED, "mem-1",
+				Instant.now(), List.of(), payload, null, null, true);
+
+		String json = CoreEventCodec.toJson(stroke);
+		Event decoded = CoreEventCodec.eventFromJson(json);
+
+		assertNotNull(decoded);
+		Object raw = decoded.payload().get("points");
+		assertInstanceOf(List.class, raw);
+		List<?> roundtrip = (List<?>) raw;
+		assertEquals(3, roundtrip.size());
+		assertInstanceOf(int[].class, roundtrip.get(0));
+		assertArrayEquals(new int[] {10, 20}, (int[]) roundtrip.get(0));
+		assertArrayEquals(new int[] {30, 40}, (int[]) roundtrip.get(1));
+		assertArrayEquals(new int[] {50, 60}, (int[]) roundtrip.get(2));
+
+		WorkspaceState state = WorkspaceStateBuilder.fromEvents(List.of(decoded));
+		assertEquals(1, state.strokes().size());
+		Object stored = state.strokes().get("stroke-1").points();
+		assertInstanceOf(List.class, stored);
+		List<?> storedPoints = (List<?>) stored;
+		assertInstanceOf(int[].class, storedPoints.get(0));
+		assertArrayEquals(new int[] {10, 20}, (int[]) storedPoints.get(0));
 	}
 }

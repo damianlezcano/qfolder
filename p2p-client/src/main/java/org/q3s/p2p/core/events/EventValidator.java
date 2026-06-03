@@ -1,6 +1,7 @@
 package org.q3s.p2p.core.events;
 
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.q3s.p2p.core.model.Event;
 import org.q3s.p2p.core.auth.PublicKeyAuthProvider;
@@ -11,6 +12,7 @@ import org.q3s.p2p.ports.EventStore;
 
 public class EventValidator {
 	private final EventStore store;
+	private final ConcurrentHashMap<String, CachedState> stateCache = new ConcurrentHashMap<>();
 
 	public EventValidator(EventStore store) {
 		this.store = store;
@@ -23,7 +25,7 @@ public class EventValidator {
 				|| event.authorMemberId() == null || event.authorMemberId().isBlank()) return false;
 		if (event.payload() == null) return false;
 
-		WorkspaceState state = WorkspaceStateBuilder.fromEvents(store.listEvents(event.workspaceId()));
+		WorkspaceState state = cachedState(event.workspaceId());
 		return switch (event.type()) {
 			case EventTypes.WORKSPACE_CREATED -> !store.containsType(event.workspaceId(), EventTypes.WORKSPACE_CREATED)
 					&& matchesPayload(event, "creator_member_id", event.authorMemberId())
@@ -41,6 +43,23 @@ public class EventValidator {
 		};
 	}
 
+	public void invalidate(String workspaceId) {
+		if (workspaceId != null) stateCache.remove(workspaceId);
+	}
+
+	public void invalidateAll() {
+		stateCache.clear();
+	}
+
+	private WorkspaceState cachedState(String workspaceId) {
+		CachedState cached = stateCache.get(workspaceId);
+		int currentSize = store.listEvents(workspaceId).size();
+		if (cached != null && cached.eventCount == currentSize) return cached.state;
+		WorkspaceState state = WorkspaceStateBuilder.fromEvents(store.listEvents(workspaceId));
+		stateCache.put(workspaceId, new CachedState(state, currentSize));
+		return state;
+	}
+
 	private boolean matchesPayload(Event event, String key, String expected) {
 		Map<String, Object> payload = event.payload();
 		Object value = payload.get(key);
@@ -54,7 +73,11 @@ public class EventValidator {
 	}
 
 	private boolean validSignatureIfPresent(Event event, String publicKey) {
-		if (publicKey == null || publicKey.isBlank()) return true;
+		if (publicKey == null || publicKey.isBlank()) {
+			return event.signature() == null || event.signature().isBlank();
+		}
 		return PublicKeyAuthProvider.verifyEventSignature(event, publicKey);
 	}
+
+	private record CachedState(WorkspaceState state, int eventCount) {}
 }

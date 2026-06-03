@@ -19,15 +19,27 @@ import java.util.regex.Pattern;
 
 import javax.swing.JOptionPane;
 
+import org.q3s.p2p.client.util.I18n;
 import org.q3s.p2p.client.util.Logger;
 
 public class UpdateChecker {
 
-	private static final String VERSION = "1.0.7";
+	private static final String VERSION = loadVersion();
 	private static final String GITHUB_API = "https://api.github.com/repos/damianlezcano/qfolder/releases/latest";
 	private static final String RELEASES_URL = "https://github.com/damianlezcano/qfolder/releases/latest";
 	private static final Pattern TAG_PATTERN = Pattern.compile("\"tag_name\"\\s*:\\s*\"([^\"]+)\"");
 	private static final Pattern URL_PATTERN = Pattern.compile("\"browser_download_url\"\\s*:\\s*\"([^\"]+)\"");
+
+	private static String loadVersion() {
+		try (InputStream is = UpdateChecker.class.getResourceAsStream("/META-INF/maven/org.q3s/p2p-client/pom.properties")) {
+			if (is != null) {
+				java.util.Properties props = new java.util.Properties();
+				props.load(is);
+				return props.getProperty("version", "0.0.0");
+			}
+		} catch (Exception ignored) {}
+		return "0.0.0";
+	}
 
 	public static String getVersion() {
 		return VERSION;
@@ -105,10 +117,9 @@ public class UpdateChecker {
 
 	private static void showMajorUpdateDialog(java.awt.Component parent, Logger log, String newVersion) {
 		int opt = JOptionPane.showConfirmDialog(parent,
-				"Major update " + newVersion + " available (current: " + VERSION + ").\n"
-				+ "This update includes platform changes and requires downloading the full package.\n"
-				+ "Open the release page to download?",
-				"qfolder Major Update", JOptionPane.YES_NO_OPTION);
+				I18n.get("update.major.message", newVersion, VERSION),
+				I18n.get("update.major.title", "qfolder Major Update"),
+				JOptionPane.YES_NO_OPTION);
 		if (opt == JOptionPane.YES_OPTION) {
 			try {
 				Desktop.getDesktop().browse(URI.create(RELEASES_URL));
@@ -120,8 +131,9 @@ public class UpdateChecker {
 
 	private static void showUpdateDialog(java.awt.Component parent, Logger log, String newVersion, String downloadUrl) {
 		int opt = JOptionPane.showConfirmDialog(parent,
-				"New version " + newVersion + " available (current: " + VERSION + ").\nDownload and install?",
-				"qfolder Update", JOptionPane.YES_NO_OPTION);
+				I18n.get("update.available.message", newVersion, VERSION),
+				I18n.get("update.available.title", "qfolder Update"),
+				JOptionPane.YES_NO_OPTION);
 		if (opt == JOptionPane.YES_OPTION) {
 			downloadAndInstall(parent, log, downloadUrl, newVersion);
 		}
@@ -130,7 +142,7 @@ public class UpdateChecker {
 	private static void downloadAndInstall(java.awt.Component parent, Logger log, String url, String version) {
 		new Thread(() -> {
 			try {
-				log.info("Downloading qfolder " + version + "...");
+				log.info(I18n.get("update.downloading", version));
 				HttpClient client = HttpClient.newBuilder()
 						.followRedirects(HttpClient.Redirect.NORMAL)
 						.connectTimeout(Duration.ofSeconds(10))
@@ -154,11 +166,11 @@ public class UpdateChecker {
 				Files.move(currentJar, backup, StandardCopyOption.REPLACE_EXISTING);
 				Files.move(newJar, currentJar, StandardCopyOption.REPLACE_EXISTING);
 				Files.deleteIfExists(backup);
-				log.info("Updated to " + version + ". Restart to apply.");
+				log.info(I18n.get("update.success", version));
 				javax.swing.SwingUtilities.invokeLater(() ->
-						JOptionPane.showMessageDialog(parent, "Updated to " + version + ". Restart the app to apply."));
+						JOptionPane.showMessageDialog(parent, I18n.get("update.success", version)));
 			} catch (Exception e) {
-				log.err("Update failed: " + e.getMessage());
+				log.err(I18n.get("update.failed", e.getMessage()));
 			}
 		}, "update-download").start();
 	}

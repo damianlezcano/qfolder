@@ -66,7 +66,6 @@ public class FileTableModel extends AbstractTableModel {
             case 5: result = I18n.get("col.peers"); break;
             default: result = "";
         }
-        System.out.println("[FileTableModel.getColumnName] col=" + col + " -> \"" + result + "\", I18n locale=" + I18n.currentLocale().getLanguage());
         return result;
     }
 

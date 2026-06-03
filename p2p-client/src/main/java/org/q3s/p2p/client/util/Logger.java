@@ -5,8 +5,9 @@
  */
 package org.q3s.p2p.client.util;
 
-import java.text.SimpleDateFormat;
-import java.util.Date;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import javax.swing.DefaultListModel;
 import javax.swing.SwingUtilities;
 
@@ -15,31 +16,32 @@ import javax.swing.SwingUtilities;
  * @author damianlezcano
  */
 public class Logger {
-    
-    private String pattern = "dd/MM/yyyy HH:mm:ss";
-    private SimpleDateFormat simpleDateFormat = new SimpleDateFormat(pattern);
-    
+
+    private static final DateTimeFormatter FORMATTER =
+            DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss")
+                    .withZone(ZoneId.systemDefault());
+
     private DefaultListModel listModel;
-    
+
     public Logger(DefaultListModel model){
         this.listModel = model;
     }
-    
+
     public void info(String msg){
-        String date = simpleDateFormat.format(new Date());
+        String date = FORMATTER.format(Instant.now());
         String f = String.format("%s - %s", date,msg);
         System.out.println(f);
         addToModel(f);
     }
-    
+
     public void debug(String msg){
-        String date = simpleDateFormat.format(new Date());
+        String date = FORMATTER.format(Instant.now());
         String f = String.format("%s - %s", date,msg);
         System.out.println(f);
     }
-    
+
     public void err(String msg){
-        String date = simpleDateFormat.format(new Date());
+        String date = FORMATTER.format(Instant.now());
         String f = String.format("%s - %s", date,msg);
         System.err.println(f);
         addToModel(f);

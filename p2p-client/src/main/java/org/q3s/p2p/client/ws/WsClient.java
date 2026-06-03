@@ -20,7 +20,7 @@ public class WsClient extends WebSocketClient {
 	private final Runnable onClose;
 	private final boolean callbacksOnEdt;
 	private final ExecutorService callbackExecutor;
-	private volatile boolean closeNotified;
+	private final java.util.concurrent.atomic.AtomicBoolean closeNotified = new java.util.concurrent.atomic.AtomicBoolean(false);
 	private volatile boolean closed;
 
 	public WsClient(URI uri, Logger log, Consumer<Event> onEvent, Consumer<String> onError,
@@ -87,8 +87,7 @@ public class WsClient extends WebSocketClient {
 	}
 
 	private void callCloseCallback() {
-		if (onClose != null && !closeNotified) {
-			closeNotified = true;
+		if (onClose != null && closeNotified.compareAndSet(false, true)) {
 			onClose.run();
 		}
 	}

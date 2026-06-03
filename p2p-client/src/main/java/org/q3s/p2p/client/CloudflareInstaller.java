@@ -11,20 +11,20 @@ import java.nio.file.StandardCopyOption;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
+import org.q3s.p2p.client.util.I18n;
 import org.q3s.p2p.client.util.Logger;
 
 public class CloudflareInstaller {
 
-	private static final String LINUX_URL = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64";
-	private static final String WINDOWS_URL = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe";
-	private static final String MAC_URL = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz";
-
-	private static boolean installed = false;
+	private static volatile boolean installed = false;
+	private static final Object INSTALL_LOCK = new Object();
 	private static final CountDownLatch installLatch = new CountDownLatch(1);
 
 	public static void ensureInstalled(Logger log) {
 		try {
-			ensureInstalledInternal(log);
+			synchronized (INSTALL_LOCK) {
+				ensureInstalledInternal(log);
+			}
 		} finally {
 			installLatch.countDown();
 		}
@@ -32,7 +32,7 @@ public class CloudflareInstaller {
 
 	private static void ensureInstalledInternal(Logger log) {
 		if (Config.isTunnelMockEnabled()) {
-			log.info("Modo tunnel mock activo. No se instala cloudflared.");
+			log.info(I18n.get("cloudflare.mock"));
 			return;
 		}
 
@@ -47,20 +47,26 @@ public class CloudflareInstaller {
 		}
 
 		String os = System.getProperty("os.name").toLowerCase();
+		String arch = System.getProperty("os.arch", "").toLowerCase();
+		boolean isArm = arch.contains("aarch64") || arch.contains("arm");
 		String downloadUrl;
 		String targetName;
 
 		if (os.contains("linux")) {
-			downloadUrl = LINUX_URL;
+			downloadUrl = isArm
+					? "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"
+					: "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64";
 			targetName = "cloudflared";
 		} else if (os.contains("windows")) {
-			downloadUrl = WINDOWS_URL;
+			downloadUrl = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe";
 			targetName = "cloudflared.exe";
 		} else if (os.contains("mac")) {
-			downloadUrl = MAC_URL;
+			downloadUrl = isArm
+					? "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz"
+					: "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz";
 			targetName = "cloudflared";
 		} else {
-			log.err("Sistema operativo no soportado para cloudflared: " + os);
+			log.err(I18n.get("cloudflare.unsupportedOs", os));
 			return;
 		}
 
@@ -74,7 +80,7 @@ public class CloudflareInstaller {
 			return;
 		}
 
-		log.info("Descargando cloudflared para " + os + "...");
+		log.info(I18n.get("cloudflare.downloading", os));
 		try {
 			URLConnection conn = new URL(downloadUrl).openConnection();
 			conn.setConnectTimeout(30000);
@@ -98,11 +104,10 @@ public class CloudflareInstaller {
 
 			target.setExecutable(true);
 			installed = true;
-			log.info("cloudflared instalado en " + target.getAbsolutePath());
+			log.info(I18n.get("cloudflare.installed", target.getAbsolutePath()));
 			tempFile.delete();
 		} catch (Exception e) {
-			log.err("Error al descargar cloudflared: " + e.getMessage());
-			log.err("Instalalo manualmente: https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation/");
+			log.err(I18n.get("cloudflare.downloadError", e.getMessage()));
 		}
 	}
 

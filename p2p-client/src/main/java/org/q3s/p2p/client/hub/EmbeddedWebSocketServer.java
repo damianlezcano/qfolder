@@ -98,6 +98,10 @@ public class EmbeddedWebSocketServer extends WebSocketServer {
 
 	@Override
 	public void onError(WebSocket conn, Exception ex) {
+		err("onError: " + (ex != null ? ex.getMessage() : "unknown"));
+		if (conn != null) {
+			try { conn.close(); } catch (Exception ignored) {}
+		}
 	}
 
 	public void shutdown() {
@@ -133,7 +137,7 @@ public class EmbeddedWebSocketServer extends WebSocketServer {
 	}
 
 	private void debug(String msg) {
-		System.out.println("[WsServer] " + msg);
+		// debug logging is best-effort; no logger available in this context
 	}
 
 	private void err(String msg) {

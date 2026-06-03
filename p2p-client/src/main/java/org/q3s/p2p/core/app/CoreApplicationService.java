@@ -17,11 +17,13 @@ import org.q3s.p2p.core.chat.ChatService;
 import org.q3s.p2p.core.events.EventFactory;
 import org.q3s.p2p.core.events.EventService;
 import org.q3s.p2p.core.events.EventTypes;
+import org.q3s.p2p.core.files.ChunkReplicator;
 import org.q3s.p2p.core.files.FileService;
 import org.q3s.p2p.core.members.MembershipService;
 import org.q3s.p2p.core.model.Event;
 import org.q3s.p2p.core.model.Member;
 import org.q3s.p2p.core.notes.NoteService;
+import org.q3s.p2p.core.state.SnapshotService;
 import org.q3s.p2p.core.state.WorkspaceState;
 import org.q3s.p2p.core.state.WorkspaceStateBuilder;
 import org.q3s.p2p.core.whiteboard.WhiteboardService;
@@ -30,6 +32,8 @@ import org.q3s.p2p.ports.AuthProvider;
 import org.q3s.p2p.ports.EventStore;
 import org.q3s.p2p.ports.FileChunkStore;
 import org.q3s.p2p.ports.IdGenerator;
+
+import java.time.Instant;
 
 public class CoreApplicationService {
 	private final EventStore eventStore;
@@ -43,6 +47,7 @@ public class CoreApplicationService {
 	private final FileService fileService;
 	private final NoteService noteService;
 	private final WhiteboardService whiteboardService;
+	private final ChunkReplicator chunkReplicator;
 	private String currentWorkspaceId;
 	private Member currentMember;
 
@@ -58,6 +63,7 @@ public class CoreApplicationService {
 		this.fileService = new FileService(eventStore, chunkStore, eventFactory, ids);
 		this.noteService = new NoteService(eventStore, eventFactory);
 		this.whiteboardService = new WhiteboardService(eventStore, eventFactory, ids);
+		this.chunkReplicator = new ChunkReplicator(eventStore, chunkStore);
 	}
 
 	public CoreApplicationService(EventStore eventStore, FileChunkStore chunkStore, IdGenerator ids) {
@@ -231,10 +237,11 @@ public class CoreApplicationService {
 
 	public Event updatePeerStatus(String peerUrl, Set<String> connectedPeers) {
 		requireSession();
-		Event event = eventFactory.create(currentWorkspaceId, EventTypes.PEER_STATUS_UPDATED, currentMember.memberId(), Map.of(
+		Event draft = eventFactory.create(currentWorkspaceId, EventTypes.PEER_STATUS_UPDATED, currentMember.memberId(), Map.of(
 				"member_id", currentMember.memberId(),
 				"peer_url", peerUrl == null ? "" : peerUrl,
 				"connected_peers", connectedPeers == null ? List.of() : List.copyOf(connectedPeers)), null);
+		Event event = auth.stampEvent(draft, currentMember);
 		eventStore.append(event);
 		return event;
 	}
@@ -242,6 +249,11 @@ public class CoreApplicationService {
 	public boolean receiveRemoteEvent(Event event) {
 		requireWorkspace();
 		if (event == null || !currentWorkspaceId.equals(event.workspaceId())) return false;
+		if (event.isEphemeral()) {
+			WorkspaceState state = currentState();
+			new org.q3s.p2p.core.state.MeshProjector().apply(state, event);
+			return true;
+		}
 		return new EventService(eventStore, true).accept(event);
 	}
 
@@ -291,6 +303,35 @@ public class CoreApplicationService {
 		return WorkspaceStateBuilder.fromEvents(eventStore.listEvents(currentWorkspaceId));
 	}
 
+	/**
+	 * Carga el estado con cache: snapshot más reciente + delta de eventos posteriores.
+	 * Si no hay snapshot, reconstruye desde todos los eventos. Si snapshotPath es null,
+	 * usa el root del chunkStore para localizar el snapshot (filesystem workspaces).
+	 */
+	public WorkspaceState currentStateWithSnapshot(java.nio.file.Path snapshotPath) {
+		requireWorkspace();
+		SnapshotService snapshots = new SnapshotService(snapshotPath);
+		var latest = snapshots.loadLatestWithTimestamp(currentWorkspaceId);
+		if (latest.isEmpty()) return currentState();
+		List<Event> snapshotEvents = latest.get().snapshotEvents();
+		Instant threshold = latest.get().snapshotTimestamp();
+		List<Event> delta = eventStore.listEventsAfter(currentWorkspaceId, threshold);
+		java.util.List<Event> combined = new java.util.ArrayList<>(snapshotEvents.size() + delta.size());
+		combined.addAll(snapshotEvents);
+		combined.addAll(delta);
+		return WorkspaceStateBuilder.fromEvents(combined);
+	}
+
+	/**
+	 * Hook de startup: si la replicacion automatica esta habilitada, procesa el
+	 * estado actual y notifica al replicator para descargar chunks faltantes.
+	 * Retorna cuantos archivos dispararon descarga.
+	 */
+	public int runStartupCache() {
+		requireWorkspace();
+		return chunkReplicator.processCurrentState(currentWorkspaceId);
+	}
+
 	public List<Event> events() {
 		requireWorkspace();
 		return eventStore.listEvents(currentWorkspaceId);
@@ -316,6 +357,7 @@ public class CoreApplicationService {
 	public MembershipService membershipService() { return membershipService; }
 	public EventStore eventStore() { return eventStore; }
 	public FileChunkStore chunkStore() { return chunkStore; }
+	public ChunkReplicator chunkReplicator() { return chunkReplicator; }
 
 	private void requireSession() {
 		requireWorkspace();

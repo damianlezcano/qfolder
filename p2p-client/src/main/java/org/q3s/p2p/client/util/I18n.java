@@ -23,20 +23,14 @@ public class I18n {
 	}
 
 	private static ResourceBundle loadBundle(Locale locale) {
-		Locale langOnly = new Locale(locale.getLanguage());
+		Locale langOnly = Locale.forLanguageTag(locale.getLanguage());
 		try {
-			ResourceBundle b = ResourceBundle.getBundle("i18n/messages", langOnly);
-			System.out.println("[I18n] loadBundle locale=" + locale + " -> bundle=" + b.getLocale() + ", spanish=" + b.getString("config.languageSpanish") + ", english=" + b.getString("config.languageEnglish"));
-			return b;
+			return ResourceBundle.getBundle("i18n/messages", langOnly);
 		} catch (Exception e) {
 			try {
-				ResourceBundle b = ResourceBundle.getBundle("i18n/messages", Locale.ENGLISH);
-				System.out.println("[I18n] loadBundle fallback ENGLISH, bundle=" + b.getLocale());
-				return b;
+				return ResourceBundle.getBundle("i18n/messages", Locale.ENGLISH);
 			} catch (Exception ex) {
-				ResourceBundle b = ResourceBundle.getBundle("i18n/messages");
-				System.out.println("[I18n] loadBundle fallback default, bundle=" + b.getLocale());
-				return b;
+				return ResourceBundle.getBundle("i18n/messages");
 			}
 		}
 	}

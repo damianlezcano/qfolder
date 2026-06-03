@@ -26,7 +26,7 @@ public final class EventTypes {
 	public static final String CURSOR_MOVED = "cursor.moved";
 	public static final String DRAWING_PREVIEW = "drawing.preview";
 
-	private static final Set<String> EPHEMERAL = Set.of(USER_TYPING, CURSOR_MOVED, DRAWING_PREVIEW, "mouse.moved");
+	private static final Set<String> EPHEMERAL = Set.of(USER_TYPING, CURSOR_MOVED, DRAWING_PREVIEW, "mouse.moved", PEER_STATUS_UPDATED);
 
 	private EventTypes() {}
 	public static boolean isPersistent(String type) { return !EPHEMERAL.contains(type); }

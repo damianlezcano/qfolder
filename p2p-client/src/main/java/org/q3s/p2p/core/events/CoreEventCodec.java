@@ -177,8 +177,15 @@ public final class CoreEventCodec {
 			case TRUE -> true;
 			case FALSE -> false;
 			case ARRAY -> {
+				var arr = value.asJsonArray();
+				boolean allNumbers = !arr.isEmpty() && arr.stream().allMatch(v -> v.getValueType() == JsonValue.ValueType.NUMBER);
+				if (allNumbers) {
+					int[] point = new int[arr.size()];
+					for (int i = 0; i < arr.size(); i++) point[i] = arr.getInt(i);
+					yield point;
+				}
 				List<Object> list = new ArrayList<>();
-				for (JsonValue item : value.asJsonArray()) list.add(javaValue(item));
+				for (JsonValue item : arr) list.add(javaValue(item));
 				yield list;
 			}
 			case OBJECT -> mapFromObject(value.asJsonObject());

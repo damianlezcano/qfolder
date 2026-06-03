@@ -1,5 +1,14 @@
 # qfolder — Release Guide
 
+> **Importante — Branch convention:** Este documento y `scripts/release.sh` usan `develop` → `master` (la rama base histórica del repo). El workflow de CI en `.github/workflows/maven-publish.yml` corre contra `main` porque GitHub exige esa rama como default para releases y Packages.
+>
+> **Acción coordinada requerida** (no aplicada aún): unificar la convención. Opciones:
+> 1. Cambiar `RELEASE.md` y `release.sh` a `main` (más simple, alinea con GitHub).
+> 2. Cambiar el workflow a `master` y mantener `develop` como staging.
+> 3. Mantener ambas: `develop` para staging diario, `master` como rama de release, `main` solo para CI.
+>
+> El AGENTS.md marca `.github/workflows/maven-publish.yml` como “no modificar sin aviso” porque requiere decisión explícita sobre el flujo de ramas real. Si decidís alinear, modificá ambos archivos de forma coordinada.
+
 ## One-time setup
 
 Generate a GitHub token with `repo` scope at https://github.com/settings/tokens
