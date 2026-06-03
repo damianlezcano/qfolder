@@ -67,5 +67,27 @@ public class SnapshotService {
 		return root.resolve(workspaceId).resolve("snapshots");
 	}
 
+	public int pruneOldSnapshots(String workspaceId, int maxSnapshots) {
+		if (maxSnapshots <= 0) return 0;
+		Path dir = snapshotDir(workspaceId);
+		if (!Files.isDirectory(dir)) return 0;
+		try (var files = Files.list(dir)) {
+			List<Path> snapshots = files
+					.filter(path -> path.getFileName().toString().endsWith(".snapshot"))
+					.sorted(Comparator.comparing(path -> path.getFileName().toString()))
+					.toList();
+			if (snapshots.size() <= maxSnapshots) return 0;
+			int toDelete = snapshots.size() - maxSnapshots;
+			int deleted = 0;
+			for (int i = 0; i < toDelete; i++) {
+				Files.deleteIfExists(snapshots.get(i));
+				deleted++;
+			}
+			return deleted;
+		} catch (Exception e) {
+			throw new IllegalStateException("No se pudo podar snapshots antiguos", e);
+		}
+	}
+
 	public record SnapshotLoadResult(List<Event> snapshotEvents, Instant snapshotTimestamp) {}
 }

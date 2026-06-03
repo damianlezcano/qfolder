@@ -22,6 +22,8 @@ import org.q3s.p2p.core.files.FileService;
 import org.q3s.p2p.core.members.MembershipService;
 import org.q3s.p2p.core.model.Event;
 import org.q3s.p2p.core.model.Member;
+import org.q3s.p2p.core.model.Note;
+import org.q3s.p2p.core.model.NoteLine;
 import org.q3s.p2p.core.notes.NoteService;
 import org.q3s.p2p.core.state.SnapshotService;
 import org.q3s.p2p.core.state.WorkspaceState;
@@ -50,6 +52,10 @@ public class CoreApplicationService {
 	private final ChunkReplicator chunkReplicator;
 	private String currentWorkspaceId;
 	private Member currentMember;
+	private volatile Path snapshotPath;
+	private volatile int snapshotEveryEvents = 50;
+	private volatile int snapshotMaxSnapshots = 5;
+	private int eventsSinceSnapshot;
 
 	public CoreApplicationService(EventStore eventStore, FileChunkStore chunkStore, IdGenerator ids, boolean usePublicKeyAuth) {
 		this.eventStore = eventStore;
@@ -84,6 +90,7 @@ public class CoreApplicationService {
 		WorkspaceService.CreatedWorkspace created = workspaceService.createWorkspace(name, displayName, requiredApprovals);
 		currentWorkspaceId = created.workspaceId();
 		currentMember = created.creator();
+		maybeSaveSnapshot(created.createdEvent());
 		return created;
 	}
 
@@ -116,7 +123,9 @@ public class CoreApplicationService {
 				"creator_device_id", deviceId == null ? "swing-device" : deviceId,
 				"creator_membership_token", token == null ? memberId : token,
 				"creator_public_key", publicKey == null ? "" : publicKey), null);
-		eventStore.append(auth.stampEvent(created));
+		Event stamped = auth.stampEvent(created);
+		eventStore.append(stamped);
+		maybeSaveSnapshot(stamped);
 	}
 
 	public Event recordJoinRequest(String candidateMemberId, String candidateDisplayName, String candidateDeviceId, String token) {
@@ -128,12 +137,12 @@ public class CoreApplicationService {
 		requireWorkspace();
 		registerPrivateKey(candidateMemberId, privateKey);
 		Member candidate = new Member(candidateMemberId, candidateDisplayName, candidateDeviceId, token, false, publicKey == null ? "" : publicKey);
-		return membershipService.requestJoin(currentWorkspaceId, candidate);
+		return afterLocalEvent(membershipService.requestJoin(currentWorkspaceId, candidate));
 	}
 
 	public Event approveJoin(String candidateMemberId) {
 		requireSession();
-		return membershipService.approve(currentWorkspaceId, currentMember.memberId(), candidateMemberId);
+		return afterLocalEvent(membershipService.approve(currentWorkspaceId, currentMember.memberId(), candidateMemberId));
 	}
 
 	public Event authorizeKnownMember(String memberId, String displayName, String deviceId, String token) {
@@ -142,8 +151,8 @@ public class CoreApplicationService {
 
 	public Event authorizeKnownMember(String memberId, String displayName, String deviceId, String token, String publicKey) {
 		requireSession();
-		return membershipService.addAuthorizedMember(currentWorkspaceId, currentMember.memberId(),
-				new Member(memberId, displayName, deviceId, token, false, publicKey == null ? "" : publicKey));
+		return afterLocalEvent(membershipService.addAuthorizedMember(currentWorkspaceId, currentMember.memberId(),
+				new Member(memberId, displayName, deviceId, token, false, publicKey == null ? "" : publicKey)));
 	}
 
 	public boolean canReconnect(String memberId, String token) {
@@ -153,17 +162,17 @@ public class CoreApplicationService {
 
 	public Event sendChatMessage(String text) {
 		requireSession();
-		return chatService.sendMessage(currentWorkspaceId, currentMember.memberId(), text);
+		return afterLocalEvent(chatService.sendMessage(currentWorkspaceId, currentMember.memberId(), text));
 	}
 
 	public Event shareFile(String name, byte[] content) {
 		requireSession();
-		return fileService.shareFile(currentWorkspaceId, currentMember.memberId(), name, content);
+		return afterLocalEvent(fileService.shareFile(currentWorkspaceId, currentMember.memberId(), name, content));
 	}
 
 	public Event shareChatFile(String name, byte[] content) {
 		requireSession();
-		return fileService.shareFile(currentWorkspaceId, currentMember.memberId(), name, content, true);
+		return afterLocalEvent(fileService.shareFile(currentWorkspaceId, currentMember.memberId(), name, content, true));
 	}
 
 	public Event shareFile(Path path) {
@@ -201,38 +210,57 @@ public class CoreApplicationService {
 
 	public Event finishWhiteboardStroke(List<int[]> points) {
 		requireSession();
-		return whiteboardService.finishStroke(currentWorkspaceId, currentMember.memberId(), points);
+		return afterLocalEvent(whiteboardService.finishStroke(currentWorkspaceId, currentMember.memberId(), points));
 	}
 
 	public Event finishWhiteboardStroke(List<int[]> points, String color, int width) {
 		requireSession();
-		return whiteboardService.finishStroke(currentWorkspaceId, currentMember.memberId(), points, color, width);
+		return afterLocalEvent(whiteboardService.finishStroke(currentWorkspaceId, currentMember.memberId(), points, color, width));
 	}
 
 	public Event recordWhiteboardObjectAction(String action, String objectId, String operation) {
 		requireSession();
-		return switch (action == null ? "" : action) {
+		return afterLocalEvent(switch (action == null ? "" : action) {
 			case "add" -> whiteboardService.objectAdded(currentWorkspaceId, currentMember.memberId(), objectId, operation);
 			case "update" -> whiteboardService.objectMoved(currentWorkspaceId, currentMember.memberId(), objectId, operation);
 			case "delete" -> whiteboardService.objectDeleted(currentWorkspaceId, currentMember.memberId(), objectId);
 			case "clear" -> whiteboardService.cleared(currentWorkspaceId, currentMember.memberId());
 			default -> throw new IllegalArgumentException("Accion de pizarra desconocida: " + action);
-		};
+		});
 	}
 
 	public Event updateNote(String noteId, String text) {
 		requireSession();
-		return noteService.updateNote(currentWorkspaceId, currentMember.memberId(), noteId, text == null ? "" : text);
+		return afterLocalEvent(noteService.updateNote(currentWorkspaceId, currentMember.memberId(), noteId, text == null ? "" : text));
 	}
 
 	public Event insertNoteText(String noteId, int position, String text) {
 		requireSession();
-		return noteService.insertText(currentWorkspaceId, currentMember.memberId(), noteId, position, text);
+		String afterLineId = findLineIdAtPosition(noteId, position);
+		return afterLocalEvent(noteService.insertLine(currentWorkspaceId, currentMember.memberId(), noteId, afterLineId, text));
 	}
 
 	public Event deleteNoteText(String noteId, int position, int length) {
 		requireSession();
-		return noteService.deleteText(currentWorkspaceId, currentMember.memberId(), noteId, position, length);
+		String lineId = findLineIdAtPosition(noteId, position);
+		if (lineId == null || lineId.isBlank()) return null;
+		return afterLocalEvent(noteService.deleteLine(currentWorkspaceId, currentMember.memberId(), noteId, lineId));
+	}
+
+	private String findLineIdAtPosition(String noteId, int position) {
+		Note note = currentState().notes().get(noteId);
+		if (note == null || note.lines().isEmpty()) return null;
+		int idx = Math.max(0, position);
+		int i = 0;
+		for (NoteLine line : note.visibleLines()) {
+			if (i == idx) return line.lineId();
+			i++;
+		}
+		String last = null;
+		for (NoteLine line : note.visibleLines()) {
+			last = line.lineId();
+		}
+		return last;
 	}
 
 	public Event updatePeerStatus(String peerUrl, Set<String> connectedPeers) {
@@ -243,6 +271,7 @@ public class CoreApplicationService {
 				"connected_peers", connectedPeers == null ? List.of() : List.copyOf(connectedPeers)), null);
 		Event event = auth.stampEvent(draft, currentMember);
 		eventStore.append(event);
+		maybeSaveSnapshot(event);
 		return event;
 	}
 
@@ -254,7 +283,9 @@ public class CoreApplicationService {
 			new org.q3s.p2p.core.state.MeshProjector().apply(state, event);
 			return true;
 		}
-		return new EventService(eventStore, true).accept(event);
+		boolean accepted = new EventService(eventStore, true).accept(event);
+		if (accepted) maybeSaveSnapshot(event);
+		return accepted;
 	}
 
 	public int receiveRemoteEvents(List<Event> events) {
@@ -300,7 +331,36 @@ public class CoreApplicationService {
 
 	public WorkspaceState currentState() {
 		requireWorkspace();
+		Path path = snapshotPath;
+		if (path != null) {
+			return currentStateWithSnapshot(path);
+		}
 		return WorkspaceStateBuilder.fromEvents(eventStore.listEvents(currentWorkspaceId));
+	}
+
+	public void configureSnapshotPath(Path path) {
+		this.snapshotPath = path;
+	}
+
+	public void configureSnapshotPolicy(int everyEvents) {
+		this.snapshotEveryEvents = Math.max(1, everyEvents);
+	}
+
+	public void configureSnapshotRetention(int maxSnapshots) {
+		this.snapshotMaxSnapshots = maxSnapshots;
+	}
+
+	public Optional<Path> saveCurrentSnapshot() {
+		requireWorkspace();
+		Path path = snapshotPath;
+		if (path == null) return Optional.empty();
+		SnapshotService service = new SnapshotService(path);
+		Path saved = service.save(currentWorkspaceId, eventStore.listEvents(currentWorkspaceId));
+		eventsSinceSnapshot = 0;
+		if (snapshotMaxSnapshots > 0) {
+			service.pruneOldSnapshots(currentWorkspaceId, snapshotMaxSnapshots);
+		}
+		return Optional.of(saved);
 	}
 
 	/**
@@ -312,7 +372,7 @@ public class CoreApplicationService {
 		requireWorkspace();
 		SnapshotService snapshots = new SnapshotService(snapshotPath);
 		var latest = snapshots.loadLatestWithTimestamp(currentWorkspaceId);
-		if (latest.isEmpty()) return currentState();
+		if (latest.isEmpty()) return WorkspaceStateBuilder.fromEvents(eventStore.listEvents(currentWorkspaceId));
 		List<Event> snapshotEvents = latest.get().snapshotEvents();
 		Instant threshold = latest.get().snapshotTimestamp();
 		List<Event> delta = eventStore.listEventsAfter(currentWorkspaceId, threshold);
@@ -344,6 +404,21 @@ public class CoreApplicationService {
 	private Event stampLocalEvent(Event event) {
 		if (event == null || currentMember == null || !currentMember.memberId().equals(event.authorMemberId())) return event;
 		return auth.stampEvent(event, currentMember);
+	}
+
+	private Event afterLocalEvent(Event event) {
+		maybeSaveSnapshot(event);
+		return event;
+	}
+
+	private void maybeSaveSnapshot(Event event) {
+		Path path = snapshotPath;
+		if (path == null || event == null || event.isEphemeral()) return;
+		if (currentWorkspaceId == null || !currentWorkspaceId.equals(event.workspaceId())) return;
+		eventsSinceSnapshot++;
+		if (eventsSinceSnapshot >= snapshotEveryEvents) {
+			saveCurrentSnapshot();
+		}
 	}
 
 	private void registerPrivateKey(String memberId, String privateKey) {

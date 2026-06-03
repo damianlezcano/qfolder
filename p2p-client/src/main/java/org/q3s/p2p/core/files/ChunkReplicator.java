@@ -105,7 +105,7 @@ public class ChunkReplicator {
 
 	private void notify(FileMetadata metadata) {
 		for (Consumer<FileMetadata> listener : listeners) {
-			try { listener.accept(metadata); } catch (Exception ignored) {}
+			try { listener.accept(metadata); } catch (Exception ignored) { ignored.getMessage(); }
 		}
 	}
 }

@@ -8,24 +8,23 @@ import java.util.function.Consumer;
 import org.java_websocket.WebSocket;
 import org.java_websocket.handshake.ClientHandshake;
 import org.java_websocket.server.WebSocketServer;
-import org.q3s.p2p.model.Event;
-import org.q3s.p2p.model.util.EventUtils;
+import org.q3s.p2p.core.codec.CoreEnvelope;
 
 public class EmbeddedWebSocketServer extends WebSocketServer {
 
 	private final Runnable onStarted;
- 	private final BiConsumer<WebSocket, Event> directMessageHandler;
+ 	private final BiConsumer<WebSocket, CoreEnvelope> directMessageHandler;
 	private final Consumer<String> onPeerDisconnected;
 
 	public EmbeddedWebSocketServer(int port, Runnable onStarted) {
 		this(port, onStarted, null, null);
 	}
 
-	public EmbeddedWebSocketServer(int port, Runnable onStarted, BiConsumer<WebSocket, Event> directMessageHandler) {
+	public EmbeddedWebSocketServer(int port, Runnable onStarted, BiConsumer<WebSocket, CoreEnvelope> directMessageHandler) {
 		this(port, onStarted, directMessageHandler, null);
 	}
 
-	public EmbeddedWebSocketServer(int port, Runnable onStarted, BiConsumer<WebSocket, Event> directMessageHandler,
+	public EmbeddedWebSocketServer(int port, Runnable onStarted, BiConsumer<WebSocket, CoreEnvelope> directMessageHandler,
 			Consumer<String> onPeerDisconnected) {
 		super(new InetSocketAddress(port));
 		this.onStarted = onStarted;
@@ -75,17 +74,17 @@ public class EmbeddedWebSocketServer extends WebSocketServer {
 			return;
 
 		try {
-			Event event = (Event) EventUtils.toObjectBase64(message, Event.class);
-			if (event == null || event.getName() == null) {
-				err("invalid event: " + message.substring(0, Math.min(50, message.length())));
+			CoreEnvelope envelope = CoreEnvelope.fromJsonBase64(message);
+			if (envelope == null || envelope.name() == null) {
+				err("invalid envelope: " + message.substring(0, Math.min(50, message.length())));
 				return;
 			}
 
-			String name = event.getName();
+			String name = envelope.name();
 			debug("onMessage: " + name);
 
 			if (directMessageHandler != null) {
-				directMessageHandler.accept(conn, event);
+				directMessageHandler.accept(conn, envelope);
 			}
 		} catch (Exception e) {
 			err("onMessage error: " + e.getMessage());
@@ -137,7 +136,6 @@ public class EmbeddedWebSocketServer extends WebSocketServer {
 	}
 
 	private void debug(String msg) {
-		// debug logging is best-effort; no logger available in this context
 	}
 
 	private void err(String msg) {

@@ -14,8 +14,6 @@ import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import javax.swing.JOptionPane;
 
@@ -27,17 +25,18 @@ public class UpdateChecker {
 	private static final String VERSION = loadVersion();
 	private static final String GITHUB_API = "https://api.github.com/repos/damianlezcano/qfolder/releases/latest";
 	private static final String RELEASES_URL = "https://github.com/damianlezcano/qfolder/releases/latest";
-	private static final Pattern TAG_PATTERN = Pattern.compile("\"tag_name\"\\s*:\\s*\"([^\"]+)\"");
-	private static final Pattern URL_PATTERN = Pattern.compile("\"browser_download_url\"\\s*:\\s*\"([^\"]+)\"");
 
 	private static String loadVersion() {
+		java.util.Properties props = new java.util.Properties();
 		try (InputStream is = UpdateChecker.class.getResourceAsStream("/META-INF/maven/org.q3s/p2p-client/pom.properties")) {
 			if (is != null) {
-				java.util.Properties props = new java.util.Properties();
 				props.load(is);
 				return props.getProperty("version", "0.0.0");
 			}
-		} catch (Exception ignored) {}
+		} catch (Exception e) {
+			// version resource not available
+			System.err.println("[UpdateChecker] " + e.getMessage());
+		}
 		return "0.0.0";
 	}
 
@@ -60,12 +59,21 @@ public class UpdateChecker {
 				if (response.statusCode() != 200) return;
 
 				String body = response.body();
-				Matcher tagMatcher = TAG_PATTERN.matcher(body);
-				if (!tagMatcher.find()) return;
-				String latestTag = tagMatcher.group(1).replace("v", "").trim();
-				if (!isNewer(VERSION, latestTag)) return;
-
-				List<String> urls = collectAssetUrls(body);
+				String latestTag;
+				List<String> urls = new ArrayList<>();
+				try (javax.json.JsonReader reader = javax.json.Json.createReader(new java.io.StringReader(body))) {
+					javax.json.JsonObject release = reader.readObject();
+					latestTag = release.getString("tag_name", "").replace("v", "").trim();
+					if (latestTag.isEmpty() || !isNewer(VERSION, latestTag)) return;
+					javax.json.JsonArray assets = release.getJsonArray("assets");
+					if (assets != null) {
+						for (javax.json.JsonValue asset : assets) {
+							javax.json.JsonObject obj = asset.asJsonObject();
+							String dlUrl = obj.getString("browser_download_url", null);
+							if (dlUrl != null) urls.add(dlUrl);
+						}
+					}
+				}
 				boolean hasJar = urls.stream().anyMatch(u -> u.endsWith("qfolder.jar"));
 				boolean hasPackage = urls.stream().anyMatch(u -> u.contains("-x64."));
 
@@ -83,13 +91,6 @@ public class UpdateChecker {
 				log.debug("Update check skipped: " + e.getMessage());
 			}
 		}, "update-check").start();
-	}
-
-	private static List<String> collectAssetUrls(String json) {
-		List<String> urls = new ArrayList<>();
-		Matcher m = URL_PATTERN.matcher(json);
-		while (m.find()) urls.add(m.group(1));
-		return urls;
 	}
 
 	private static boolean isNewer(String current, String latest) {

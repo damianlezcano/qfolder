@@ -124,15 +124,14 @@ import org.q3s.p2p.adapters.network.DirectBootstrap;
 import org.q3s.p2p.adapters.network.InviteCode;
 import org.q3s.p2p.adapters.network.P2PMeshService;
 import org.q3s.p2p.adapters.network.P2PNetworkAdapter;
-import org.q3s.p2p.adapters.network.WebSocketNetworkAdapter;
 import org.q3s.p2p.core.app.CoreApplicationService;
+import org.q3s.p2p.core.codec.CoreEnvelope;
+import org.q3s.p2p.core.codec.CoreEnvelopeCodec;
 import org.q3s.p2p.core.model.FileMetadata;
 import org.q3s.p2p.core.state.WorkspaceState;
-import org.q3s.p2p.model.Event;
 import org.q3s.p2p.model.QFile;
 import org.q3s.p2p.model.User;
 import org.q3s.p2p.model.Workspace;
-import org.q3s.p2p.model.util.EventUtils;
 import org.q3s.p2p.model.util.UUIDUtils;
 
 public class Controller {
@@ -264,7 +263,7 @@ public class Controller {
 		view.getjTextField5().setText(defaultWorkspaceName());
 		view.setTitle(hostname);
 		user.setName(hostname);
-		view.getjTextField4().setText(qfolderRootDir.getAbsolutePath());
+		refreshConfigWorkDirText();
 		view.applyI18nTexts();
 		refreshTabTitles();
 
@@ -673,12 +672,19 @@ public class Controller {
 
 	private void openWorkingDirectory() {
 		try {
-			File dir = getQfolderRootDir();
+			File dir = currentSessionDir != null ? currentSessionDir : getQfolderRootDir();
 			dir.mkdirs();
+			refreshConfigWorkDirText();
 			exec.open(dir.getAbsolutePath());
 		} catch (Exception e) {
 			log.err(I18n.get("config.openWorkDirError", e.getMessage()));
 		}
+	}
+
+	private void refreshConfigWorkDirText() {
+		if (view == null || view.getjTextField4() == null) return;
+		File target = currentSessionDir != null ? currentSessionDir : getQfolderRootDir();
+		view.getjTextField4().setText(target.getAbsolutePath());
 	}
 
 	private void toggleComplemento(String name, boolean enabled) {
@@ -690,7 +696,7 @@ public class Controller {
 		applyComplementoVisibility(name, enabled);
 		if (wsClient != null) {
 			String eventName = enabled ? "Complemento habilitado" : "Complemento deshabilitado";
-			sendEvent(new Event(eventName, user, name));
+			sendEvent(CoreEnvelope.of(eventName, user.getId(), name));
 		}
 	}
 
@@ -902,7 +908,7 @@ public class Controller {
 
 	private void jTextField3FocusLost(java.awt.event.FocusEvent evt) {
 		if (configChange) {
-			Event e = new Event("Cambio de nombre", user);
+			CoreEnvelope e = CoreEnvelope.of("Cambio de nombre", user.getId(), user.getName());
 			sendEvent(e);
 			configChange = false;
 		}
@@ -1042,33 +1048,33 @@ public class Controller {
 		wsServer.start();
 	}
 
-	private void handleDirectPeerEvent(WebSocket conn, Event event) {
-		if (event == null || event.getName() == null) return;
-		if (event != null) {
-			String chunkProtocolName = event != null && event.getName() != null && (event.getName().contains("Core chunk") || event.getName().contains("core chunk")) ? event.getName() : null;
+	private void handleDirectPeerEvent(WebSocket conn, CoreEnvelope envelope) {
+		if (envelope == null || envelope.name() == null) return;
+		if (envelope != null) {
+			String chunkProtocolName = envelope != null && envelope.name() != null && (envelope.name().contains("Core chunk") || envelope.name().contains("core chunk")) ? envelope.name() : null;
 			if (chunkProtocolName != null) {
-				log.debug("[P2P RECV] tipo=" + chunkProtocolName + " from=" + (event.getUser() != null ? event.getUser().getId() : "?") + " conn=" + (conn != null ? "yes" : "no"));
+				log.debug("[P2P RECV] tipo=" + chunkProtocolName + " from=" + (envelope.userId() != null ? envelope.userId() : "?") + " conn=" + (conn != null ? "yes" : "no"));
 			}
 		}
-		if (event != null && event.getUser() != null && event.getUser().getId() != null && conn != null) {
-			directPeerConnections.put(event.getUser().getId(), conn);
+		if (envelope != null && envelope.userId() != null && conn != null) {
+			directPeerConnections.put(envelope.userId(), conn);
 			log.debug("[P2P RECV] directPeerConnections now has " + directPeerConnections.size() + " entries");
 		}
-		if (coreChunkTransfer != null && coreChunkTransfer.handle(event, conn)) {
+		if (coreChunkTransfer != null && coreChunkTransfer.handle(envelope, conn)) {
 			return;
-		} else if (WebSocketNetworkAdapter.CORE_EVENT_NAME.equals(event.getName())) {
+		} else if (CoreEnvelopeCodec.CORE_EVENT_NAME.equals(envelope.name())) {
 			log.info("[P2P DIRECT] Core event via direct handler");
-			acceptCoreEventOnDirect(event);
-		} else if (WebSocketNetworkAdapter.CORE_SYNC_REQUEST_NAME.equals(event.getName())) {
-			respondCoreSyncOnDirect(event, conn);
-		} else if (WebSocketNetworkAdapter.CORE_SYNC_RESPONSE_NAME.equals(event.getName())) {
-			acceptCoreSyncOnDirect(event);
+			acceptCoreEventOnDirect(envelope);
+		} else if (CoreEnvelopeCodec.CORE_SYNC_REQUEST_NAME.equals(envelope.name())) {
+			respondCoreSyncOnDirect(envelope, conn);
+		} else if (CoreEnvelopeCodec.CORE_SYNC_RESPONSE_NAME.equals(envelope.name())) {
+			acceptCoreSyncOnDirect(envelope);
 		}
 	}
 
-	private void acceptCoreEventOnDirect(Event event) {
+	private void acceptCoreEventOnDirect(CoreEnvelope envelope) {
 		try {
-			org.q3s.p2p.core.model.Event coreEvent = WebSocketNetworkAdapter.decode(event);
+			org.q3s.p2p.core.model.Event coreEvent = CoreEnvelopeCodec.decodeCoreEvent(envelope);
 			if (coreEvent != null) {
 				boolean accepted = core.receiveRemoteEvent(coreEvent);
 				log.info("[P2P DIRECT] decoded=true accepted=" + accepted + " type=" + coreEvent.type());
@@ -1089,26 +1095,26 @@ public class Controller {
 		}
 	}
 
-	private void respondCoreSyncOnDirect(Event event, WebSocket conn) {
+	private void respondCoreSyncOnDirect(CoreEnvelope envelope, WebSocket conn) {
 		try {
-			if (event.getUser() == null || event.getUser().equals(user)) return;
+			if (envelope.userId() == null || envelope.userId().equals(user.getId())) return;
 			String wsId = wk != null ? wk.getId() : null;
 			if (wsId == null) return;
-			java.util.Set<String> knownIds = WebSocketNetworkAdapter.decodeKnownEventIds(event);
+			java.util.Set<String> knownIds = CoreEnvelopeCodec.decodeKnownEventIds(envelope);
 			java.util.List<org.q3s.p2p.core.model.Event> missing = core.missingEvents(knownIds);
 			if (!missing.isEmpty() && conn != null) {
-				Event response = new Event(WebSocketNetworkAdapter.CORE_SYNC_RESPONSE_NAME, user,
-						WebSocketNetworkAdapter.encodeSyncPayload(missing));
-				conn.send(EventUtils.toJsonBase64(response));
+				CoreEnvelope response = CoreEnvelope.of(CoreEnvelopeCodec.CORE_SYNC_RESPONSE_NAME, user.getId(),
+						CoreEnvelopeCodec.encodeSyncPayload(missing));
+				conn.send(response.toJsonBase64());
 			}
 		} catch (Exception e) {
 			log.debug("Sync request directo no procesado: " + e.getMessage());
 		}
 	}
 
-	private void acceptCoreSyncOnDirect(Event event) {
+	private void acceptCoreSyncOnDirect(CoreEnvelope envelope) {
 		try {
-			java.util.List<org.q3s.p2p.core.model.Event> events = WebSocketNetworkAdapter.decodeEvents(event);
+			java.util.List<org.q3s.p2p.core.model.Event> events = CoreEnvelopeCodec.decodeSyncEvents(envelope);
 			int accepted = core.receiveRemoteEvents(events);
 			if (accepted > 0) applyCoreStateToVisuals(core.currentState());
 		} catch (Exception e) {
@@ -1177,7 +1183,7 @@ public class Controller {
 				setCreateWorkspaceControlsEnabled(true);
 				view.setTitle(view.getjTextField3().getText());
 
-				notify(new Event("Bienvenido usuario al grupo!", wk));
+				notify(CoreEnvelope.of("Bienvenido usuario al grupo!", user.getId(), wk != null ? wk.getId() : ""));
 			});
 		}, error -> {
 			javax.swing.SwingUtilities.invokeLater(() -> {
@@ -1342,9 +1348,9 @@ public class Controller {
 		WebSocket conn = directPeerConnections.get(peerId);
 		if (conn == null || conn.isClosed() || coreEvent == null) return;
 		try {
-			Event event = new Event(WebSocketNetworkAdapter.CORE_EVENT_NAME, user,
-					WebSocketNetworkAdapter.encodeCoreEvent(coreEvent));
-			conn.send(EventUtils.toJsonBase64(event));
+			CoreEnvelope envelope = CoreEnvelope.of(CoreEnvelopeCodec.CORE_EVENT_NAME, user.getId(),
+					CoreEnvelopeCodec.encodeCoreEvent(coreEvent));
+			conn.send(envelope.toJsonBase64());
 		} catch (Exception e) {
 			log.debug("No se pudo enviar evento core directo a " + peerId + ": " + e.getMessage());
 		}
@@ -1354,19 +1360,21 @@ public class Controller {
 		WebSocket conn = directPeerConnections.get(peerId);
 		if (conn == null || conn.isClosed()) return;
 		try {
-			Event event = new Event(WebSocketNetworkAdapter.CORE_SYNC_RESPONSE_NAME, user,
-					WebSocketNetworkAdapter.encodeSyncPayload(core.events()));
-			conn.send(EventUtils.toJsonBase64(event));
+			CoreEnvelope envelope = CoreEnvelope.of(CoreEnvelopeCodec.CORE_SYNC_RESPONSE_NAME, user.getId(),
+					CoreEnvelopeCodec.encodeSyncPayload(core.events()));
+			conn.send(envelope.toJsonBase64());
 		} catch (Exception e) {
 			log.debug("No se pudo enviar sync directo a " + peerId + ": " + e.getMessage());
 		}
 	}
 
-	public void notify(Event event) {
+	public void notify(CoreEnvelope envelope) {
 		try {
-			if (event != null && event.getName() != null) {
-				log.debug(event.getName());
-				if ("Wk no existe, desconectar".equals(event.getName())) {
+			if (envelope != null && envelope.name() != null) {
+				log.debug(envelope.name());
+				String name = envelope.name();
+				User envelopeUser = userFromEnvelope(envelope);
+				if ("Wk no existe, desconectar".equals(name)) {
 					if (wsClient != null) wsClient.close();
 					view.getjButton2().setEnabled(true);
 					view.getjLabel4().setEnabled(true);
@@ -1374,9 +1382,9 @@ public class Controller {
 					view.getjTextField2().setFocusable(true);
 					view.getjButton6().setEnabled(true);
 					mostrarErrorEnPantallaLogin(I18n.get("ws.notExists"));
-				} else if ("Wk existente, sin credenciales".equals(event.getName())) {
-					log.debug("Evento legacy de hub ignorado: " + event.getName());
-				} else if ("Wk existente, con credenciales".equals(event.getName())) {
+				} else if ("Wk existente, sin credenciales".equals(name)) {
+					log.debug("Evento legacy de hub ignorado: " + name);
+				} else if ("Wk existente, con credenciales".equals(name)) {
 					JPasswordField pf = new JPasswordField();
 					JOptionPane pane = new JOptionPane(pf, JOptionPane.INFORMATION_MESSAGE, JOptionPane.OK_OPTION);
 					JDialog dialog = pane.createDialog(view, "Clave de Acceso");
@@ -1403,120 +1411,71 @@ public class Controller {
 						user.setPassword(password);
 					}
 
-				} else if ("Credenciales incorrectas".equals(event.getName())) {
+				} else if ("Credenciales incorrectas".equals(name)) {
 					log.info("Credenciales de acceso incorrectas");
 					mostrarErrorEnPantallaLogin(I18n.get("ws.wrongCredentials"));
-				} else if ("Aprobar al usuario".equals(event.getName())) {
+				} else if ("Aprobar al usuario".equals(name)) {
 					markLogIfInactive();
-					log.info("El usuario '" + event.getUser().getName() + "' solicita ingresar al workspace");
+					log.info("El usuario '" + (envelopeUser != null ? envelopeUser.getName() : "?") + "' solicita ingresar al workspace");
 					try {
-					core.recordJoinRequest(event.getUser().getId(), event.getUser().getName(), "swing-device", event.getUser().getId());
+						String requesterId = envelopeUser != null ? envelopeUser.getId() : envelope.userId();
+						String requesterName = envelopeUser != null ? envelopeUser.getName() : requesterId;
+					core.recordJoinRequest(requesterId, requesterName, "swing-device", requesterId);
 					} catch (Exception e) {
 						log.debug("No se pudo registrar solicitud remota core: " + e.getMessage());
 					}
-					showApprovalDialog(event.getUser());
-				} else if ("Usuario rechazado!".equals(event.getName())) {
+					if (envelopeUser != null) showApprovalDialog(envelopeUser);
+				} else if ("Usuario rechazado!".equals(name)) {
 					log.info("Tu ingreso fue rechazado por los usuarios del workspace");
 					if (wsClient != null) wsClient.close();
 					mostrarErrorEnPantallaLogin(I18n.get("approve.rejected"));
-				} else if ("Bienvenido usuario al grupo!".equals(event.getName())) {
-					log.info("Bienvenido al grupo");
-					wk = event.getWk();
-					log.info("Miembro activo - wkId=" + wk.getId());
-					trackMember(user, true);
-					ensureArchivosTab();
-					loadChatTab();
-					loadWhiteboardTab();
-					loadNotesTab();
-					removeLogTab();
-					hideInitialComplementos();
-					restoreEnabledComplementoTabs();
-					view.getjPanelCreateWorkspace().setVisible(false);
-					view.getjPanelJoin().setVisible(false);
-					view.getjTabbedPane().setVisible(true);
-					view.getjPanelProxy().setVisible(false);
-					view.revalidate();
-					view.repaint();
-
-					sessionCreatedAt = wk != null && wk.getDate() > 0 ? wk.getDate() : System.currentTimeMillis();
-					historySaved = false;
-					List<org.q3s.p2p.core.model.Event> bootstrappedEvents = currentCoreEventsOrEmpty();
-					currentSessionDir = null;
-					currentSessionFilesDir = null;
-					prepareWorkspaceSessionDirectories();
-					try {
-						core.attachExistingSession(wk.getId(), user.getId(), user.getName(), "swing-device", user.getId(), localPublicKey, localPrivateKey);
-						for (org.q3s.p2p.core.model.Event coreEvent : bootstrappedEvents) {
-							if (!core.eventStore().hasEvent(coreEvent.eventId())) core.eventStore().append(coreEvent);
-						}
-						if (!core.eventStore().containsType(wk.getId(), org.q3s.p2p.core.events.EventTypes.WORKSPACE_CREATED)) {
-							core.ensureWorkspaceSession(wk.getId(), wk.getName(), user.getId(), user.getName(), "swing-device", user.getId(),
-									localPublicKey, localPrivateKey, 2);
-						}
-					} catch (Exception e) {
-						log.err("No se pudo adjuntar sesion core: " + e.getMessage());
-					}
-					wk.setName(wk.getName());
-					view.getjTextField6().setText(encodeWkId(localInviteCode()));
-					restoreCachedChatIfSameSession();
-
-					updateWindowTitle();
-
-					ensurePeerEndpoint(() -> {
-						if (peerTunnelUrl != null && !peerTunnelUrl.isBlank()) {
-							view.getjTextField6().setText(encodeWkId(localInviteCode()));
-						}
-						indexLocalFilesInCore();
-						if (p2pMesh != null) p2pMesh.forcePublishPeerStatus();
-						applyCoreStateToVisuals(core.currentState());
-					}, error -> log.err("No se pudo iniciar endpoint peer: " + error));
-
-				} else if ("Gracias por la bienvenida, notifico mis archivos".equals(event.getName())
-						|| "Estos son mis archivos".equals(event.getName())) {
-					log.debug("Evento legacy de archivos ignorado: " + event.getName());
-				} else if ("Notifico Cambio en los archivos".equals(event.getName())) {
-					if (event.getUser() == null || !event.getUser().equals(user)) markLogIfInactive();
-					notifyChangeFiles(event);
-				} else if ("Archivo de chat enviado".equals(event.getName())) {
-					log.debug("Evento legacy de chat ignorado: " + event.getName());
-				} else if (WebSocketNetworkAdapter.CORE_EVENT_NAME.equals(event.getName())) {
-					acceptCoreEventOnDirect(event);
+				} else if ("Bienvenido usuario al grupo!".equals(name)) {
+					log.info("Bienvenido al grupo (legacy)");
+					showJoinAfterWorkspaceLost(name);
+				} else if ("Gracias por la bienvenida, notifico mis archivos".equals(name)
+						|| "Estos son mis archivos".equals(name)) {
+					log.debug("Evento legacy de archivos ignorado: " + name);
+				} else if ("Notifico Cambio en los archivos".equals(name)) {
+					if (envelopeUser == null || !envelopeUser.equals(user)) markLogIfInactive();
+					notifyChangeFiles(envelope);
+				} else if ("Archivo de chat enviado".equals(name)) {
+					log.debug("Evento legacy de chat ignorado: " + name);
+				} else if (CoreEnvelopeCodec.CORE_EVENT_NAME.equals(name)) {
+					acceptCoreEventOnDirect(envelope);
 					return;
-				} else if ("Se borro un archivo".equals(event.getName())) {
-					if (event.getUser() == null || !event.getUser().equals(user)) markLogIfInactive();
-					if (event.getUser().equals(user)) {
-						log.info("Borraste el archivo '" + event.getFile().getName());
-					} else {
-						log.info("El usuario '" + event.getUser().getName() + "' borro el archivo '"
-								+ event.getFile().getName());
+				} else if ("Se borro un archivo".equals(name)) {
+					if (envelopeUser == null || !envelopeUser.equals(user)) markLogIfInactive();
+					log.info("Evento legacy de borrado ignorado: " + name);
+					notifyChangeFiles(envelope);
+				} else if ("Solicitar archivos de directorio".equals(name)
+						|| "Respuesta archivos de directorio".equals(name)) {
+					log.debug("Evento legacy de navegacion de archivos ignorado: " + name);
+				} else if ("Cambio de nombre".equals(name)) {
+					if (envelopeUser == null) return;
+					int idx = searchTabById(envelopeUser.getId());
+					User existing = findKnownUser(envelopeUser);
+					if (existing == null) {
+						existing = envelopeUser;
+						remoteUsers.add(existing);
 					}
-					notifyChangeFiles(event);
-				} else if ("Solicitar archivos de directorio".equals(event.getName())
-						|| "Respuesta archivos de directorio".equals(event.getName())) {
-					log.debug("Evento legacy de navegacion de archivos ignorado: " + event.getName());
-				} else if ("Cambio de nombre".equals(event.getName())) {
-					int idx = searchTabById(event.getUser().getId());
-					int idxUser = remoteUsers.indexOf(event.getUser());
-					User oldUser = remoteUsers.get(idxUser);
-					String oldUserName = oldUser.getName();
-					oldUser.setName(event.getUser().getName());
-					trackMember(oldUser, oldUser.isOnline());
+					String oldUserName = existing.getName();
+					existing.setName(envelopeUser.getName());
+					trackMember(existing, existing.isOnline());
 					refreshTables();
 					refreshMembersTable();
-					if (!event.getUser().equals(user)) {
+					if (!existing.equals(user)) {
 						markLogIfInactive();
-						log.info("El usuario '" + oldUserName + "' cambio de nombre a '" + event.getUser().getName()
-								+ "'");
-						view.getjTabbedPane().setTitleAt(idx, event.getUser().getName());
+						log.info("El usuario '" + oldUserName + "' cambio de nombre a '" + existing.getName() + "'");
+						if (idx >= 0) view.getjTabbedPane().setTitleAt(idx, existing.getName());
 					} else {
-						log.info("Cambiaste de nombre a '" + event.getUser().getName() + "'");
+						log.info("Cambiaste de nombre a '" + existing.getName() + "'");
 					}
-				} else if ("Usuario desconectado".equals(event.getName())) {
+				} else if ("Usuario desconectado".equals(name)) {
 					markLogIfInactive();
-					User disconnectedUser = findKnownUser(event.getUser());
+					User disconnectedUser = findKnownUser(envelopeUser);
 					String disconnectedName = disconnectedUser != null && disconnectedUser.getName() != null
 							? disconnectedUser.getName() : "Usuario";
-					String disconnectedId = event.getUser() != null ? event.getUser().getId() : null;
+					String disconnectedId = envelopeUser != null ? envelopeUser.getId() : null;
 					log.info("Usuario '" + disconnectedName + "' desconectado");
 					if (disconnectedId != null && chatActiveUserIds.contains(disconnectedId)) {
 						disconnectedChatUserNames.add(disconnectedName);
@@ -1527,46 +1486,46 @@ public class Controller {
 						disconnectedUser.setOnline(false);
 						trackMember(disconnectedUser, false);
 						remoteUsers.remove(disconnectedUser);
-					} else if (event.getUser() != null) {
-						event.getUser().setOnline(false);
-						trackMember(event.getUser(), false);
-						remoteUsers.remove(event.getUser());
+					} else if (envelopeUser != null) {
+						envelopeUser.setOnline(false);
+						trackMember(envelopeUser, false);
+						remoteUsers.remove(envelopeUser);
 					}
 					refreshArchivosTable();
 					refreshTables();
 					refreshMembersTable();
-				} else if ("Quiero descargar el archivo".equals(event.getName())) {
-					log.debug("Evento legacy de descarga ignorado: " + event.getName());
-				} else if (coreChunkTransfer != null && coreChunkTransfer.handle(event, null)) {
+				} else if ("Quiero descargar el archivo".equals(name)) {
+					log.debug("Evento legacy de descarga ignorado: " + name);
+				} else if (coreChunkTransfer != null && coreChunkTransfer.handle(envelope, null)) {
 					return;
 
-				} else if ("Parte de archivo".equals(event.getName())) {
-					log.debug("Evento legacy de transferencia ignorado: " + event.getName());
-				} else if ("Error al transferir archivo".equals(event.getName())) {
+				} else if ("Parte de archivo".equals(name)) {
+					log.debug("Evento legacy de transferencia ignorado: " + name);
+				} else if ("Error al transferir archivo".equals(name)) {
 					markLogIfInactive();
-					log.err(event.getResponse());
+					log.err(envelope.response());
 
-				} else if ("Complemento habilitado".equals(event.getName())) {
-					String name = event.getResponse();
-					if (isStaleComplementoEvent(name, event.getSequence())) return;
-					enabledComplementos.add(name);
-					applyComplementoVisibility(name, true);
-					log.info("Complemento '" + name + "' habilitado" +
-							(event.getUser() != null && !event.getUser().equals(user) ? " por " + event.getUser().getName() : ""));
+				} else if ("Complemento habilitado".equals(name)) {
+					String complementoName = envelope.response();
+					if (isStaleComplementoEvent(complementoName, envelope.sequence())) return;
+					enabledComplementos.add(complementoName);
+					applyComplementoVisibility(complementoName, true);
+					log.info("Complemento '" + complementoName + "' habilitado" +
+							(envelopeUser != null && !envelopeUser.equals(user) ? " por " + envelopeUser.getName() : ""));
 
-				} else if ("Complemento deshabilitado".equals(event.getName())) {
-					String name = event.getResponse();
-					if (isStaleComplementoEvent(name, event.getSequence())) return;
-					enabledComplementos.remove(name);
-					applyComplementoVisibility(name, false);
-					log.info("Complemento '" + name + "' deshabilitado" +
-							(event.getUser() != null && !event.getUser().equals(user) ? " por " + event.getUser().getName() : ""));
+				} else if ("Complemento deshabilitado".equals(name)) {
+					String complementoName = envelope.response();
+					if (isStaleComplementoEvent(complementoName, envelope.sequence())) return;
+					enabledComplementos.remove(complementoName);
+					applyComplementoVisibility(complementoName, false);
+					log.info("Complemento '" + complementoName + "' deshabilitado" +
+							(envelopeUser != null && !envelopeUser.equals(user) ? " por " + envelopeUser.getName() : ""));
 
-				} else if ("Solicitud de ingreso resuelta".equals(event.getName())) {
-					closeApprovalDialog(event.getUser() != null ? event.getUser().getId() : null);
+				} else if ("Solicitud de ingreso resuelta".equals(name)) {
+					closeApprovalDialog(envelopeUser != null ? envelopeUser.getId() : null);
 
-				} else if ("Error al intentar conectarse con el servidor".equals(event.getName())) {
-				} else if ("No es posible establecer una conexion".equals(event.getName())) {
+				} else if ("Error al intentar conectarse con el servidor".equals(name)) {
+				} else if ("No es posible establecer una conexion".equals(name)) {
 					log.info("No se pudo conectar al workspace");
 					view.getjPanelCreateWorkspace().setVisible(false);
 					view.getjPanelJoin().setVisible(true);
@@ -1580,16 +1539,35 @@ public class Controller {
 					view.getjTextField2().setFocusable(true);
 					view.getjButton6().setEnabled(true);
 				mostrarErrorEnPantallaLogin(I18n.get("workspace.cannotConnect"));
-				} else if ("Se perdio la conexion con el servidor".equals(event.getName())) {
+				} else if ("Se perdio la conexion con el servidor".equals(name)) {
 					log.info("Se perdio la conexion con el workspace");
 					cacheCurrentSessionForReconnect();
 					saveSessionHistory("desconexion");
-					showJoinAfterWorkspaceLost(event.getName());
+					showJoinAfterWorkspaceLost(name);
 				}
 			}
 		} catch (Exception e) {
 			log.debug("Error notify -> " + e.getMessage());
 		}
+	}
+
+	private User userFromEnvelope(CoreEnvelope envelope) {
+		if (envelope == null || envelope.userId() == null) return null;
+		String userId = envelope.userId();
+		User known = findKnownUserById(userId);
+		if (known != null) return known;
+		User built = User.build(userId);
+		String display = envelope.userId();
+		built.setName(display);
+		return built;
+	}
+
+	private User findKnownUserById(String userId) {
+		if (userId == null) return null;
+		for (User u : remoteUsers) {
+			if (userId.equals(u.getId())) return u;
+		}
+		return null;
 	}
 
 	public static String decodeValue(String value) {
@@ -1705,7 +1683,7 @@ public class Controller {
 			QfolderLayout layout = qfolderLayout();
 			layout.userdataRoot().toFile().mkdirs();
 			layout.systemdataRoot().toFile().mkdirs();
-			view.getjTextField4().setText(getQfolderRootDir().getAbsolutePath());
+			refreshConfigWorkDirText();
 			return;
 		}
 		if (currentSessionDir == null) {
@@ -1726,7 +1704,7 @@ public class Controller {
 			initializeCoreServices(systemWorkspaceRoot);
 		}
 		currentSessionFilesDir.mkdirs();
-		view.getjTextField4().setText(getQfolderRootDir().getAbsolutePath());
+		refreshConfigWorkDirText();
 	}
 
 	private void writeWorkspaceJson() {
@@ -1755,8 +1733,9 @@ public class Controller {
 		return builder.build().toString();
 	}
 
-	private void notifyChangeFiles(Event event) {
-		addUserToRemoteList(event.getUser());
+	private void notifyChangeFiles(CoreEnvelope envelope) {
+		User envelopeUser = userFromEnvelope(envelope);
+		addUserToRemoteList(envelopeUser);
 		refreshArchivosTable();
 		refreshTables();
 	}
@@ -1862,32 +1841,35 @@ public class Controller {
 		return qfolderLayout().systemWorkspaceRoot(safeId).resolve("index-cache.properties").toFile();
 	}
 
-	private void refreshLocalFilesAndNotify(Event e) {
-		sendEvent(e);
-	}
-
-	private void sendEvent(Event e) {
+	private void sendEvent(CoreEnvelope e) {
 		WsClient client = wsClient;
 		if (client == null || e == null) return;
-		outboundEventQueue.execute(() -> client.sendEvent(e));
+		outboundEventQueue.execute(() -> client.sendEnvelope(e));
 	}
 
 	private void initializeCoreServices(Path root) {
 		if (p2pMesh != null) {
-			try { p2pMesh.disconnectAll(); } catch (Exception ignored) {}
+			try { p2pMesh.disconnectAll(); } catch (Exception ignored) { log.debug("mesh shutdown: " + ignored.getMessage()); }
 			p2pMesh = null;
 		}
 		if (coreChunkTransfer != null) {
-			try { coreChunkTransfer.shutdown(); } catch (Exception ignored) {}
+			try { coreChunkTransfer.shutdown(); } catch (Exception ignored) { log.debug("shutdown: " + ignored.getMessage()); }
 			coreChunkTransfer = null;
 		}
 		if (p2pNetwork != null) {
-			try { p2pNetwork.disconnectAll(); } catch (Exception ignored) {}
+			try { p2pNetwork.disconnectAll(); } catch (Exception ignored) { log.debug("disconnect: " + ignored.getMessage()); }
 			p2pNetwork = null;
 		}
 		core = currentSessionDir != null
 				? CoreApplicationService.filesystemWorkspace(root)
 				: CoreApplicationService.filesystem(root);
+		Path snapshotRoot = currentSessionDir != null ? root.resolve("snapshots") : root.resolve("workspaces").resolve("__snapshots");
+		try {
+			java.nio.file.Files.createDirectories(snapshotRoot);
+		} catch (Exception ignored) {
+			log.debug("No se pudo crear directorio de snapshots: " + ignored.getMessage());
+		}
+		core.configureSnapshotPath(snapshotRoot);
 		coreChunkTransfer = new CoreChunkTransferCoordinator(core, () -> user, this::sendP2PProtocolEvent, this::updateTransferProgress,
 				this::completeCoreChunkDownload, this::fallbackCoreChunkDownload,
 				(message, detail) -> log.debug(message + (detail == null || detail.isBlank() ? "" : ": " + detail)));
@@ -1920,7 +1902,7 @@ public class Controller {
 				String name = state.workspace() != null ? state.workspace().name() : wsId;
 				Workspace workspace = new Workspace(wsId, name);
 				workspace.setDate(sessionCreatedAt > 0 ? sessionCreatedAt : System.currentTimeMillis());
-				notify(new Event("Bienvenido usuario al grupo!", workspace));
+				notify(CoreEnvelope.of("Bienvenido usuario al grupo!", user.getId(), workspace.getId()));
 			} catch (Exception e) {
 				log.err("No se pudo activar workspace desde core: " + e.getMessage());
 			}
@@ -1940,22 +1922,23 @@ public class Controller {
 		}
 	}
 
-	private void sendP2PProtocolEvent(Event event) {
-		if (event == null || event.getName() == null) return;
-		String name = event.getName();
+	private void sendP2PProtocolEvent(CoreEnvelope envelope) {
+		if (envelope == null || envelope.name() == null) return;
+		String name = envelope.name();
 		if (name.startsWith("__to:")) {
 			String rest = name.substring(5);
 			int colonIdx = rest.indexOf(':');
 			if (colonIdx <= 0) return;
 			String targetUserId = rest.substring(0, colonIdx);
-			event.setName(rest.substring(colonIdx + 1));
+			String innerName = rest.substring(colonIdx + 1);
+			CoreEnvelope routed = CoreEnvelope.of(innerName, envelope.userId(), envelope.response(), envelope.sequence());
 			WebSocket direct = directPeerConnections.get(targetUserId);
 			boolean sentDirect = false;
 			boolean sentP2P = false;
 			try {
 				if (direct != null && !direct.isClosed()) {
-					log.debug("[P2P SEND] __to:" + targetUserId + " tipo=" + event.getName() + " via direct (" + directPeerConnections.size() + " direct peers)");
-					direct.send(EventUtils.toJsonBase64(event));
+					log.debug("[P2P SEND] __to:" + targetUserId + " tipo=" + innerName + " via direct (" + directPeerConnections.size() + " direct peers)");
+					direct.send(routed.toJsonBase64());
 					sentDirect = true;
 				}
 			} catch (Exception e) {
@@ -1963,21 +1946,21 @@ public class Controller {
 			}
 			try {
 				if (p2pNetwork != null) {
-					p2pNetwork.sendProtocolEvent(targetUserId, event);
+					p2pNetwork.sendProtocolEvent(targetUserId, routed);
 					sentP2P = true;
 				}
 			} catch (Exception e) {
 				log.debug("No se pudo enviar protocolo P2P por mesh a " + targetUserId + ": " + e.getMessage());
 			}
 			if (!sentDirect && !sentP2P) {
-				log.debug("[P2P SEND] __to:" + targetUserId + " tipo=" + event.getName() + " NO ROUTE");
+				log.debug("[P2P SEND] __to:" + targetUserId + " tipo=" + innerName + " NO ROUTE");
 			}
 			return;
 		}
-		log.debug("[P2P SEND] broadcast tipo=" + event.getName());
-		if (p2pNetwork != null) p2pNetwork.broadcastProtocolEvent(event);
+		log.debug("[P2P SEND] broadcast tipo=" + name);
+		if (p2pNetwork != null) p2pNetwork.broadcastProtocolEvent(envelope);
 		for (WebSocket conn : new ArrayList<>(directPeerConnections.values())) {
-			try { if (conn != null && !conn.isClosed()) conn.send(EventUtils.toJsonBase64(event)); } catch (Exception ignored) {}
+			try { if (conn != null && !conn.isClosed()) conn.send(envelope.toJsonBase64()); } catch (Exception ignored) {}
 		}
 	}
 
@@ -2647,6 +2630,7 @@ public class Controller {
 		fileButton.setMinimumSize(btnSize);
 		Runnable send = () -> sendChatMessage();
 		chatInput.addActionListener(e -> send.run());
+		installChatInputPasteImageBinding(chatInput);
 		fileButton.addActionListener(e -> chooseAndSendChatFile());
 		sendButton.addActionListener(e -> send.run());
 
@@ -2759,6 +2743,80 @@ public class Controller {
 		} catch (Exception e) {
 			log.err("Error al enviar archivo por chat: " + e.getMessage());
 		}
+	}
+
+	private void installChatInputPasteImageBinding(JTextField input) {
+		javax.swing.ActionMap actionMap = input.getActionMap();
+		javax.swing.InputMap inputMap = input.getInputMap(JComponent.WHEN_FOCUSED);
+		String pasteActionKey = "chat-paste-image-or-text";
+		inputMap.put(javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_V, java.awt.event.InputEvent.CTRL_DOWN_MASK), pasteActionKey);
+		inputMap.put(javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_INSERT, java.awt.event.InputEvent.SHIFT_DOWN_MASK), pasteActionKey);
+		actionMap.put(pasteActionKey, new javax.swing.AbstractAction() {
+			@Override
+			public void actionPerformed(java.awt.event.ActionEvent e) {
+				java.awt.datatransfer.Clipboard cb = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
+				try {
+					java.awt.datatransfer.Transferable trans = cb.getContents(null);
+					if (trans != null && trans.isDataFlavorSupported(java.awt.datatransfer.DataFlavor.imageFlavor)) {
+						sendChatImageFromClipboard();
+						return;
+					}
+				} catch (Exception ex) {
+					log.debug("Clipboard image check failed: " + ex.getMessage());
+				}
+				input.paste();
+			}
+		});
+	}
+
+	private void sendChatImageFromClipboard() {
+		new Thread("chat-image-paste") {
+			@Override
+			public void run() {
+				try {
+					java.awt.datatransfer.Clipboard cb = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
+					java.awt.datatransfer.Transferable trans = cb.getContents(null);
+					if (trans == null || !trans.isDataFlavorSupported(java.awt.datatransfer.DataFlavor.imageFlavor)) return;
+					java.awt.Image img = (java.awt.Image) trans.getTransferData(java.awt.datatransfer.DataFlavor.imageFlavor);
+					BufferedImage bi = toBufferedImage(img);
+					if (bi == null) {
+						log.err("No se pudo convertir la imagen del portapapeles");
+						return;
+					}
+					String name = "clip-" + new java.text.SimpleDateFormat("yyyyMMdd-HHmmss").format(new java.util.Date()) + ".png";
+					File target = copyImageBytesToSessionFiles(bi, name);
+					sendChatFile(target);
+				} catch (Exception e) {
+					log.err("Error al pegar imagen en chat: " + e.getMessage());
+				}
+			}
+		}.start();
+	}
+
+	private static BufferedImage toBufferedImage(java.awt.Image img) {
+		if (img == null) return null;
+		if (img instanceof BufferedImage) return (BufferedImage) img;
+		int w = Math.max(1, img.getWidth(null));
+		int h = Math.max(1, img.getHeight(null));
+		BufferedImage bi = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+		Graphics2D g = bi.createGraphics();
+		try {
+			g.drawImage(img, 0, 0, null);
+		} finally {
+			g.dispose();
+		}
+		return bi;
+	}
+
+	private File copyImageBytesToSessionFiles(BufferedImage bi, String desiredName) throws Exception {
+		File sessionFilesDir = getSessionFilesDir();
+		sessionFilesDir.mkdirs();
+		String targetPath = uniqueFilePath(new File(sessionFilesDir, desiredName).getAbsolutePath());
+		File targetFile = new File(targetPath);
+		try (java.io.OutputStream out = java.nio.file.Files.newOutputStream(targetFile.toPath())) {
+			javax.imageio.ImageIO.write(bi, "png", out);
+		}
+		return targetFile;
 	}
 
 	private boolean importFilesToSession(List<File> files, String sourceLabel) {
@@ -3028,23 +3086,8 @@ public class Controller {
 		log.info("El archivo aun no esta disponible para descarga");
 	}
 
-	private void handleChatFileEvent(Event event) {
-		QFile qfile = event.getFile();
-		User sender = event.getUser();
-		if (qfile == null || sender == null) return;
-		if (sender.equals(user)) {
-			appendChatFileMessage(sender, qfile, new File(getSessionFilesDir(), qfile.getRelativePath()).getAbsolutePath());
-			return;
-		}
-		markTabIfInactive("Chat");
-		log.info("Chat: " + sender.getName() + " envio el archivo " + qfile.getName());
-		qfile.setOwner(sender);
-		qfile.setTransferId(UUIDUtils.generate());
-		String linkId = appendChatFileMessage(sender, qfile, null);
-		downloadFile(sender, qfile);
-		if (qfile.getTransferId() != null && linkId != null && !chatTransferLinks.containsKey(qfile.getTransferId())) {
-			chatTransferLinks.put(qfile.getTransferId(), linkId);
-		}
+	private void handleChatFileEvent(CoreEnvelope envelope) {
+		log.debug("Evento legacy de archivo de chat ignorado (usar core event): " + (envelope != null ? envelope.name() : "null"));
 	}
 
 	private void applyRemoteChatHistory(String history) {
@@ -3172,7 +3215,6 @@ public class Controller {
 	}
 
 	private void refreshLanguageTexts() {
-		System.out.println("[Controller.refreshLanguageTexts] START, I18n locale=" + I18n.currentLocale().getLanguage());
 		view.applyI18nTexts();
 		refreshTabTitles();
 		refreshHelpTabContent();
@@ -3182,13 +3224,10 @@ public class Controller {
 		refreshAllTooltips();
 		view.revalidate();
 		view.repaint();
-		System.out.println("[Controller.refreshLanguageTexts] END");
 	}
 
 	private void refreshAllFileTableColumns() {
-		System.out.println("[Controller.refreshAllFileTableColumns] START, I18n locale=" + I18n.currentLocale().getLanguage());
 		searchAndRefreshFileTables(view.getjTabbedPane());
-		System.out.println("[Controller.refreshAllFileTableColumns] END");
 	}
 
 	private JPopupMenu createJoinTextPopupMenu() {
@@ -3211,10 +3250,8 @@ public class Controller {
 
 	private void searchAndRefreshFileTables(Container container) {
 		for (Component c : container.getComponents()) {
-			System.out.println("[Controller.searchAndRefreshFileTables] checking component: " + c.getClass().getSimpleName());
 			if (c instanceof TabListFile) {
 				TabListFile tlf = (TabListFile) c;
-				System.out.println("[Controller.searchAndRefreshFileTables] found TabListFile, calling refreshColumnNames");
 				if (tlf.getjTable1().getModel() instanceof FileTableModel) {
 					((FileTableModel) tlf.getjTable1().getModel()).refreshColumnNames();
 				}
@@ -3227,7 +3264,6 @@ public class Controller {
 	}
 
 	private void refreshAllTooltips() {
-		System.out.println("[Controller.refreshAllTooltips] START, I18n locale=" + I18n.currentLocale().getLanguage());
 		if (chatArea != null && chatArea.getParent() != null) {
 			Container p = (Container) chatArea.getParent();
 			for (Component c : p.getComponents()) {
@@ -3235,92 +3271,66 @@ public class Controller {
 					JButton btn = (JButton) c;
 					String tt = btn.getToolTipText();
 					if (tt != null && (tt.contains("Adjuntar") || tt.contains("Attach"))) {
-						System.out.println("[Controller.refreshAllTooltips] updating chat attach button tooltip");
 						btn.setToolTipText(I18n.get("tooltip.attachFile"));
 					}
 				}
 			}
 		}
 		if (whiteboardColorButton != null) {
-			System.out.println("[Controller.refreshAllTooltips] updating whiteboard color button tooltip");
 			whiteboardColorButton.setToolTipText(I18n.get("tooltip.currentColor"));
 		}
 		if (view.getjButton6() != null) {
-			System.out.println("[Controller.refreshAllTooltips] updating proxy button tooltip");
 			view.getjButton6().setToolTipText(I18n.get("login.configureProxy"));
 		}
 		if (notesContainerPanel != null) {
-			System.out.println("[Controller.refreshAllTooltips] updating notes container tooltips");
 			updateTooltipsInContainer(notesContainerPanel);
 		}
 		if (whiteboardContainerPanel != null) {
-			System.out.println("[Controller.refreshAllTooltips] updating whiteboard container tooltips");
 			updateTooltipsInContainer(whiteboardContainerPanel);
 		}
-		System.out.println("[Controller.refreshAllTooltips] END");
 	}
 
 	private void updateTooltipsInContainer(Container container) {
-		System.out.println("[Controller.updateTooltipsInContainer] START container=" + container.getClass().getSimpleName());
 		for (Component c : container.getComponents()) {
-			System.out.println("[Controller.updateTooltipsInContainer] component=" + c.getClass().getName() + ", tooltip=" + (c instanceof JComponent ? ((JComponent)c).getToolTipText() : null));
 			if (c instanceof JButton) {
 				JButton btn = (JButton) c;
 				String tt = btn.getToolTipText();
 				if (tt != null) {
 					if (tt.contains("Insertar imagen") || tt.contains("Insert image")) {
-						System.out.println("[Controller.updateTooltipsInContainer] updating insert image button");
 						btn.setToolTipText(I18n.get("tooltip.insertImage"));
 					} else if (tt.contains("Achicar") || tt.contains("Shrink")) {
-						System.out.println("[Controller.updateTooltipsInContainer] updating shrink button");
 						btn.setToolTipText(I18n.get("tooltip.shrinkImage"));
 					} else if (tt.contains("Agrandar") || tt.contains("Grow")) {
-						System.out.println("[Controller.updateTooltipsInContainer] updating grow button");
 						btn.setToolTipText(I18n.get("tooltip.growImage"));
 					} else if (tt.contains("Reducir") || tt.contains("Reduce")) {
-						System.out.println("[Controller.updateTooltipsInContainer] updating reduce text button");
 						btn.setToolTipText(I18n.get("tooltip.reduceText"));
 					} else if (tt.contains("Aumentar") || tt.contains("Increase")) {
-						System.out.println("[Controller.updateTooltipsInContainer] updating increase text button");
 						btn.setToolTipText(I18n.get("tooltip.increaseText"));
 					} else if (tt.contains("Cambiar color") || tt.contains("Change font")) {
-						System.out.println("[Controller.updateTooltipsInContainer] updating font color button");
 						btn.setToolTipText(I18n.get("tooltip.fontColor"));
 					} else if (tt.contains("Guardar notas") || tt.contains("Save notes")) {
-						System.out.println("[Controller.updateTooltipsInContainer] updating export notes button");
 						btn.setToolTipText(I18n.get("tooltip.exportNotes"));
 					} else if (tt.contains("Seleccionar") || tt.contains("Select")) {
-						System.out.println("[Controller.updateTooltipsInContainer] updating select button");
 						btn.setToolTipText(I18n.get("tooltip.whiteboard.select"));
 					} else if (tt.contains("Lápiz") || tt.contains("Pencil")) {
-						System.out.println("[Controller.updateTooltipsInContainer] updating pencil button");
 						btn.setToolTipText(I18n.get("tooltip.whiteboard.pencil"));
 					} else if (tt.contains("Texto") || tt.contains("Text")) {
-						System.out.println("[Controller.updateTooltipsInContainer] updating text button");
 						btn.setToolTipText(I18n.get("tooltip.whiteboard.text"));
 					} else if (tt.contains("Imagen") || tt.contains("Image")) {
-						System.out.println("[Controller.updateTooltipsInContainer] updating image button");
 						btn.setToolTipText(I18n.get("tooltip.whiteboard.image"));
 					} else if (tt.contains("Flecha") || tt.contains("Arrow")) {
-						System.out.println("[Controller.updateTooltipsInContainer] updating arrow button");
 						btn.setToolTipText(I18n.get("tooltip.whiteboard.arrow"));
 					} else if (tt.contains("Círculo") || tt.contains("Circle")) {
-						System.out.println("[Controller.updateTooltipsInContainer] updating circle button");
 						btn.setToolTipText(I18n.get("tooltip.whiteboard.circle"));
 					} else if (tt.contains("Cuadrado") || tt.contains("Square")) {
-						System.out.println("[Controller.updateTooltipsInContainer] updating square button");
 						btn.setToolTipText(I18n.get("tooltip.whiteboard.square"));
 					} else if (tt.contains("Rectángulo") || tt.contains("Rectangle")) {
-						System.out.println("[Controller.updateTooltipsInContainer] updating rectangle button");
 						btn.setToolTipText(I18n.get("tooltip.whiteboard.rectangle"));
 					} else if (tt.contains("Triángulo") || tt.contains("Triangle")) {
-						System.out.println("[Controller.updateTooltipsInContainer] updating triangle button");
 						btn.setToolTipText(I18n.get("tooltip.whiteboard.triangle"));
 					} else if (tt.contains("Limpiar pizarra") || tt.contains("Clear whiteboard")) {
-						System.out.println("[Controller.updateTooltipsInContainer] updating clear button");
 						btn.setToolTipText(I18n.get("tooltip.whiteboard.clear"));
 					} else if (tt.contains("Guardar pizarra") || tt.contains("Save whiteboard")) {
-						System.out.println("[Controller.updateTooltipsInContainer] updating save button");
 						btn.setToolTipText(I18n.get("tooltip.whiteboard.save"));
 					}
 				}
@@ -3328,7 +3338,6 @@ public class Controller {
 				JCheckBox cb = (JCheckBox) c;
 				String text = cb.getText();
 				if (text != null && (text.contains("Traslúcida") || text.contains("Translucent"))) {
-					System.out.println("[Controller.updateTooltipsInContainer] updating translucent checkbox");
 					cb.setText(I18n.get("notes.translucent"));
 					cb.setToolTipText(I18n.get("tooltip.translucent"));
 				}
@@ -3336,7 +3345,6 @@ public class Controller {
 				updateTooltipsInContainer((Container) c);
 			}
 		}
-		System.out.println("[Controller.updateTooltipsInContainer] END");
 	}
 
 	private void refreshHelpTabContent() {
@@ -3722,41 +3730,6 @@ public class Controller {
 		if (state != null && !state.equals(lastSentNotesState)) {
 			lastSentNotesState = state;
 			recordNotesUpdateInCore(state);
-		}
-	}
-
-	private String serializeNotesStateInBackground(StyledDocument doc, int docLength) {
-		try {
-			StringBuilder state = new StringBuilder("QNOTES2\n");
-			StringBuilder text = new StringBuilder();
-			AttributeSet currentAttrs = null;
-			int textRuns = 0;
-			int images = 0;
-			for (int i = 0; i < docLength; i++) {
-				AttributeSet attrs = doc.getCharacterElement(i).getAttributes();
-				IconInfo icon = iconInfo(attrs);
-				if (icon != null) {
-					textRuns += appendNotesTextRun(state, text, currentAttrs);
-					text.setLength(0);
-					currentAttrs = null;
-					state.append("I|").append(icon.width).append('|').append(icon.height).append('|').append(icon.base64).append('\n');
-					images++;
-					continue;
-				}
-				if (currentAttrs == null || !sameNoteStyle(currentAttrs, attrs)) {
-					textRuns += appendNotesTextRun(state, text, currentAttrs);
-					text.setLength(0);
-					currentAttrs = attrs;
-				}
-				text.append(doc.getText(i, 1));
-			}
-			textRuns += appendNotesTextRun(state, text, currentAttrs);
-			log.debug("[NOTES] serializado " + notesStateSummary(state.toString())
-					+ " textRuns=" + textRuns + " images=" + images);
-			return state.toString();
-		} catch (Exception e) {
-			log.err("Error al serializar notas: " + e.getMessage());
-			return null;
 		}
 	}
 
@@ -4648,71 +4621,62 @@ public class Controller {
 		return null;
 	}
 
-	private void sendFileDirect(Event request) {
+	private void sendFileDirect(CoreEnvelope request) {
 		sendFileDirect(request, null);
 	}
 
-	private void sendFileDirect(Event request, WebSocket directConn) {
+	private void sendFileDirect(CoreEnvelope request, WebSocket directConn) {
 		String localFolder = getSessionFilesDir().getAbsolutePath();
 		new Thread(() -> {
-			QFile requestedFile = request.getFile();
-			if (requestedFile == null || request.getUser() == null) {
-				log.err("Pedido de archivo invalido");
+			if (request == null || request.response() == null || request.userId() == null) {
+				log.err("Pedido de archivo invalido (core envelope)");
 				return;
 			}
-			String transferId = requestedFile.getTransferId() != null ? requestedFile.getTransferId() : UUIDUtils.generate();
-			String targetId = request.getUser().getId();
-			String filePath = requestedFile.getRelativePath() != null && !requestedFile.getRelativePath().isEmpty()
-					? requestedFile.getRelativePath() : requestedFile.getName();
+			String[] fileInfo = request.response().split("\\|", 2);
+			String fileName = fileInfo[0];
+			String relativePath = fileInfo.length > 1 ? fileInfo[1] : fileName;
+			String transferId = request.sequence() > 0 ? "core_" + request.sequence() : UUIDUtils.generate();
+			String targetId = request.userId();
+			String filePath = relativePath != null && !relativePath.isEmpty() ? relativePath : fileName;
 			String localPath = localFolder + File.separator + filePath;
 			File file = new File(localPath);
 
 			if (!file.exists() || !file.isFile()) {
-				sendTransferEvent(directConn, targetId, new Event("Error al transferir archivo",
-						"No se encontro el archivo local: " + requestedFile.getName()));
+				sendTransferEvent(directConn, targetId, CoreEnvelope.of("Error al transferir archivo", user.getId(),
+						"No se encontro el archivo local: " + fileName));
 				return;
 			}
 
 			long totalParts = Math.max(1, (file.length() + FILE_CHUNK_SIZE - 1) / FILE_CHUNK_SIZE);
-			log.info("Enviando archivo '" + requestedFile.getName() + "' en " + totalParts + " partes");
-			updateTransferProgress(transferId, I18n.get("transfer.sending") + requestedFile.getName(), 0, (int) totalParts);
+			log.info("Enviando archivo '" + fileName + "' en " + totalParts + " partes");
+			updateTransferProgress(transferId, I18n.get("transfer.sending") + fileName, 0, (int) totalParts);
 
 			try (FileInputStream fis = new FileInputStream(file)) {
 				byte[] buffer = new byte[FILE_CHUNK_SIZE];
 				int read;
 				int part = 0;
 				while ((read = fis.read(buffer)) != -1) {
-					QFile qfile = new QFile();
-					qfile.setName(requestedFile.getName());
-					qfile.setSize(file.length());
-					qfile.setDate(file.lastModified());
-					qfile.setOperation(requestedFile.getOperation());
-					qfile.setRelativePath(requestedFile.getRelativePath());
-					qfile.setTransferId(transferId);
-					qfile.setTotalParts((int) totalParts);
-					qfile.setCurrentPart(part);
-					qfile.setContent(Base64.getEncoder().encodeToString(Arrays.copyOf(buffer, read)));
-
-					sendTransferEvent(directConn, targetId, new Event("Parte de archivo", user, qfile));
-					updateTransferProgress(transferId, I18n.get("transfer.sending") + " " + requestedFile.getName(), part + 1, (int) totalParts);
+					String content = Base64.getEncoder().encodeToString(Arrays.copyOf(buffer, read));
+					String partPayload = fileName + "|" + relativePath + "|" + part + "|" + totalParts + "|" + content;
+					sendTransferEvent(directConn, targetId, CoreEnvelope.of("Parte de archivo", user.getId(), partPayload));
+					updateTransferProgress(transferId, I18n.get("transfer.sending") + " " + fileName, part + 1, (int) totalParts);
 					part++;
 				}
-				log.info("Archivo '" + requestedFile.getName() + "' enviado");
+				log.info("Archivo '" + fileName + "' enviado");
 			} catch (Exception ex) {
 				log.err("Error al enviar archivo: " + ex.getMessage());
-				sendTransferEvent(directConn, targetId, new Event("Error al transferir archivo",
+				sendTransferEvent(directConn, targetId, CoreEnvelope.of("Error al transferir archivo", user.getId(),
 						"Error al enviar archivo: " + ex.getMessage()));
 			}
 		}, "file-send").start();
 	}
 
-	private void sendTransferEvent(WebSocket directConn, String targetId, Event event) {
+	private void sendTransferEvent(WebSocket directConn, String targetId, CoreEnvelope envelope) {
 		try {
 			if (directConn != null) {
-				directConn.send(EventUtils.toJsonBase64(event));
+				directConn.send(envelope.toJsonBase64());
 			} else if (wsClient != null) {
-				event.setName("__to:" + targetId + ":" + event.getName());
-				sendEvent(event);
+				sendEvent(CoreEnvelope.of("__to:" + targetId + ":" + envelope.name(), envelope.userId(), envelope.response(), envelope.sequence()));
 			}
 		} catch (Exception e) {
 			log.err("Error al enviar evento de transferencia: " + e.getMessage());

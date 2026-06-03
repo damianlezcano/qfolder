@@ -22,14 +22,13 @@ import org.q3s.p2p.adapters.memory.UuidIdGenerator;
 import org.q3s.p2p.adapters.network.DirectBootstrap;
 import org.q3s.p2p.adapters.network.InviteCode;
 import org.q3s.p2p.adapters.network.P2PNetworkAdapter;
-import org.q3s.p2p.adapters.network.WebSocketNetworkAdapter;
 import org.q3s.p2p.core.app.CoreApplicationService;
+import org.q3s.p2p.core.codec.CoreEnvelope;
+import org.q3s.p2p.core.codec.CoreEnvelopeCodec;
 import org.q3s.p2p.core.events.EventService;
 import org.q3s.p2p.core.events.EventFactory;
 import org.q3s.p2p.core.events.EventTypes;
 import org.q3s.p2p.core.model.Event;
-import org.q3s.p2p.model.User;
-import org.q3s.p2p.model.util.EventUtils;
 
 @Tag("integration")
 class CoreWebSocketIntegrationTest {
@@ -81,19 +80,19 @@ class CoreWebSocketIntegrationTest {
 		@Override public void onOpen(WebSocket conn, org.java_websocket.handshake.ClientHandshake handshake) {}
 		@Override public void onClose(WebSocket conn, int code, String reason, boolean remote) {}
 		@Override public void onMessage(WebSocket conn, String message) {
-			org.q3s.p2p.model.Event event = (org.q3s.p2p.model.Event) EventUtils.toObjectBase64(message, org.q3s.p2p.model.Event.class);
-			if (event == null || event.getName() == null) return;
-			if (WebSocketNetworkAdapter.CORE_EVENT_NAME.equals(event.getName())) {
-				Event coreEvent = WebSocketNetworkAdapter.decode(event);
-				new EventService(store).accept(coreEvent);
-			} else if (WebSocketNetworkAdapter.CORE_SYNC_REQUEST_NAME.equals(event.getName())) {
-				List<Event> missing = store.getMissingEvents("ws_test", WebSocketNetworkAdapter.decodeKnownEventIds(event));
-				org.q3s.p2p.model.Event response = new org.q3s.p2p.model.Event(
-						WebSocketNetworkAdapter.CORE_SYNC_RESPONSE_NAME,
-						User.build(peerId),
-						WebSocketNetworkAdapter.encodeSyncPayload(missing));
+			CoreEnvelope envelope = CoreEnvelope.fromJsonBase64(message);
+			if (envelope == null || envelope.name() == null) return;
+			if (CoreEnvelopeCodec.CORE_EVENT_NAME.equals(envelope.name())) {
+				Event coreEvent = CoreEnvelopeCodec.decodeCoreEvent(envelope);
+				if (coreEvent != null) new EventService(store).accept(coreEvent);
+			} else if (CoreEnvelopeCodec.CORE_SYNC_REQUEST_NAME.equals(envelope.name())) {
+				List<Event> missing = store.getMissingEvents("ws_test", CoreEnvelopeCodec.decodeKnownEventIds(envelope));
+				CoreEnvelope response = CoreEnvelope.of(
+						CoreEnvelopeCodec.CORE_SYNC_RESPONSE_NAME,
+						peerId,
+						CoreEnvelopeCodec.encodeSyncPayload(missing));
 				try {
-					conn.send(EventUtils.toJsonBase64(response));
+					conn.send(response.toJsonBase64());
 				} catch (Exception ignored) {}
 			}
 		}
@@ -268,22 +267,22 @@ class CoreWebSocketIntegrationTest {
 			@Override public void onOpen(WebSocket conn, org.java_websocket.handshake.ClientHandshake handshake) {}
 			@Override public void onClose(WebSocket conn, int code, String reason, boolean remote) {}
 			@Override public void onMessage(WebSocket conn, String message) {
-				org.q3s.p2p.model.Event event = (org.q3s.p2p.model.Event) EventUtils.toObjectBase64(message, org.q3s.p2p.model.Event.class);
-				if (event == null || event.getName() == null) return;
-				if (WebSocketNetworkAdapter.CORE_EVENT_NAME.equals(event.getName())) {
-					Event coreEvent = WebSocketNetworkAdapter.decode(event);
+				CoreEnvelope envelope = CoreEnvelope.fromJsonBase64(message);
+				if (envelope == null || envelope.name() == null) return;
+				if (CoreEnvelopeCodec.CORE_EVENT_NAME.equals(envelope.name())) {
+					Event coreEvent = CoreEnvelopeCodec.decodeCoreEvent(envelope);
 					if (coreEvent != null && EventTypes.MEMBER_JOIN_REQUESTED.equals(coreEvent.type())) {
 						appA.receiveRemoteEvent(coreEvent);
 						appA.approveJoin("B");
 						appA.authorizeKnownMember("B", "B", "devB", "tokB");
 					}
-				} else if (WebSocketNetworkAdapter.CORE_SYNC_REQUEST_NAME.equals(event.getName())) {
-					List<Event> missing = appA.missingEvents(WebSocketNetworkAdapter.decodeKnownEventIds(event));
-					org.q3s.p2p.model.Event response = new org.q3s.p2p.model.Event(
-							WebSocketNetworkAdapter.CORE_SYNC_RESPONSE_NAME,
-							User.build(created.creator().memberId()),
-							WebSocketNetworkAdapter.encodeSyncPayload(missing));
-					try { conn.send(EventUtils.toJsonBase64(response)); } catch (Exception ignored) {}
+				} else if (CoreEnvelopeCodec.CORE_SYNC_REQUEST_NAME.equals(envelope.name())) {
+					List<Event> missing = appA.missingEvents(CoreEnvelopeCodec.decodeKnownEventIds(envelope));
+					CoreEnvelope response = CoreEnvelope.of(
+							CoreEnvelopeCodec.CORE_SYNC_RESPONSE_NAME,
+							created.creator().memberId(),
+							CoreEnvelopeCodec.encodeSyncPayload(missing));
+					try { conn.send(response.toJsonBase64()); } catch (Exception ignored) {}
 				}
 			}
 			@Override public void onError(WebSocket conn, Exception ex) {}

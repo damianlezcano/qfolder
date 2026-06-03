@@ -9,13 +9,12 @@ import java.util.function.Consumer;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
 import org.q3s.p2p.client.util.Logger;
-import org.q3s.p2p.model.Event;
-import org.q3s.p2p.model.util.EventUtils;
+import org.q3s.p2p.core.codec.CoreEnvelope;
 
 public class WsClient extends WebSocketClient {
 
 	private final Logger log;
-	private final Consumer<Event> onEvent;
+	private final Consumer<CoreEnvelope> onEvent;
 	private final Consumer<String> onError;
 	private final Runnable onClose;
 	private final boolean callbacksOnEdt;
@@ -23,12 +22,12 @@ public class WsClient extends WebSocketClient {
 	private final java.util.concurrent.atomic.AtomicBoolean closeNotified = new java.util.concurrent.atomic.AtomicBoolean(false);
 	private volatile boolean closed;
 
-	public WsClient(URI uri, Logger log, Consumer<Event> onEvent, Consumer<String> onError,
+	public WsClient(URI uri, Logger log, Consumer<CoreEnvelope> onEvent, Consumer<String> onError,
 			Runnable onClose) {
 		this(uri, log, onEvent, onError, onClose, true);
 	}
 
-	public WsClient(URI uri, Logger log, Consumer<Event> onEvent, Consumer<String> onError,
+	public WsClient(URI uri, Logger log, Consumer<CoreEnvelope> onEvent, Consumer<String> onError,
 			Runnable onClose, boolean callbacksOnEdt) {
 		super(uri);
 		this.log = log;
@@ -50,9 +49,9 @@ public class WsClient extends WebSocketClient {
 
 	@Override
 	public void onMessage(String message) {
-		Event event = (Event) EventUtils.toObjectBase64(message, Event.class);
-		if (event != null && onEvent != null) {
-			runCallback(() -> onEvent.accept(event));
+		CoreEnvelope envelope = CoreEnvelope.fromJsonBase64(message);
+		if (envelope != null && onEvent != null) {
+			runCallback(() -> onEvent.accept(envelope));
 		}
 	}
 
@@ -72,16 +71,16 @@ public class WsClient extends WebSocketClient {
 		}
 	}
 
-	public void sendEvent(Event event) {
+	public void sendEnvelope(CoreEnvelope envelope) {
 		if (isOpen()) {
 			try {
-				send(EventUtils.toJsonBase64(event));
+				send(envelope.toJsonBase64());
 			} catch (Exception e) {
-				if (log != null) log.err("Error sending event: " + e.getMessage());
+				if (log != null) log.err("Error sending envelope: " + e.getMessage());
 				callCloseCallback();
 			}
 		} else {
-			if (log != null) log.err("Error sending event: WebSocket is not open");
+			if (log != null) log.err("Error sending envelope: WebSocket is not open");
 			callCloseCallback();
 		}
 	}

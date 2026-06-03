@@ -12,9 +12,10 @@ import java.util.function.Supplier;
 
 import org.java_websocket.WebSocket;
 import org.q3s.p2p.client.ws.WsClient;
+import org.q3s.p2p.core.codec.CoreEnvelope;
+import org.q3s.p2p.core.codec.CoreEnvelopeCodec;
 import org.q3s.p2p.core.model.Event;
 import org.q3s.p2p.core.sync.SyncEngine;
-import org.q3s.p2p.model.User;
 import org.q3s.p2p.ports.EventStore;
 import org.q3s.p2p.ports.NetworkAdapter;
 
@@ -24,7 +25,7 @@ public class P2PNetworkAdapter implements NetworkAdapter {
 	private final Supplier<String> workspaceId;
 	private final EventStore store;
 	private final SyncEngine sync;
-	private final BiConsumer<WebSocket, org.q3s.p2p.model.Event> onInboundDirect;
+	private final BiConsumer<WebSocket, CoreEnvelope> onInboundDirect;
 	private final Consumer<String> debug;
 	private final Map<String, PeerLink> peers = new ConcurrentHashMap<>();
 	private volatile boolean shuttingDown = false;
@@ -33,12 +34,12 @@ public class P2PNetworkAdapter implements NetworkAdapter {
 	private Consumer<Set<String>> onPeerConnectionsChanged;
 
 	public P2PNetworkAdapter(String localPeerId, Supplier<String> localWebSocketUri, Supplier<String> workspaceId,
-			EventStore store, BiConsumer<WebSocket, org.q3s.p2p.model.Event> onInboundDirect, Consumer<String> debug) {
+			EventStore store, BiConsumer<WebSocket, CoreEnvelope> onInboundDirect, Consumer<String> debug) {
 		this(localPeerId, localWebSocketUri, workspaceId, store, onInboundDirect, debug, false);
 	}
 
 	public P2PNetworkAdapter(String localPeerId, Supplier<String> localWebSocketUri, Supplier<String> workspaceId,
-			EventStore store, BiConsumer<WebSocket, org.q3s.p2p.model.Event> onInboundDirect, Consumer<String> debug,
+			EventStore store, BiConsumer<WebSocket, CoreEnvelope> onInboundDirect, Consumer<String> debug,
 			boolean validateRemoteEvents) {
 		this.localPeerId = localPeerId;
 		this.localWebSocketUri = localWebSocketUri;
@@ -86,7 +87,7 @@ public class P2PNetworkAdapter implements NetworkAdapter {
 					return;
 				}
 				peers.remove(peerId, existing);
-				try { existing.close(); } catch (Exception ignored) {}
+				try { existing.close(); } catch (Exception ignored) { debug.accept("close: " + ignored.getMessage()); }
 				if (peers.putIfAbsent(peerId, link) != null) {
 					if (onReady != null) onReady.run();
 					return;
@@ -136,16 +137,16 @@ public class P2PNetworkAdapter implements NetworkAdapter {
 		}
 	}
 
-	public void sendProtocolEvent(String peerId, org.q3s.p2p.model.Event event) {
+	public void sendProtocolEvent(String peerId, CoreEnvelope envelope) {
 		if (shuttingDown) return;
 		PeerLink link = peers.get(peerId);
-		if (link != null && link.active()) link.sendLegacy(event);
+		if (link != null && link.active()) link.sendEnvelope(envelope);
 	}
 
-	public void broadcastProtocolEvent(org.q3s.p2p.model.Event event) {
+	public void broadcastProtocolEvent(CoreEnvelope envelope) {
 		if (shuttingDown) return;
 		for (PeerLink link : peers.values()) {
-			if (link.active()) link.sendLegacy(event);
+			if (link.active()) link.sendEnvelope(envelope);
 		}
 	}
 
@@ -187,25 +188,24 @@ public class P2PNetworkAdapter implements NetworkAdapter {
 			for (int attempt = 1; attempt <= 3; attempt++) {
 				if (shuttingDown) break;
 				if (client != null) {
-					try { client.close(); } catch (Exception ignored) {}
+					try { client.close(); } catch (Exception ignored) { debug.accept("close: " + ignored.getMessage()); }
 					client = null;
 				}
 				try {
-					client = new WsClient(new URI(uri), null, event -> {
-						if (shuttingDown) return;
-						if (WebSocketNetworkAdapter.CORE_EVENT_NAME.equals(event.getName())) {
-							Event coreEvent = WebSocketNetworkAdapter.decode(event);
+					client = new WsClient(new URI(uri), null, envelope -> {
+						if (CoreEnvelopeCodec.CORE_EVENT_NAME.equals(envelope.name())) {
+							Event coreEvent = CoreEnvelopeCodec.decodeCoreEvent(envelope);
 							if (coreEvent != null && sync.receiveEvent(coreEvent)) {
 								if (onCoreEventStored != null) onCoreEventStored.accept(coreEvent);
 							}
-						} else if (WebSocketNetworkAdapter.CORE_SYNC_REQUEST_NAME.equals(event.getName())) {
-							handleIncomingSyncRequest(event);
-						} else if (WebSocketNetworkAdapter.CORE_SYNC_RESPONSE_NAME.equals(event.getName())) {
-							handleIncomingSyncResponse(event);
+						} else if (CoreEnvelopeCodec.CORE_SYNC_REQUEST_NAME.equals(envelope.name())) {
+							handleIncomingSyncRequest(envelope);
+						} else if (CoreEnvelopeCodec.CORE_SYNC_RESPONSE_NAME.equals(envelope.name())) {
+							handleIncomingSyncResponse(envelope);
 						} else if (onInboundDirect != null) {
 							try {
-								onInboundDirect.accept(null, event);
-							} catch (Exception ignored) {}
+								onInboundDirect.accept(null, envelope);
+							} catch (Exception ignored) { /* listener */ }
 						}
 					}, error -> {
 						if (!shuttingDown) debug.accept("P2P error con " + peerId + ": " + error);
@@ -246,10 +246,10 @@ public class P2PNetworkAdapter implements NetworkAdapter {
 		void send(Event event) {
 			if (!active()) return;
 			try {
-				client.send(org.q3s.p2p.model.util.EventUtils.toJsonBase64(
-						new org.q3s.p2p.model.Event(WebSocketNetworkAdapter.CORE_EVENT_NAME,
-								User.build(localPeerId),
-								WebSocketNetworkAdapter.encodeCoreEvent(event))));
+				client.sendEnvelope(CoreEnvelope.of(
+						CoreEnvelopeCodec.CORE_EVENT_NAME,
+						localPeerId,
+						CoreEnvelopeCodec.encodeCoreEvent(event)));
 			} catch (Exception e) {
 				debug.accept("P2P error enviando a " + peerId + ": " + e.getMessage());
 				ready = false;
@@ -258,10 +258,10 @@ public class P2PNetworkAdapter implements NetworkAdapter {
 			}
 		}
 
-		void sendLegacy(org.q3s.p2p.model.Event event) {
-			if (!active() || event == null) return;
+		void sendEnvelope(CoreEnvelope envelope) {
+			if (!active() || envelope == null) return;
 			try {
-				client.send(org.q3s.p2p.model.util.EventUtils.toJsonBase64(event));
+				client.sendEnvelope(envelope);
 			} catch (Exception e) {
 				debug.accept("P2P error enviando protocolo a " + peerId + ": " + e.getMessage());
 				ready = false;
@@ -275,11 +275,11 @@ public class P2PNetworkAdapter implements NetworkAdapter {
 			try {
 				String wsId = workspaceId.get();
 				if (wsId == null || wsId.isBlank()) return;
-				org.q3s.p2p.model.Event request = new org.q3s.p2p.model.Event(
-						WebSocketNetworkAdapter.CORE_SYNC_REQUEST_NAME,
-						User.build(localPeerId),
-						WebSocketNetworkAdapter.encodeKnownEventIds(store.listEventIds(wsId)));
-				client.send(org.q3s.p2p.model.util.EventUtils.toJsonBase64(request));
+				CoreEnvelope request = CoreEnvelope.of(
+						CoreEnvelopeCodec.CORE_SYNC_REQUEST_NAME,
+						localPeerId,
+						CoreEnvelopeCodec.encodeKnownEventIds(store.listEventIds(wsId)));
+				client.sendEnvelope(request);
 			} catch (Exception e) {
 				debug.accept("P2P error solicitando sync a " + peerId + ": " + e.getMessage());
 				ready = false;
@@ -292,26 +292,26 @@ public class P2PNetworkAdapter implements NetworkAdapter {
 			ready = false;
 			notifyPeerConnectionsChanged();
 			if (client != null) {
-				try { client.close(); } catch (Exception ignored) {}
+				try { client.close(); } catch (Exception ignored) { /* cleanup */ }
 			}
 		}
 	}
 
-	private void handleIncomingSyncRequest(org.q3s.p2p.model.Event event) {
+	private void handleIncomingSyncRequest(CoreEnvelope envelope) {
 		try {
 			String wsId = workspaceId.get();
 			if (wsId == null || wsId.isBlank()) return;
-			Set<String> knownIds = WebSocketNetworkAdapter.decodeKnownEventIds(event);
+			Set<String> knownIds = CoreEnvelopeCodec.decodeKnownEventIds(envelope);
 			java.util.List<Event> missing = store.getMissingEvents(wsId, knownIds);
 			if (!missing.isEmpty()) {
-				PeerLink link = clientForPeer(event.getUser() != null ? event.getUser().getId() : null);
+				PeerLink link = clientForPeer(envelope.userId());
 				if (link != null && link.active()) {
 					try {
-						org.q3s.p2p.model.Event response = new org.q3s.p2p.model.Event(
-								WebSocketNetworkAdapter.CORE_SYNC_RESPONSE_NAME,
-								User.build(localPeerId),
-								WebSocketNetworkAdapter.encodeSyncPayload(missing));
-						link.client.send(org.q3s.p2p.model.util.EventUtils.toJsonBase64(response));
+						CoreEnvelope response = CoreEnvelope.of(
+								CoreEnvelopeCodec.CORE_SYNC_RESPONSE_NAME,
+								localPeerId,
+								CoreEnvelopeCodec.encodeSyncPayload(missing));
+						link.client.sendEnvelope(response);
 					} catch (Exception e) {
 						debug.accept("P2P error respondiendo sync: " + e.getMessage());
 					}
@@ -322,9 +322,9 @@ public class P2PNetworkAdapter implements NetworkAdapter {
 		}
 	}
 
-	private void handleIncomingSyncResponse(org.q3s.p2p.model.Event event) {
+	private void handleIncomingSyncResponse(CoreEnvelope envelope) {
 		try {
-			java.util.List<Event> received = WebSocketNetworkAdapter.decodeEvents(event);
+			java.util.List<Event> received = CoreEnvelopeCodec.decodeSyncEvents(envelope);
 			sync.applyReceivedEvents(received);
 			if (onCoreSyncApplied != null && !received.isEmpty()) onCoreSyncApplied.accept(received);
 		} catch (Exception e) {

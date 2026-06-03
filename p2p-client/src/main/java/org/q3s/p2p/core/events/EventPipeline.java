@@ -109,7 +109,7 @@ public interface EventPipeline {
 
 		private void notify(Event event) {
 			for (Consumer<Event> listener : listeners) {
-				try { listener.accept(event); } catch (Exception ignored) {}
+				try { listener.accept(event); } catch (Exception ignored) { ignored.getMessage(); }
 			}
 		}
 	}

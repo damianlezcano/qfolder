@@ -21,6 +21,7 @@ import org.q3s.p2p.adapters.network.P2PNetworkAdapter;
 import org.q3s.p2p.adapters.network.SimulatedNetworkAdapter;
 import org.q3s.p2p.adapters.network.SimulatedNetworkAdapter.SimulatedNode;
 import org.q3s.p2p.core.app.CoreApplicationService;
+import org.q3s.p2p.core.codec.CoreEnvelope;
 import org.q3s.p2p.core.model.Event;
 import org.q3s.p2p.core.model.FileMetadata;
 import org.q3s.p2p.core.mesh.MeshPolicy;
@@ -407,9 +408,9 @@ class CoreControllerIntegrationTest {
 		for (String chunkHash : metadata.chunks()) {
 			byte[] chunkBytes = app.readChunk(chunkHash).orElse(new byte[0]);
 			String payload = CoreChunkTransferProtocol.chunkResponse("transfer-dup", fileId, chunkHash, chunkBytes);
-			coordinator.handle(new org.q3s.p2p.model.Event(
+			coordinator.handle(CoreEnvelope.of(
 					CoreChunkTransferProtocol.CHUNK_RESPONSE,
-					org.q3s.p2p.model.User.build("other"),
+					"other",
 					payload), null);
 		}
 
@@ -466,7 +467,7 @@ class CoreControllerIntegrationTest {
 
 		AtomicInteger completionCount = new AtomicInteger(0);
 		AtomicInteger fallbackCount = new AtomicInteger(0);
-		List<org.q3s.p2p.model.Event> outboundEvents = new ArrayList<>();
+		List<CoreEnvelope> outboundEvents = new ArrayList<>();
 
 		var coordinator = new CoreChunkTransferCoordinator(appB, () -> User.build("B"), outboundEvents::add,
 				(id, label, cur, tot) -> {},
@@ -484,18 +485,18 @@ class CoreControllerIntegrationTest {
 		byte[] corruptedBytes = new byte[1];
 		for (String chunkHash : metadata.chunks()) {
 			String payload = CoreChunkTransferProtocol.chunkResponse("transfer-badhash", fileId, chunkHash, corruptedBytes);
-			coordinator.handle(new org.q3s.p2p.model.Event(
+			coordinator.handle(CoreEnvelope.of(
 					CoreChunkTransferProtocol.CHUNK_RESPONSE,
-					org.q3s.p2p.model.User.build("peer"),
+					"peer",
 					payload), null);
 		}
 
 		for (String chunkHash : metadata.chunks()) {
 			byte[] chunkBytes = appA.readChunk(chunkHash).orElse(new byte[0]);
 			String payload = CoreChunkTransferProtocol.chunkResponse("transfer-badhash", fileId, chunkHash, chunkBytes);
-			coordinator.handle(new org.q3s.p2p.model.Event(
+			coordinator.handle(CoreEnvelope.of(
 					CoreChunkTransferProtocol.CHUNK_RESPONSE,
-					org.q3s.p2p.model.User.build("peer"),
+					"peer",
 					payload), null);
 		}
 
@@ -530,7 +531,7 @@ class CoreControllerIntegrationTest {
 
 		AtomicInteger completionCount = new AtomicInteger(0);
 		AtomicInteger fallbackCount = new AtomicInteger(0);
-		List<org.q3s.p2p.model.Event> outboundEvents = new ArrayList<>();
+		List<CoreEnvelope> outboundEvents = new ArrayList<>();
 
 		var coordinator = new CoreChunkTransferCoordinator(appB, () -> User.build("B"), outboundEvents::add,
 				(id, label, cur, tot) -> {},
@@ -546,9 +547,9 @@ class CoreControllerIntegrationTest {
 
 		byte[] corruptedBytes = new byte[]{0, 1, 2, 3};
 		String payload = CoreChunkTransferProtocol.chunkResponse("transfer-badhash2", fileId, firstChunk, corruptedBytes);
-		coordinator.handle(new org.q3s.p2p.model.Event(
+		coordinator.handle(CoreEnvelope.of(
 				CoreChunkTransferProtocol.CHUNK_RESPONSE,
-				org.q3s.p2p.model.User.build("peer"),
+				"peer",
 				payload), null);
 
 		assertEquals(0, completionCount.get(), "no debe completar con chunk invalido");
@@ -556,17 +557,17 @@ class CoreControllerIntegrationTest {
 
 		byte[] correctBytes = appA.readChunk(firstChunk).orElseThrow();
 		payload = CoreChunkTransferProtocol.chunkResponse("transfer-badhash2", fileId, firstChunk, correctBytes);
-		coordinator.handle(new org.q3s.p2p.model.Event(
+		coordinator.handle(CoreEnvelope.of(
 				CoreChunkTransferProtocol.CHUNK_RESPONSE,
-				org.q3s.p2p.model.User.build("peer"),
+				"peer",
 				payload), null);
 
 		for (int i = 1; i < metadata.chunks().size(); i++) {
 			byte[] chunkBytes = appA.readChunk(metadata.chunks().get(i)).orElse(new byte[0]);
 			payload = CoreChunkTransferProtocol.chunkResponse("transfer-badhash2", fileId, metadata.chunks().get(i), chunkBytes);
-			coordinator.handle(new org.q3s.p2p.model.Event(
+			coordinator.handle(CoreEnvelope.of(
 					CoreChunkTransferProtocol.CHUNK_RESPONSE,
-					org.q3s.p2p.model.User.build("peer"),
+					"peer",
 					payload), null);
 		}
 
@@ -605,18 +606,18 @@ class CoreControllerIntegrationTest {
 
 		String fakeChunk = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 		String payload = CoreChunkTransferProtocol.chunkResponse("transfer-outside", fileId, fakeChunk, new byte[]{1});
-		coordinator.handle(new org.q3s.p2p.model.Event(
+		coordinator.handle(CoreEnvelope.of(
 				CoreChunkTransferProtocol.CHUNK_RESPONSE,
-				org.q3s.p2p.model.User.build("peer"),
+				"peer",
 				payload), null);
 
 		FileMetadata metadata = appB.currentState().files().values().iterator().next();
 		for (String chunkHash : metadata.chunks()) {
 			byte[] chunkBytes = appA.readChunk(chunkHash).orElse(new byte[0]);
 			payload = CoreChunkTransferProtocol.chunkResponse("transfer-outside", fileId, chunkHash, chunkBytes);
-			coordinator.handle(new org.q3s.p2p.model.Event(
+			coordinator.handle(CoreEnvelope.of(
 					CoreChunkTransferProtocol.CHUNK_RESPONSE,
-					org.q3s.p2p.model.User.build("peer"),
+					"peer",
 					payload), null);
 		}
 
@@ -639,7 +640,7 @@ class CoreControllerIntegrationTest {
 				.filter(m -> m.fileId().equals(fileIdA)).findFirst().orElseThrow();
 		String chunkOfA = metaA.chunks().get(0);
 
-		List<org.q3s.p2p.model.Event> sent = new ArrayList<>();
+		List<CoreEnvelope> sent = new ArrayList<>();
 		var coordinator = new CoreChunkTransferCoordinator(appA, () -> User.build(created.creator().memberId()), sent::add,
 				(id, label, cur, tot) -> {},
 				(id, meta, req, bytes) -> {},
@@ -647,12 +648,12 @@ class CoreControllerIntegrationTest {
 				(msg, detail) -> {});
 
 		String payload = CoreChunkTransferProtocol.chunkRequest("some-transfer", fileIdB, chunkOfA);
-		coordinator.handle(new org.q3s.p2p.model.Event(
+		coordinator.handle(CoreEnvelope.of(
 				CoreChunkTransferProtocol.CHUNK_REQUEST,
-				org.q3s.p2p.model.User.build("peer"),
+				"peer",
 				payload), null);
 
-		boolean hasResponse = sent.stream().anyMatch(e -> CoreChunkTransferProtocol.CHUNK_RESPONSE.equals(e.getName()));
+		boolean hasResponse = sent.stream().anyMatch(e -> CoreChunkTransferProtocol.CHUNK_RESPONSE.equals(e.name()));
 		assertFalse(hasResponse, "No debe responder chunk de archivo B con hash del archivo A");
 	}
 

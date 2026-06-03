@@ -7,6 +7,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -58,11 +59,27 @@ public class QfolderLayout {
 		Path userdata = userdataRoot();
 		if (!Files.isDirectory(userdata)) return Optional.empty();
 		try (Stream<Path> days = Files.walk(userdata, 4)) {
-			return days.filter(Files::isDirectory)
-					.filter(p -> p.getFileName().toString().contains(workspaceId))
-					.findFirst();
+			java.util.List<Path> candidates = days.filter(Files::isDirectory)
+					.filter(p -> Files.isRegularFile(p.resolve("workspace.json")))
+					.filter(p -> folderMatchesWorkspaceId(p, workspaceId))
+					.sorted(Comparator.comparing(Path::toString).reversed())
+					.collect(java.util.stream.Collectors.toList());
+			return candidates.isEmpty() ? Optional.empty() : Optional.of(candidates.get(0));
 		} catch (Exception e) {
 			return Optional.empty();
+		}
+	}
+
+	private static boolean folderMatchesWorkspaceId(Path folder, String workspaceId) {
+		if (workspaceId == null || workspaceId.isBlank()) return false;
+		try {
+			String json = Files.readString(folder.resolve("workspace.json"));
+			java.util.regex.Matcher m = java.util.regex.Pattern
+					.compile("\"workspace_id\"\\s*:\\s*\"([^\"]+)\"")
+					.matcher(json);
+			return m.find() && workspaceId.equals(m.group(1));
+		} catch (Exception e) {
+			return false;
 		}
 	}
 
@@ -83,7 +100,7 @@ public class QfolderLayout {
 	public static String folderName(Instant createdAt, String workspaceId, String name) {
 		LocalDateTime dt = createdAt.atZone(ZoneId.systemDefault()).toLocalDateTime();
 		String timePart = String.format("%02d%02d", dt.getHour(), dt.getMinute());
-		return timePart + "-" + safeId(workspaceId) + "-" + slug(name);
+		return timePart + "-" + slug(name);
 	}
 
 	public static String safeId(String value) {

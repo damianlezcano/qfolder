@@ -14,7 +14,7 @@ public class I18n {
 	}
 
 	public static void setLocale(Locale locale) {
-		activeLocale = new Locale(locale.getLanguage());
+		activeLocale = Locale.forLanguageTag(locale.getLanguage());
 		bundle = loadBundle(activeLocale);
 	}
 

@@ -18,19 +18,18 @@ import java.util.function.Supplier;
 
 import org.java_websocket.WebSocket;
 import org.q3s.p2p.core.app.CoreApplicationService;
+import org.q3s.p2p.core.codec.CoreEnvelope;
 import org.q3s.p2p.core.files.DistributedChunkPlanner;
 import org.q3s.p2p.core.model.FileMetadata;
-import org.q3s.p2p.model.Event;
 import org.q3s.p2p.model.QFile;
 import org.q3s.p2p.model.User;
-import org.q3s.p2p.model.util.EventUtils;
 
 public class CoreChunkTransferCoordinator {
 	private final CoreApplicationService core;
 	private final Supplier<User> localUser;
 	private static final int MAX_RETRIES = 5;
 
-	private final Consumer<Event> outbound;
+	private final Consumer<CoreEnvelope> outbound;
 	private final ProgressSink progress;
 	private final CompletionSink completed;
 	private final BiConsumer<String, String> debug;
@@ -52,7 +51,7 @@ public class CoreChunkTransferCoordinator {
 	private final Map<String, TransferStatus> terminalTransfers = new ConcurrentHashMap<>();
 	private final Object lock = new Object();
 
-	public CoreChunkTransferCoordinator(CoreApplicationService core, Supplier<User> localUser, Consumer<Event> outbound,
+	public CoreChunkTransferCoordinator(CoreApplicationService core, Supplier<User> localUser, Consumer<CoreEnvelope> outbound,
 			ProgressSink progress, CompletionSink completed, BiConsumer<QFile, String> fallback,
 			BiConsumer<String, String> debug) {
 		this.core = core;
@@ -86,7 +85,7 @@ public class CoreChunkTransferCoordinator {
 					return true;
 				}
 			}
-			outbound.accept(new Event(CoreChunkTransferProtocol.AVAILABILITY_REQUEST, localUser.get(),
+			outbound.accept(CoreEnvelope.of(CoreChunkTransferProtocol.AVAILABILITY_REQUEST, localUser.get().getId(),
 					CoreChunkTransferProtocol.availabilityRequest(transferId, metadata.fileId(), metadata.chunks())));
 			progress.update(transferId, "Buscando chunks de " + metadata.name(), receivedChunks.get(transferId) != null ? receivedChunks.get(transferId).size() : 0, metadata.chunks().size());
 			scheduleRetry(transferId);
@@ -122,9 +121,9 @@ public class CoreChunkTransferCoordinator {
 		retries.shutdownNow();
 	}
 
-	public boolean handle(Event event, WebSocket directConn) {
-		if (event == null || event.getName() == null) return false;
-		return switch (event.getName()) {
+	public boolean handle(CoreEnvelope event, WebSocket directConn) {
+		if (event == null || event.name() == null) return false;
+		return switch (event.name()) {
 			case CoreChunkTransferProtocol.AVAILABILITY_REQUEST -> { respondAvailability(event); yield true; }
 			case CoreChunkTransferProtocol.AVAILABILITY_RESPONSE -> { receiveAvailability(event); yield true; }
 			case CoreChunkTransferProtocol.CHUNK_REQUEST -> { sendChunk(event, directConn); yield true; }
@@ -133,10 +132,10 @@ public class CoreChunkTransferCoordinator {
 		};
 	}
 
-	private void respondAvailability(Event event) {
+	private void respondAvailability(CoreEnvelope event) {
 		try {
-			if (event.getUser() == null || event.getUser().equals(localUser.get())) return;
-			var request = CoreChunkTransferProtocol.parseAvailabilityRequest(event.getResponse());
+			if (event.userId() == null || event.userId().equals(localUser.get().getId())) return;
+			var request = CoreChunkTransferProtocol.parseAvailabilityRequest(event.response());
 			FileMetadata meta = metadataByFileId(request.fileId());
 			List<String> filtered;
 			if (meta == null) {
@@ -148,9 +147,10 @@ public class CoreChunkTransferCoordinator {
 			}
 			debug.accept("Disponibilidad de chunks para " + request.fileId(), filtered.size() + "/" + request.chunks().size() + " chunks disponibles");
 			if (!filtered.isEmpty()) {
-				debug.accept("[CHUNK] respondAvailability -> " + event.getUser().getId(), "transferId=" + request.transferId() + " chunks=" + filtered.size());
-				outbound.accept(new Event("__to:" + event.getUser().getId() + ":" + CoreChunkTransferProtocol.AVAILABILITY_RESPONSE,
-						localUser.get(), CoreChunkTransferProtocol.availabilityResponse(request.transferId(), localUser.get().getId(), filtered)));
+				debug.accept("[CHUNK] respondAvailability -> " + event.userId(), "transferId=" + request.transferId() + " chunks=" + filtered.size());
+				outbound.accept(CoreEnvelope.of("__to:" + event.userId() + ":" + CoreChunkTransferProtocol.AVAILABILITY_RESPONSE,
+						localUser.get().getId(),
+						CoreChunkTransferProtocol.availabilityResponse(request.transferId(), localUser.get().getId(), filtered)));
 			} else {
 				debug.accept("No hay chunks disponibles para " + request.fileId(), "skip");
 			}
@@ -159,9 +159,9 @@ public class CoreChunkTransferCoordinator {
 		}
 	}
 
-	private void receiveAvailability(Event event) {
+	private void receiveAvailability(CoreEnvelope event) {
 		try {
-			var response = CoreChunkTransferProtocol.parseAvailabilityResponse(event.getResponse());
+			var response = CoreChunkTransferProtocol.parseAvailabilityResponse(event.response());
 			String dedupKey = response.transferId() + ":" + response.peerId();
 			if (!seenAvailabilityResponses.add(dedupKey)) {
 				debug.accept("[CHUNK] receiveAvailability skip duplicado", "transferId=" + response.transferId() + " peer=" + response.peerId());
@@ -180,7 +180,7 @@ public class CoreChunkTransferCoordinator {
 	}
 
 	private void plan(String transferId) {
-		List<Event> pending = new java.util.ArrayList<>();
+		List<CoreEnvelope> pending = new java.util.ArrayList<>();
 		synchronized (lock) {
 			if (terminalTransfers.containsKey(transferId)) return;
 			FileMetadata metadata = files.get(transferId);
@@ -199,12 +199,12 @@ public class CoreChunkTransferCoordinator {
 				for (String chunk : entry.getValue()) {
 					if (received.contains(chunk) || !requested.add(chunk)) continue;
 					debug.accept("[CHUNK] request chunk " + chunk, "peer=" + entry.getKey() + " transferId=" + transferId);
-					pending.add(new Event("__to:" + entry.getKey() + ":" + CoreChunkTransferProtocol.CHUNK_REQUEST, localUser.get(),
+					pending.add(CoreEnvelope.of("__to:" + entry.getKey() + ":" + CoreChunkTransferProtocol.CHUNK_REQUEST, localUser.get().getId(),
 							CoreChunkTransferProtocol.chunkRequest(transferId, metadata.fileId(), chunk)));
 				}
 			}
 		}
-		for (Event evt : pending) outbound.accept(evt);
+		for (CoreEnvelope evt : pending) outbound.accept(evt);
 		scheduleRetry(transferId);
 	}
 
@@ -253,10 +253,10 @@ public class CoreChunkTransferCoordinator {
 		}
 	}
 
-	private void sendChunk(Event event, WebSocket directConn) {
+	private void sendChunk(CoreEnvelope event, WebSocket directConn) {
 		try {
-			var request = CoreChunkTransferProtocol.parseChunkRequest(event.getResponse());
-			if (event.getUser() == null) return;
+			var request = CoreChunkTransferProtocol.parseChunkRequest(event.response());
+			if (event.userId() == null) return;
 			FileMetadata meta = metadataByFileId(request.fileId());
 			if (meta == null || !meta.chunks().contains(request.chunkHash())) {
 				debug.accept("[CHUNK] sendChunk skip - chunk fuera de metadata", "fileId=" + request.fileId() + " chunk=" + request.chunkHash());
@@ -264,23 +264,23 @@ public class CoreChunkTransferCoordinator {
 			}
 			byte[] bytes = core.readChunk(request.chunkHash()).orElse(null);
 			if (bytes == null) return;
-			Event response = new Event(CoreChunkTransferProtocol.CHUNK_RESPONSE, localUser.get(),
-					CoreChunkTransferProtocol.chunkResponse(request.transferId(), request.fileId(), request.chunkHash(), bytes));
+			String responsePayload = CoreChunkTransferProtocol.chunkResponse(request.transferId(), request.fileId(), request.chunkHash(), bytes);
+			CoreEnvelope response = CoreEnvelope.of(CoreChunkTransferProtocol.CHUNK_RESPONSE, localUser.get().getId(), responsePayload);
 			if (directConn != null) {
-				directConn.send(EventUtils.toJsonBase64(response));
-				debug.accept("[CHUNK] sendChunk direct", "chunk=" + request.chunkHash() + " bytes=" + bytes.length + " to=" + event.getUser().getId());
+				directConn.send(response.toJsonBase64());
+				debug.accept("[CHUNK] sendChunk direct", "chunk=" + request.chunkHash() + " bytes=" + bytes.length + " to=" + event.userId());
 			} else {
-				outbound.accept(new Event("__to:" + event.getUser().getId() + ":" + CoreChunkTransferProtocol.CHUNK_RESPONSE, localUser.get(), response.getResponse()));
-				debug.accept("[CHUNK] sendChunk via outbound", "chunk=" + request.chunkHash() + " bytes=" + bytes.length + " to=" + event.getUser().getId());
+				outbound.accept(CoreEnvelope.of("__to:" + event.userId() + ":" + CoreChunkTransferProtocol.CHUNK_RESPONSE, localUser.get().getId(), responsePayload));
+				debug.accept("[CHUNK] sendChunk via outbound", "chunk=" + request.chunkHash() + " bytes=" + bytes.length + " to=" + event.userId());
 			}
 		} catch (Exception e) {
 			debug.accept("No se pudo enviar chunk core", e.getMessage());
 		}
 	}
 
-	private void receiveChunk(Event event) {
+	private void receiveChunk(CoreEnvelope event) {
 		try {
-			var response = CoreChunkTransferProtocol.parseChunkResponse(event.getResponse());
+			var response = CoreChunkTransferProtocol.parseChunkResponse(event.response());
 			FileMetadata metadata;
 			boolean allReceived = false;
 			synchronized (lock) {

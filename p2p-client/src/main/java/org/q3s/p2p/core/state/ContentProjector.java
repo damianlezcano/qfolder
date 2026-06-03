@@ -1,5 +1,7 @@
 package org.q3s.p2p.core.state;
 
+import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -8,6 +10,7 @@ import org.q3s.p2p.core.model.ChatMessage;
 import org.q3s.p2p.core.model.Event;
 import org.q3s.p2p.core.model.FileMetadata;
 import org.q3s.p2p.core.model.Note;
+import org.q3s.p2p.core.model.NoteLine;
 import org.q3s.p2p.core.model.WhiteboardStroke;
 import org.q3s.p2p.core.whiteboard.WhiteboardMerger;
 
@@ -45,8 +48,9 @@ public class ContentProjector {
 	}
 
 	private void applyNoteReplace(WorkspaceState state, Map<String, Object> p) {
-		state.notes().put(String.valueOf(p.get("note_id")),
-				new Note(String.valueOf(p.get("note_id")), String.valueOf(p.get("text"))));
+		String noteId = String.valueOf(p.get("note_id"));
+		String text = String.valueOf(p.get("text"));
+		state.notes().put(noteId, new Note(noteId, text));
 	}
 
 	private void applyNoteDeleted(WorkspaceState state, Map<String, Object> p) {
@@ -56,28 +60,54 @@ public class ContentProjector {
 	private void applyNoteOp(WorkspaceState state, Map<String, Object> p, Event event) {
 		String noteId = String.valueOf(p.get("note_id"));
 		Note existing = state.notes().getOrDefault(noteId, new Note(noteId, ""));
-		String text = applyCrdtOp(existing.text(), event.type(), p);
-		state.notes().put(noteId, new Note(noteId, text));
-	}
-
-	private String applyCrdtOp(String current, String type, Map<String, Object> p) {
-		return switch (type) {
+		switch (event.type()) {
 			case EventTypes.NOTE_INSERT -> {
-				int pos = ((Number) p.getOrDefault("position", 0)).intValue();
-				String text = String.valueOf(p.getOrDefault("text", ""));
-				pos = Math.max(0, Math.min(pos, current.length()));
-				yield current.substring(0, pos) + text + current.substring(pos);
+				String lineId = String.valueOf(p.get("line_id"));
+				if (lineId.isBlank() || "null".equals(lineId)) return;
+				NoteLine incoming = new NoteLine(
+						lineId,
+						event.authorMemberId(),
+						String.valueOf(p.getOrDefault("after_line_id", "")),
+						String.valueOf(p.getOrDefault("text", "")),
+						instantFromPayload(p),
+						false);
+				Map<String, NoteLine> lines = new LinkedHashMap<>(existing.lines());
+				NoteLine previous = lines.get(lineId);
+				if (previous == null) {
+					lines.put(lineId, incoming);
+				}
+				state.notes().put(noteId, existing.withLines(lines));
 			}
 			case EventTypes.NOTE_DELETE_OP -> {
-				int pos = ((Number) p.getOrDefault("position", 0)).intValue();
-				int delLen = ((Number) p.getOrDefault("length", 0)).intValue();
-				pos = Math.max(0, Math.min(pos, current.length()));
-				int delPos = Math.min(pos + delLen, current.length());
-				yield current.substring(0, pos) + current.substring(delPos);
+				String lineId = String.valueOf(p.get("line_id"));
+				if (lineId.isBlank() || "null".equals(lineId)) return;
+				Map<String, NoteLine> lines = new LinkedHashMap<>(existing.lines());
+				NoteLine previous = lines.get(lineId);
+				if (previous == null) {
+					lines.put(lineId, new NoteLine(lineId, event.authorMemberId(), "", "", instantFromPayload(p), true));
+					state.notes().put(noteId, existing.withLines(lines));
+					return;
+				}
+				if (previous.deleted()) return;
+				lines.put(lineId, previous.withDeleted(true));
+				state.notes().put(noteId, existing.withLines(lines));
 			}
-			case EventTypes.NOTE_STYLE_APPLIED -> current;
-			default -> current;
-		};
+			case EventTypes.NOTE_STYLE_APPLIED -> {
+				// noop por ahora
+			}
+			default -> { }
+		}
+	}
+
+	private Instant instantFromPayload(Map<String, Object> p) {
+		Object raw = p.get("created_at_ms");
+		if (raw instanceof Number n) {
+			return Instant.ofEpochMilli(n.longValue());
+		}
+		if (raw instanceof String s) {
+			try { return Instant.ofEpochMilli(Long.parseLong(s)); } catch (NumberFormatException ignored) {}
+		}
+		return Instant.now();
 	}
 
 	@SuppressWarnings("unchecked")

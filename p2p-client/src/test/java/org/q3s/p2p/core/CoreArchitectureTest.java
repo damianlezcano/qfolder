@@ -14,7 +14,8 @@ import org.q3s.p2p.adapters.memory.SystemClockProvider;
 import org.q3s.p2p.adapters.memory.UuidIdGenerator;
 import org.q3s.p2p.adapters.network.SimulatedNetworkAdapter;
 import org.q3s.p2p.adapters.network.CoreChunkTransferProtocol;
-import org.q3s.p2p.adapters.network.WebSocketNetworkAdapter;
+import org.q3s.p2p.core.codec.CoreEnvelope;
+import org.q3s.p2p.core.codec.CoreEnvelopeCodec;
 import org.q3s.p2p.core.auth.TokenAuthProvider;
 import org.q3s.p2p.core.app.CoreApplicationService;
 import org.q3s.p2p.core.chat.ChatService;
@@ -149,32 +150,29 @@ class CoreArchitectureTest {
 	}
 
 	@Test
-	void websocketAdapterWrapsAndDecodesCoreEvent() {
-		java.util.List<org.q3s.p2p.model.Event> sent = new java.util.ArrayList<>();
-		WebSocketNetworkAdapter adapter = new WebSocketNetworkAdapter(sent::add, () -> org.q3s.p2p.model.User.build("U1"), Set::of);
+	void coreEnvelopeCodecRoundTripsCoreEvent() {
 		Event event = events.create("ws_1", EventTypes.CHAT_MESSAGE_CREATED, "member_a", Map.of("message_id", "m1", "text", "Hola"), null);
-		adapter.broadcast(event);
-		assertTrue(sent.get(0).getResponse().startsWith(WebSocketNetworkAdapter.CORE_PAYLOAD_VERSION + "\n"));
-		Event decoded = WebSocketNetworkAdapter.decode(sent.get(0));
+		CoreEnvelope envelope = CoreEnvelope.of(CoreEnvelopeCodec.CORE_EVENT_NAME, "U1",
+				CoreEnvelopeCodec.encodeCoreEvent(event));
+		assertTrue(envelope.response().startsWith(CoreEnvelopeCodec.CORE_PAYLOAD_VERSION + "\n"));
+		Event decoded = CoreEnvelopeCodec.decodeCoreEvent(envelope);
 		assertEquals(event.eventId(), decoded.eventId());
 		assertEquals(EventTypes.CHAT_MESSAGE_CREATED, decoded.type());
 	}
 
 	@Test
-	void websocketAdapterWrapsCoreSyncRequestAndResponse() {
-		java.util.List<org.q3s.p2p.model.Event> sent = new java.util.ArrayList<>();
-		WebSocketNetworkAdapter adapter = new WebSocketNetworkAdapter(sent::add, () -> org.q3s.p2p.model.User.build("U1"), Set::of);
+	void coreEnvelopeCodecRoundTripsCoreSyncRequestAndResponse() {
 		Event event = events.create("ws_1", EventTypes.NOTE_UPDATED, "member_a", Map.of("note_id", "shared-notes", "text", "Nota"), null);
 
-		sent.add(adapter.syncRequest(Set.of("evt_known")));
-		sent.add(adapter.syncResponse("U2", List.of(event)));
+		CoreEnvelope request = CoreEnvelope.of(CoreEnvelopeCodec.CORE_SYNC_REQUEST_NAME, "U1",
+				CoreEnvelopeCodec.encodeKnownEventIds(Set.of("evt_known")));
+		CoreEnvelope response = CoreEnvelope.of(CoreEnvelopeCodec.CORE_SYNC_RESPONSE_NAME, "U1",
+				CoreEnvelopeCodec.encodeSyncPayload(List.of(event)));
 
-		assertTrue(sent.get(0).getResponse().startsWith(WebSocketNetworkAdapter.CORE_SYNC_PAYLOAD_VERSION + "\n"));
-		assertTrue(sent.get(1).getResponse().startsWith(WebSocketNetworkAdapter.CORE_SYNC_PAYLOAD_VERSION + "\n"));
-		assertEquals(Set.of("evt_known"), WebSocketNetworkAdapter.decodeKnownEventIds(sent.get(0)));
-		assertEquals("__to:U2:" + WebSocketNetworkAdapter.CORE_SYNC_RESPONSE_NAME, sent.get(1).getName());
-		sent.get(1).setName(WebSocketNetworkAdapter.CORE_SYNC_RESPONSE_NAME);
-		assertEquals(event.eventId(), WebSocketNetworkAdapter.decodeEvents(sent.get(1)).get(0).eventId());
+		assertTrue(request.response().startsWith(CoreEnvelopeCodec.CORE_SYNC_PAYLOAD_VERSION + "\n"));
+		assertTrue(response.response().startsWith(CoreEnvelopeCodec.CORE_SYNC_PAYLOAD_VERSION + "\n"));
+		assertEquals(Set.of("evt_known"), CoreEnvelopeCodec.decodeKnownEventIds(request));
+		assertEquals(event.eventId(), CoreEnvelopeCodec.decodeSyncEvents(response).get(0).eventId());
 	}
 
 	@Test

@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.q3s.p2p.adapters.memory.InMemoryEventStore;
 import org.q3s.p2p.adapters.network.P2PNetworkAdapter;
 import org.q3s.p2p.client.ws.WsClient;
+import org.q3s.p2p.core.codec.CoreEnvelope;
 import org.q3s.p2p.core.events.EventTypes;
 import org.q3s.p2p.core.model.Event;
 
@@ -58,9 +59,9 @@ class CoreWsClientTest {
 				() -> called.set(true));
 
 		try {
-			client.sendEvent(new org.q3s.p2p.model.Event("test"));
+			client.sendEnvelope(CoreEnvelope.of("test", "U1", ""));
 		} catch (Exception e) {
-			fail("sendEvent con log null no debe crashear: " + e.getMessage());
+			fail("sendEnvelope con log null no debe crashear: " + e.getMessage());
 		}
 	}
 

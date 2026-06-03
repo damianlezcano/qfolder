@@ -381,6 +381,7 @@ public class View extends javax.swing.JFrame {
 
         jTextField4.setText(".");
         jTextField4.setOpaque(true);
+        jTextField4.setEditable(false);
 
         jButton3.setIcon(new javax.swing.ImageIcon(getClass().getResource("/folder.png"))); // NOI18N
 

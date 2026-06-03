@@ -104,8 +104,8 @@ class CoreQfolderTest {
 		Path wsDir = layout.workspaceFolder("ws_a8f91c", created, "Reunión Proyecto P2P");
 		assertTrue(wsDir.toString().contains("userdata"), "workspace path should be under userdata: " + wsDir);
 		assertTrue(wsDir.toString().contains("2026"));
-		assertTrue(wsDir.toString().contains("ws_a8f91c"));
 		assertTrue(wsDir.toString().contains("reunion-proyecto-p2p"));
+		assertFalse(wsDir.toString().contains("ws_a8f91c"), "userdata folder should not embed workspaceId: " + wsDir);
 		assertTrue(layout.createStructure(wsDir));
 		for (String sub : QfolderLayout.USERDATA_SUBDIRS) assertTrue(Files.isDirectory(wsDir.resolve(sub)), sub);
 		assertFalse(Files.exists(wsDir.resolve("downloads")));
@@ -140,7 +140,7 @@ class CoreQfolderTest {
 		QfolderLayout layout = new QfolderLayout(tmp);
 		Path wsDir = layout.workspaceFolder("ws_a8f91c", created, "Test");
 		assertTrue(wsDir.toString().contains("2026"));
-		assertTrue(wsDir.toString().contains("ws_a8f91c"));
+		assertFalse(wsDir.toString().contains("ws_a8f91c"), "userdata folder should not embed workspaceId: " + wsDir);
 		var json = QfolderLayout.workspaceJson("ws_a8f91c", "Test", created, joined, wsDir.toString(), 2);
 		assertTrue(json.get("joined_locally_at").toString().contains("2026-05-21T09:10"));
 	}
@@ -155,12 +155,15 @@ class CoreQfolderTest {
 		assertTrue(Files.isDirectory(wsDir));
 	}
 
-	@Test void caso9colisionDeNombrePeroDistintoWorkspaceId(@TempDir Path tmp) {
+	@Test void caso9systemdataSigueUsandoWorkspaceIdUnico(@TempDir Path tmp) {
 		Instant created = Instant.parse("2026-05-20T14:30:00Z");
 		QfolderLayout layout = new QfolderLayout(tmp);
-		Path ws1 = layout.workspaceFolder("ws_aaa", created, "Demo");
-		Path ws2 = layout.workspaceFolder("ws_bbb", created, "Demo");
-		assertNotEquals(ws1, ws2);
+		Path user1 = layout.workspaceFolder("ws_aaa", created, "Demo");
+		Path user2 = layout.workspaceFolder("ws_bbb", created, "Demo");
+		assertEquals(user1, user2, "userdata folder name should be HHMM-slug, not include workspaceId");
+		Path sys1 = layout.systemWorkspaceRoot("ws_aaa");
+		Path sys2 = layout.systemWorkspaceRoot("ws_bbb");
+		assertNotEquals(sys1, sys2, "systemdata must keep distinct workspaceIds to avoid event collisions");
 	}
 
 	// ============================================================
@@ -354,7 +357,7 @@ class CoreQfolderTest {
 		assertEquals(1, store.listEvents("ws_dup").size());
 	}
 
-	@Test void caso25eventoDeNoAprobadoNoModificaEstado() {
+	@Test void caso25eventoDeNoAprobadoEsRechazadoPorValidacion() {
 		var store = new InMemoryEventStore();
 		var service = new CoreApplicationService(store, new InMemoryFileChunkStore(), ids);
 		var created = service.createWorkspace("W", "A", 2);
@@ -676,6 +679,78 @@ class CoreQfolderTest {
 		assertEquals(5, count);
 	}
 
+	@Test void caso53bcoreApplicationServiceGuardaSnapshotAutomatico(@TempDir Path tmp) throws Exception {
+		var core = new CoreApplicationService(new InMemoryEventStore(), new InMemoryFileChunkStore(), ids);
+		core.configureSnapshotPath(tmp.resolve("snapshots"));
+		core.configureSnapshotPolicy(2);
+		var created = core.createWorkspace("Snap Auto", "A", 1);
+		core.sendChatMessage("uno");
+		core.sendChatMessage("dos");
+
+		Path snapshotDir = tmp.resolve("snapshots").resolve(created.workspaceId()).resolve("snapshots");
+		try (var files = Files.list(snapshotDir)) {
+			assertTrue(files.anyMatch(path -> path.getFileName().toString().endsWith(".snapshot")));
+		}
+		WorkspaceState state = core.currentState();
+		assertEquals(2, state.chatMessages().size());
+	}
+
+	@Test void caso53cguardarSnapshotManualConDelta(@TempDir Path tmp) {
+		var core = new CoreApplicationService(new InMemoryEventStore(), new InMemoryFileChunkStore(), ids);
+		core.configureSnapshotPath(tmp.resolve("snapshots"));
+		core.configureSnapshotPolicy(1000);
+		core.createWorkspace("Snap Manual", "A", 1);
+		core.sendChatMessage("en snapshot");
+		assertTrue(core.saveCurrentSnapshot().isPresent());
+		try { Thread.sleep(2); } catch (InterruptedException ignored) {}
+		core.sendChatMessage("delta");
+
+		WorkspaceState state = core.currentState();
+		assertEquals(2, state.chatMessages().size());
+	}
+
+	@Test void caso53dretencionSnapshotsEliminaAntiguos(@TempDir Path tmp) throws Exception {
+		var core = new CoreApplicationService(new InMemoryEventStore(), new InMemoryFileChunkStore(), ids);
+		core.configureSnapshotPath(tmp.resolve("snapshots"));
+		core.configureSnapshotPolicy(1000);
+		core.configureSnapshotRetention(3);
+		core.createWorkspace("Snap Retention", "A", 1);
+
+		for (int i = 0; i < 5; i++) {
+			core.sendChatMessage("msg" + i);
+			core.saveCurrentSnapshot();
+			try { Thread.sleep(2); } catch (InterruptedException ignored) {}
+		}
+
+		Path snapshotDir = tmp.resolve("snapshots").resolve(core.currentWorkspaceId().orElseThrow()).resolve("snapshots");
+		long count;
+		try (var files = Files.list(snapshotDir)) {
+			count = files.filter(path -> path.getFileName().toString().endsWith(".snapshot")).count();
+		}
+		assertEquals(3, count, "Deberían quedar exactamente 3 snapshots");
+	}
+
+	@Test void caso53eretencionSnapshotsCeroNoElimina(@TempDir Path tmp) throws Exception {
+		var core = new CoreApplicationService(new InMemoryEventStore(), new InMemoryFileChunkStore(), ids);
+		core.configureSnapshotPath(tmp.resolve("snapshots"));
+		core.configureSnapshotPolicy(1000);
+		core.configureSnapshotRetention(0);
+		core.createWorkspace("Snap No Retention", "A", 1);
+
+		for (int i = 0; i < 5; i++) {
+			core.sendChatMessage("msg" + i);
+			core.saveCurrentSnapshot();
+			try { Thread.sleep(2); } catch (InterruptedException ignored) {}
+		}
+
+		Path snapshotDir = tmp.resolve("snapshots").resolve(core.currentWorkspaceId().orElseThrow()).resolve("snapshots");
+		long count;
+		try (var files = Files.list(snapshotDir)) {
+			count = files.filter(path -> path.getFileName().toString().endsWith(".snapshot")).count();
+		}
+		assertEquals(5, count, "Con maxSnapshots=0 no deberían eliminarse snapshots");
+	}
+
 	// ============================================================
 	// GRUPO 14: Compactación
 	// ============================================================
@@ -886,31 +961,46 @@ class CoreQfolderTest {
 	@Test void crdtInsertTextAtPosition() {
 		var store = new InMemoryEventStore();
 		var ns = new NoteService(store, events);
-		ns.updateNote("ws", "a", "n1", "Hola");
-		ns.insertText("ws", "a", "n1", 4, " mundo");
-		ns.insertText("ws", "a", "n1", 0, "¡");
-		ns.insertText("ws", "a", "n1", 11, "!");
+		ns.insertLine("ws", "a", "n1", null, "Hola");
+		ns.insertLine("ws", "a", "n1", null, " mundo");
+		ns.insertLine("ws", "a", "n1", null, "¡");
+		ns.insertLine("ws", "a", "n1", null, "!");
 		WorkspaceState state = WorkspaceStateBuilder.fromEvents(store.listEvents("ws"));
-		assertEquals("¡Hola mundo!", state.notes().get("n1").text());
+		String text = state.notes().get("n1").text();
+		assertTrue(text.contains("Hola"));
+		assertTrue(text.contains(" mundo"));
+		assertTrue(text.contains("¡"));
+		assertTrue(text.contains("!"));
+		assertEquals(4, state.notes().get("n1").lineCount());
 	}
 
 	@Test void crdtDeleteTextRange() {
 		var store = new InMemoryEventStore();
 		var ns = new NoteService(store, events);
 		ns.updateNote("ws", "a", "n1", "abcdefgh");
-		ns.deleteText("ws", "a", "n1", 2, 4);
+		Event inserted = ns.insertLine("ws", "a", "n1", null, "BCDF");
+		Event ev = events.create("ws", EventTypes.NOTE_DELETE_OP, "a",
+				Map.of("note_id", "n1", "line_id", inserted.payload().get("line_id").toString(),
+						"op_id", "del-test", "created_at_ms", System.currentTimeMillis()), null);
+		store.append(ev);
 		WorkspaceState state = WorkspaceStateBuilder.fromEvents(store.listEvents("ws"));
-		assertEquals("abgh", state.notes().get("n1").text());
+		assertFalse(state.notes().get("n1").text().contains("BCDF"));
 	}
 
 	@Test void crdtComplexEditSession() {
 		var store = new InMemoryEventStore();
 		var ns = new NoteService(store, events);
-		ns.updateNote("ws", "a", "n1", "Buenos días");
-		ns.deleteText("ws", "a", "n1", 6, 5);
-		ns.insertText("ws", "a", "n1", 6, "tardes");
+		ns.insertLine("ws", "a", "n1", null, "Buenos");
+		Event inserted = ns.insertLine("ws", "a", "n1", null, "Días");
+		Event ev = events.create("ws", EventTypes.NOTE_DELETE_OP, "a",
+				Map.of("note_id", "n1", "line_id", inserted.payload().get("line_id").toString(),
+						"op_id", "del-2", "created_at_ms", System.currentTimeMillis()), null);
+		store.append(ev);
+		ns.insertLine("ws", "a", "n1", null, "tardes");
 		WorkspaceState state = WorkspaceStateBuilder.fromEvents(store.listEvents("ws"));
-		assertEquals("Buenostardes", state.notes().get("n1").text());
+		assertTrue(state.notes().get("n1").text().contains("Buenos"));
+		assertTrue(state.notes().get("n1").text().contains("tardes"));
+		assertFalse(state.notes().get("n1").text().contains("Días"));
 	}
 
 	@Test void crdtConcurrentEditsMergeInOrder() {
@@ -918,15 +1008,17 @@ class CoreQfolderTest {
 		var storeB = new InMemoryEventStore();
 		var nsA = new NoteService(storeA, events);
 		var nsB = new NoteService(storeB, events);
-		nsA.updateNote("ws", "a", "shared", "base");
-		nsA.insertText("ws", "a", "shared", 4, "_A1");
-		nsB.updateNote("ws", "b", "shared", "base");
-		nsB.insertText("ws", "b", "shared", 4, "_B1");
+		nsA.insertLine("ws", "a", "shared", null, "base");
+		nsA.insertLine("ws", "a", "shared", null, "_A1");
+		nsB.insertLine("ws", "b", "shared", null, "base");
+		nsB.insertLine("ws", "b", "shared", null, "_B1");
 		for (Event e : storeB.listEvents("ws")) storeA.append(e);
 		for (Event e : storeA.listEvents("ws")) storeB.append(e);
-		WorkspaceState state = WorkspaceStateBuilder.fromEvents(storeA.listEvents("ws"));
-		String text = state.notes().get("shared").text();
-		assertTrue(text.contains("_A1") || text.contains("_B1"), "debe contener al menos una insercion: " + text);
+		WorkspaceState stateA = WorkspaceStateBuilder.fromEvents(storeA.listEvents("ws"));
+		WorkspaceState stateB = WorkspaceStateBuilder.fromEvents(storeB.listEvents("ws"));
+		assertEquals(stateA.notes().get("shared").text(), stateB.notes().get("shared").text());
+		assertTrue(stateA.notes().get("shared").text().contains("_A1"));
+		assertTrue(stateA.notes().get("shared").text().contains("_B1"));
 	}
 
 	@Test void crdtStyleAppliedDoesNotChangeText() {
@@ -936,6 +1028,72 @@ class CoreQfolderTest {
 		ns.applyStyle("ws", "a", "n1", 0, 2, "bold");
 		WorkspaceState state = WorkspaceStateBuilder.fromEvents(store.listEvents("ws"));
 		assertEquals("Hola", state.notes().get("n1").text());
+	}
+
+	@Test void crdtInsertIsIdempotent() {
+		var store = new InMemoryEventStore();
+		var ns = new NoteService(store, events);
+		Event ev = ns.insertLine("ws", "a", "n1", null, "idempotente");
+		store.append(events.create("ws", EventTypes.NOTE_INSERT, "a", ev.payload(), null));
+		store.append(events.create("ws", EventTypes.NOTE_INSERT, "a", ev.payload(), null));
+		WorkspaceState state = WorkspaceStateBuilder.fromEvents(store.listEvents("ws"));
+		assertEquals(1, state.notes().get("n1").lineCount(),
+				"re-aplicar mismo lineId no debe duplicar");
+	}
+
+	@Test void crdtDeleteIsTombstone() {
+		var store = new InMemoryEventStore();
+		var ns = new NoteService(store, events);
+		Event ev = ns.insertLine("ws", "a", "n1", null, "borrame");
+		Event del = events.create("ws", EventTypes.NOTE_DELETE_OP, "a",
+				Map.of("note_id", "n1", "line_id", ev.payload().get("line_id").toString(),
+						"op_id", "tomb-1", "created_at_ms", System.currentTimeMillis()), null);
+		store.append(del);
+		WorkspaceState state = WorkspaceStateBuilder.fromEvents(store.listEvents("ws"));
+		assertEquals(0, state.notes().get("n1").lineCount(), "linea debe estar tombstoned");
+	}
+
+	@Test void crdtDeleteBeforeInsertKeepsTombstone() {
+		var store = new InMemoryEventStore();
+		Map<String, Object> insertPayload = new java.util.LinkedHashMap<>();
+		insertPayload.put("note_id", "n1");
+		insertPayload.put("line_id", "a:1");
+		insertPayload.put("op_id", "a:1");
+		insertPayload.put("after_line_id", "");
+		insertPayload.put("text", "no debe volver");
+		insertPayload.put("created_at_ms", 1000L);
+		Event del = events.create("ws", EventTypes.NOTE_DELETE_OP, "b",
+				Map.of("note_id", "n1", "line_id", "a:1", "op_id", "del:b:1", "created_at_ms", 2000L), null);
+		Event ins = events.create("ws", EventTypes.NOTE_INSERT, "a", insertPayload, null);
+		store.append(del);
+		store.append(ins);
+		WorkspaceState state = WorkspaceStateBuilder.fromEvents(store.listEvents("ws"));
+		assertEquals(0, state.notes().get("n1").lineCount(), "delete anterior no debe ser revertido por insert tardio");
+	}
+
+	@Test void crdtAfterLineIdOrdersChildrenAfterParent() {
+		var store = new InMemoryEventStore();
+		var ns = new NoteService(store, events);
+		Event first = ns.insertLine("ws", "a", "n1", null, "primero");
+		ns.insertLine("ws", "a", "n1", first.payload().get("line_id").toString(), "segundo");
+		WorkspaceState state = WorkspaceStateBuilder.fromEvents(store.listEvents("ws"));
+		assertEquals("primero\nsegundo", state.notes().get("n1").text());
+	}
+
+	@Test void crdtConcurrentInsertsConvergeByCreatedAt() {
+		var storeA = new InMemoryEventStore();
+		var storeB = new InMemoryEventStore();
+		var nsA = new NoteService(storeA, events);
+		var nsB = new NoteService(storeB, events);
+		Event eA1 = nsA.insertLine("ws", "a", "shared", null, "primero");
+		try { Thread.sleep(2); } catch (InterruptedException ignored) {}
+		Event eB1 = nsB.insertLine("ws", "b", "shared", null, "segundo");
+		for (Event e : storeB.listEvents("ws")) storeA.append(e);
+		for (Event e : storeA.listEvents("ws")) storeB.append(e);
+		WorkspaceState stateA = WorkspaceStateBuilder.fromEvents(storeA.listEvents("ws"));
+		WorkspaceState stateB = WorkspaceStateBuilder.fromEvents(storeB.listEvents("ws"));
+		assertEquals(stateA.notes().get("shared").text(), stateB.notes().get("shared").text());
+		assertEquals(2, stateA.notes().get("shared").lineCount());
 	}
 
 	// ============================================================
@@ -1406,14 +1564,23 @@ class CoreQfolderTest {
 		var ns = new NoteService(store, events);
 
 		ns.updateNote("ws_conc_notes", "A", "shared-notes", "inicio");
-		ns.insertText("ws_conc_notes", "A", "shared-notes", 6, " del texto");
-		ns.deleteText("ws_conc_notes", "B", "shared-notes", 0, 6);
-		ns.insertText("ws_conc_notes", "B", "shared-notes", 0, "Nuevo");
-		ns.deleteText("ws_conc_notes", "C", "shared-notes", 5, 10);
-		ns.insertText("ws_conc_notes", "C", "shared-notes", 5, " final");
+		Event e1 = ns.insertLine("ws_conc_notes", "A", "shared-notes", null, " del texto");
+		Event e2 = ns.insertLine("ws_conc_notes", "B", "shared-notes", null, "Nuevo");
+		Event e3 = ns.insertLine("ws_conc_notes", "C", "shared-notes", null, " final");
+		Event d1 = events.create("ws_conc_notes", EventTypes.NOTE_DELETE_OP, "B",
+				Map.of("note_id", "shared-notes", "line_id", e1.payload().get("line_id").toString(),
+						"op_id", "del-1", "created_at_ms", System.currentTimeMillis()), null);
+		Event d2 = events.create("ws_conc_notes", EventTypes.NOTE_DELETE_OP, "C",
+				Map.of("note_id", "shared-notes", "line_id", e2.payload().get("line_id").toString(),
+						"op_id", "del-2", "created_at_ms", System.currentTimeMillis() + 1), null);
+		store.append(d1);
+		store.append(d2);
 
 		WorkspaceState state = WorkspaceStateBuilder.fromEvents(store.listEvents("ws_conc_notes"));
-		assertEquals("Nuevo final", state.notes().get("shared-notes").text());
+		String text = state.notes().get("shared-notes").text();
+		assertFalse(text.contains(" del texto"));
+		assertFalse(text.contains("Nuevo"));
+		assertTrue(text.contains(" final"));
 	}
 
 	@Test void scenarioMemberReconnectsAndRecoversOfflineEvents() {
@@ -1491,12 +1658,18 @@ class CoreQfolderTest {
 	@Test void crdtNotesIntegratedControllerFlow() {
 		var store = new InMemoryEventStore();
 		var ns = new NoteService(store, events);
-		ns.updateNote("ws_flow", "A", "shared-notes", "inicial");
-		ns.insertText("ws_flow", "A", "shared-notes", 7, " agregado");
-		ns.deleteText("ws_flow", "B", "shared-notes", 0, 7);
-		ns.insertText("ws_flow", "B", "shared-notes", 0, "Nuevo");
+		ns.insertLine("ws_flow", "A", "shared-notes", null, "inicial");
+		Event insertA = ns.insertLine("ws_flow", "A", "shared-notes", null, " agregado");
+		ns.insertLine("ws_flow", "B", "shared-notes", null, "Nuevo");
+		Event delA = events.create("ws_flow", EventTypes.NOTE_DELETE_OP, "B",
+				Map.of("note_id", "shared-notes", "line_id", insertA.payload().get("line_id").toString(),
+						"op_id", "del-A", "created_at_ms", System.currentTimeMillis()), null);
+		store.append(delA);
 		WorkspaceState state = WorkspaceStateBuilder.fromEvents(store.listEvents("ws_flow"));
-		assertEquals("Nuevo agregado", state.notes().get("shared-notes").text());
+		String text = state.notes().get("shared-notes").text();
+		assertFalse(text.contains(" agregado"));
+		assertTrue(text.contains("Nuevo"));
+		assertTrue(text.contains("inicial"));
 	}
 
 	// ============================================================

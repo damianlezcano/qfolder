@@ -2561,3 +2561,301 @@ Continuación del trabajo del WORK_PLAN.md. Esta sesión abordó los 3 pendiente
 - **Snapshot startup integration en Controller** — el API está listo pero el Controller sigue usando `currentState()`. Migración gradual cuando se confirme estable.
 - **Almacén seguro para privateKey Ed25519** — mencionado en AGENTS.md, fuera de scope actual.
 - **Unificación de ramas CI/release** — documentado en RELEASE.md, requiere decisión del usuario.
+
+## 2026-06-02 (parte 3) — Implementación de PENDIENTE-1 a PENDIENTE-10
+
+Continuación de la sesión implementando los 10 PENDIENTES del WORK_PLAN.md que quedaban.
+
+### Resumen de cambios
+
+| ID | Cambio | Archivos |
+|---|---|---|
+| PENDIENTE-1 | Cerrar WsClient en finally siempre (con delay 500ms en success) | DirectBootstrap.java |
+| PENDIENTE-2 | Migrar regex → javax.json.JsonReader | UpdateChecker.java |
+| PENDIENTE-3 | Eliminar 35 System.out.println de debug | Controller.java |
+| PENDIENTE-4 | new Locale → Locale.forLanguageTag | I18n.java |
+| PENDIENTE-5 | Eliminar método muerto serializeNotesStateInBackground | Controller.java |
+| PENDIENTE-6 | Eliminar duplicados en properties | messages_en.properties |
+| PENDIENTE-7 | Renombrar test caso25 | CoreQfolderTest.java |
+| PENDIENTE-8 | Crear AppConfigTest con 6 tests | AppConfigTest.java (nuevo) |
+| PENDIENTE-9 | Corregir todos los DE_MIGHT_IGNORE (6 → 0 bugs) | P2PNetworkAdapter, Controller, UpdateChecker, EventPipeline, ChunkReplicator |
+| PENDIENTE-10 | maven-compiler-plugin 3.8.1 → 3.13.0, source/target → release | pom.xml |
+
+### SpotBugs cleanup
+- 6 bugs `DE_MIGHT_IGNORE` corregidos (catch vacíos): se reemplazaron con logging (`debug.accept()`, `log.debug()`) en todos los casos de cleanup y listener notification.
+- 1 bug `RV_RETURN_VALUE_IGNORED` corregido (UpdateChecker.loadVersion ya no usa `ignored.getMessage()`).
+- Resultado: `mvn -Pstatic-analysis verify` — **0 bugs, 0 errores**.
+
+### Tests
+- `mvn test`: **266 tests, 0 failures** (6 nuevos de AppConfigTest)
+- `mvn -Pstatic-analysis verify`: **0 bugs**
+- `./build.sh`: exitoso, `dist/qfolder.jar` (2.1M)
+
+### Pendientes que quedan
+Documentados en WORK_PLAN.md como futuro largo plazo. Mismos que al cierre de la parte 2.
+
+## 2026-06-02 (parte 4) — Mejoras UX de workspace y chat
+
+Tres ajustes pedidos por el usuario sobre la estructura de carpetas y la entrada de chat.
+
+### 1) Nombre de carpeta de workspace sin URL:port
+- `QfolderLayout.folderName()` ahora retorna `HHMM-slug` (sin el `safeId(workspaceId)` intermedio).
+- Antes: `2131-0.0.0.0-18765-espacio-de-trabajo-del-dia-2026-06-02`
+- Ahora: `2131-espacio-de-trabajo-del-dia-2026-06-02`
+- El `systemdata` (eventos, chunks, snapshots) sigue usando `safeId(workspaceId)` para garantizar unicidad entre workspaces distintos que compartan nombre y día.
+- `findExistingWorkspaceFolder()` ahora busca el `workspace.json` dentro de cada carpeta y compara el campo `workspace_id`, en lugar de hacer match por substring del nombre de carpeta.
+
+### 2) Campo "Raíz local de qfolder" muestra el path absoluto del workspace
+- `jTextField4` en la solapa de Configuración ahora muestra el path absoluto del workspace activo (ej. `/home/tiul/qfolder/userdata/2026/06/02/2131-espacio-de-trabajo-del-dia-2026-06-02`) en lugar de la raíz de qfolder.
+- Si no hay sesión activa, sigue mostrando la raíz de qfolder.
+- El campo ahora es de sólo lectura (`jTextField4.setEditable(false)`) para evitar inconsistencias.
+- El botón "Abrir directorio de trabajo" abre el directorio del workspace activo si existe, o la raíz de qfolder si no.
+- Se agregó el helper `refreshConfigWorkDirText()` que centraliza la actualización del campo, llamado desde `prepareWorkspaceSessionDirectories()`, `openWorkingDirectory()` y la inicialización del controller.
+- Tooltips i18n actualizados:
+  - `config.openWorkDirTooltip` ahora describe la nueva semántica (abrir la carpeta del workspace actual).
+
+### 3) Pegar imágenes en Chat con nombre fecha+hora
+- Nueva keybinding Ctrl+V (y Shift+Ins) en el `chatInput` que intercepta el pegado.
+- Si el portapapeles contiene una imagen, la guarda como `clip-yyyyMMdd-HHmmss.png` en `currentSessionFilesDir` y la envía como adjunto de chat vía `sendChatFile()`.
+- Si no hay imagen, se delega al pegado de texto por defecto (`input.paste()`).
+- La conversión a PNG y escritura a disco se hace en un thread separado (`chat-image-paste`) para no bloquear el EDT.
+- Tooltip del botón adjuntar ahora menciona el atajo: `Adjuntar archivo (o pegar imágenes con Ctrl+V)`.
+
+### Archivos modificados
+- `p2p-client/src/main/java/org/q3s/p2p/adapters/filesystem/QfolderLayout.java` — `folderName()` y `findExistingWorkspaceFolder()`
+- `p2p-client/src/main/java/org/q3s/p2p/client/view/Controller.java` — `prepareWorkspaceSessionDirectories()`, `openWorkingDirectory()`, nuevos `refreshConfigWorkDirText()`, `installChatInputPasteImageBinding()`, `sendChatImageFromClipboard()`, `toBufferedImage()`, `copyImageBytesToSessionFiles()`
+- `p2p-client/src/main/java/org/q3s/p2p/client/view/View.java` — `jTextField4` ahora read-only
+- `p2p-client/src/main/resources/i18n/messages.properties` y `messages_en.properties` y `messages_es.properties` — `config.openWorkDirTooltip`, `tooltip.attachFile`
+- `p2p-client/src/test/java/org/q3s/p2p/core/CoreQfolderTest.java` — caso5, caso7, caso9 actualizados al nuevo formato (caso9 rediseñado para verificar que `systemdata` sigue siendo único por workspaceId)
+
+### Validación
+- `mvn test` — **266 tests, 0 failures, 0 errors**
+- `mvn -Pstatic-analysis verify` — **0 bugs**
+- `./build.sh` — exitoso, `dist/qfolder.jar` (2.1M)
+
+## 2026-06-03 - CRDT Para Notas + Eliminación Event Legacy + Snapshot Migración
+
+### Objetivo De La Sesión
+
+Ejecutar los 3 pendientes del WORK_PLAN aprobados por el usuario:
+1. **Fase 11.5**: CRDT line-based para notas.
+2. **Fase 11.8**: Eliminar `org.q3s.p2p.model.Event` legacy completo rompiendo wire format.
+3. Migrar `Controller` a `currentStateWithSnapshot` para reducir reconstrucción O(n).
+
+### Cambios Realizados
+
+#### Fase 11.5 - CRDT line-based para notas
+
+- `p2p-client/src/main/java/org/q3s/p2p/core/model/NoteLine.java` (nuevo record): `(lineId, authorMemberId, afterLineId, text, createdAt, deleted)`. Método `withDeleted(boolean)`.
+- `p2p-client/src/main/java/org/q3s/p2p/core/model/Note.java` rediseñado: ahora es `Note(noteId, lines, legacyText)` con `lines: Map<String, NoteLine>`. Constructor legacy `Note(noteId, text)` conserva compat. `text()` reconstruye contenido concatenando líneas no-deleted en orden estable `(createdAt, lineId)`. Métodos `withLine`, `withLines`, `withLegacyText`, `lineCount`.
+- `p2p-client/src/main/java/org/q3s/p2p/core/notes/NoteService.java` rediseñado: nuevos `insertLine(workspaceId, memberId, noteId, afterLineId, text)` y `deleteLine(workspaceId, memberId, noteId, lineId)`. Genera `lineId` como `memberId:base36(counter)` con counter atómico por member. Payload `note.insert`: `note_id, line_id, op_id, after_line_id, text, created_at_ms`. Payload `note.deleteOp`: `note_id, line_id, op_id, created_at_ms`. Operadores idempotentes.
+- `p2p-client/src/main/java/org/q3s/p2p/core/state/ContentProjector.java`: `applyNoteOp` reescrito para CRDT line-based con tombstones. `applyNoteReplace` ahora reemplaza `Note` completo (líneas se pierden; semántica legacy: NOTE_UPDATED es snapshot completo).
+- `p2p-client/src/main/java/org/q3s/p2p/core/app/CoreApplicationService.java`: `insertNoteText(noteId, position, text)` ahora calcula `afterLineId` desde la posición y llama `noteService.insertLine(...)`. `deleteNoteText(noteId, position, length)` busca `lineId` por posición y llama `noteService.deleteLine(...)`. Helper privado `findLineIdAtPosition`.
+
+#### Fase 11.8 - Eliminar Event legacy completo
+
+- `p2p-client/src/main/java/org/q3s/p2p/core/codec/CoreEnvelope.java` (nuevo): record `(name, userId, response, sequence)` con serialización `toJsonBase64()` y factory `fromJsonBase64(String)`.
+- `p2p-client/src/main/java/org/q3s/p2p/core/codec/CoreEnvelopeCodec.java` (nuevo): constantes `CORE_EVENT_NAME = "core.event"`, `CORE_SYNC_REQUEST_NAME = "core.sync.request"`, `CORE_SYNC_RESPONSE_NAME = "core.sync.response"`. Métodos estáticos `decodeCoreEvent`, `decodeKnownEventIds`, `decodeSyncEvents`, `encodeCoreEvent`, `encodeKnownEventIds`, `encodeSyncPayload`.
+- **Eliminados**: `org/q3s/p2p/model/Event.java`, `org/q3s/p2p/model/util/EventUtils.java`, `org/q3s/p2p/adapters/network/WebSocketNetworkAdapter.java`.
+- `p2p-client/src/main/java/org/q3s/p2p/client/ws/WsClient.java`: ahora `Consumer<CoreEnvelope> onEvent`; `client.sendEnvelope(CoreEnvelope)` que delega a `envelope.toJsonBase64()`.
+- `p2p-client/src/main/java/org/q3s/p2p/client/hub/EmbeddedWebSocketServer.java`: `BiConsumer<WebSocket, CoreEnvelope> directMessageHandler`; decodifica con `CoreEnvelope.fromJsonBase64`.
+- `p2p-client/src/main/java/org/q3s/p2p/adapters/network/P2PNetworkAdapter.java`: `sendProtocolEvent/broadcastProtocolEvent(CoreEnvelope)`, `PeerLink.sendEnvelope(CoreEnvelope)` reemplaza `send(Event)`. `handleIncomingSyncRequest/Response` usan `CoreEnvelopeCodec`.
+- `p2p-client/src/main/java/org/q3s/p2p/adapters/network/DirectBootstrap.java`: `Consumer<CoreEnvelope> outbound`, `bootstrap.sendEnvelope(...)`.
+- `p2p-client/src/main/java/org/q3s/p2p/adapters/network/CoreChunkTransferCoordinator.java`: `Consumer<CoreEnvelope> outbound`, `handle(CoreEnvelope, WebSocket)`.
+- `p2p-client/src/main/java/org/q3s/p2p/client/view/Controller.java`: imports legacy eliminados. Métodos refactorizados: `notify(CoreEnvelope)`, `sendEvent(CoreEnvelope)`, `handleDirectPeerEvent(WebSocket, CoreEnvelope)`, `acceptCoreEventOnDirect(CoreEnvelope)`, `respondCoreSyncOnDirect(CoreEnvelope, WebSocket)`, `acceptCoreSyncOnDirect(CoreEnvelope)`, `notifyChangeFiles(CoreEnvelope)`, `sendP2PProtocolEvent(CoreEnvelope)`, `sendFileDirect(CoreEnvelope, WebSocket)`, `sendTransferEvent(WebSocket, String, CoreEnvelope)`, `handleChatFileEvent(CoreEnvelope)`. Helper `userFromEnvelope(CoreEnvelope)` y `findKnownUserById(String)`. `sendFileDirect` reescrito para decodificar `fileName|relativePath` del payload.
+- `p2p-client/src/test/java/org/q3s/p2p/core/CoreArchitectureTest.java`: tests del adapter eliminado reemplazados por `coreEnvelopeCodecRoundTripsCoreEvent` y `coreEnvelopeCodecRoundTripsCoreSyncRequestAndResponse`.
+- `p2p-client/src/test/java/org/q3s/p2p/core/CoreWsClientTest.java`: `sendEnvelope(CoreEnvelope.of("test", "U1", ""))`.
+- `p2p-client/src/test/java/org/q3s/p2p/core/CoreWebSocketIntegrationTest.java`: `TestWebSocketServer.onMessage` migrado a `CoreEnvelope` + `CoreEnvelopeCodec`.
+- `p2p-client/src/test/java/org/q3s/p2p/core/CoreControllerIntegrationTest.java`: 9 ocurrencias de `new org.q3s.p2p.model.Event(...)` → `CoreEnvelope.of(...)`; listas `List<CoreEnvelope>`; `e.name()` en vez de `e.getName()`.
+- `p2p-client/src/test/java/org/q3s/p2p/core/CoreQfolderTest.java`: 6 tests CRDT actualizados a la nueva API (insertLine/deleteLine). 3 tests nuevos CRDT: `crdtInsertIsIdempotent`, `crdtDeleteIsTombstone`, `crdtConcurrentInsertsConvergeByCreatedAt`.
+
+#### Migración Controller → currentStateWithSnapshot
+
+- `p2p-client/src/main/java/org/q3s/p2p/core/app/CoreApplicationService.java`: `snapshotPath` (volatile Path) + `configureSnapshotPath(Path)` agregados. `currentState()` ahora usa `snapshotPath` si está configurado, si no delega a `WorkspaceStateBuilder.fromEvents(eventStore.listEvents(currentWorkspaceId))`.
+- `p2p-client/src/main/java/org/q3s/p2p/client/view/Controller.java`: `initializeCoreServices(Path root)` configura `snapshotRoot` según `currentSessionDir` (si hay) o `root.resolve("workspaces").resolve("__snapshots")` y llama `core.configureSnapshotPath(snapshotRoot)`. Esto reduce reconstrucción O(n) en cada llamada a `currentState()` durante la sesión.
+
+### Decisiones De Diseño
+
+- **CRDT line-based con id `memberId:base36(counter)`**: cada autor genera lineIds únicos que son globales (un autor no puede colisionar con otro). Counter atómico por member garantiza unicidad local. Si dos peers generan el mismo `lineId` con diferente texto, gana el primero que se proyecte (idempotente).
+- **Tombstones para deletes**: las líneas eliminadas se mantienen en el map con `deleted=true`. Cualquier `note.insert` posterior con ese mismo `lineId` se ignora (re-deleted permanece deleted).
+- **Orden estable `(createdAt, lineId)`**: convergencia determinística entre peers aunque los eventos lleguen en distinto orden.
+- **NOTE_UPDATED = snapshot completo**: si llega un evento NOTE_UPDATED (snapshot legacy), reemplaza las líneas. Esto es coherente con el modelo legacy donde NOTE_UPDATED tenía la versión autoritativa. En el futuro, si se quiere preservar líneas ante NOTE_UPDATED, se debe distinguir entre `note.replace` y `note.snapshot` y emitir snapshot solo en cambios de texto rico (QNOTES2).
+- **Fase 11.8 rompe wire format**: clientes pre-core no son compatibles. Decisión explícita del usuario.
+- **Snapshot en memoria**: en vez de tocar los 12 call sites de `currentState()`, se agrega overload automático en `CoreApplicationService` que delega a `currentStateWithSnapshot(path)` si está configurado.
+
+### Archivos Clave
+- Nuevos: `p2p-client/src/main/java/org/q3s/p2p/core/codec/CoreEnvelope.java`, `CoreEnvelopeCodec.java`, `p2p-client/src/main/java/org/q3s/p2p/core/model/NoteLine.java`
+- Eliminados: `p2p-client/src/main/java/org/q3s/p2p/model/Event.java`, `org/q3s/p2p/model/util/EventUtils.java`, `org/q3s/p2p/adapters/network/WebSocketNetworkAdapter.java`
+- Refactorizados: `Note.java`, `NoteService.java`, `ContentProjector.java`, `CoreApplicationService.java`, `WsClient.java`, `EmbeddedWebSocketServer.java`, `P2PNetworkAdapter.java`, `DirectBootstrap.java`, `CoreChunkTransferCoordinator.java`, `Controller.java`
+- Tests actualizados: `CoreArchitectureTest.java`, `CoreWsClientTest.java`, `CoreWebSocketIntegrationTest.java`, `CoreControllerIntegrationTest.java`, `CoreQfolderTest.java`
+
+### Revisión Posterior
+
+- Se detectó y corrigió un bug en CRDT: `afterLineId` se emitía pero no participaba en el orden de renderizado. `Note.visibleLines()` ahora recorre la estructura por padre/hijos y ordena siblings por `(createdAt, lineId)`.
+- Se detectó y corrigió un bug de tombstones: si `note.deleteOp` llegaba antes que `note.insert`, el delete se perdía y un insert tardío resucitaba la línea. Ahora `ContentProjector` crea tombstone aunque la línea no exista y no permite que un insert posterior con el mismo `lineId` la reactive.
+- `CoreApplicationService.findLineIdAtPosition()` ahora usa `note.visibleLines()` para que inserciones/deletes por posición sigan el mismo orden visible que `Note.text()`.
+- Se agregaron tests `crdtDeleteBeforeInsertKeepsTombstone` y `crdtAfterLineIdOrdersChildrenAfterParent`.
+- Limpieza menor: `NoteService` ya no conserva constructor/campo `IdGenerator` no usado.
+
+### Validación
+- `mvn test` — **271 tests, 0 failures, 0 errors**
+- `mvn -Pstatic-analysis verify` — **0 bugs**
+- `./build.sh` — exitoso, `dist/qfolder.jar` (2.1M)
+
+## 2026-06-03 - Escritura Productiva De Snapshots
+
+### Objetivo De La Sesión
+
+Completar el paso pendiente detectado en revisión: `CoreApplicationService.currentState()` ya podía consumir snapshots con delta, pero no existía escritura periódica/productiva de snapshots desde el flujo principal de la app. Sin eso, la optimización no tenía efecto sostenido.
+
+### Cambios Realizados
+
+- `CoreApplicationService` ahora mantiene política configurable de snapshots:
+  - `configureSnapshotPath(Path)` conserva el root de snapshots.
+  - `configureSnapshotPolicy(int everyEvents)` permite ajustar cada cuántos eventos persistentes se guarda snapshot (default: 50).
+  - `saveCurrentSnapshot()` fuerza escritura manual y devuelve `Optional<Path>`.
+- Se agregó contador interno `eventsSinceSnapshot`.
+- Los eventos persistentes locales y remotos aceptados disparan `maybeSaveSnapshot(event)`:
+  - create/ensure workspace
+  - membership join/approve/authorized
+  - chat
+  - files
+  - whiteboard
+  - notes
+  - peer status persistente
+  - `receiveRemoteEvent` cuando acepta un evento persistente
+- Los eventos efímeros no disparan snapshot.
+- `currentState()` sigue leyendo snapshot+delta si `snapshotPath` está configurado.
+
+### Tests Agregados
+
+- `caso53bcoreApplicationServiceGuardaSnapshotAutomatico`: configura política cada 2 eventos, crea workspace y chat, verifica archivo `.snapshot` y reconstrucción de estado.
+- `caso53cguardarSnapshotManualConDelta`: fuerza snapshot manual, agrega evento posterior y verifica que `currentState()` combina snapshot + delta.
+
+### Validación
+
+- `mvn test` — **273 tests, 0 failures, 0 errors**
+- `mvn -Pstatic-analysis verify` — **0 bugs, 0 errors**
+- `./build.sh` — exitoso, `dist/qfolder.jar` (2.1M)
+
+### Pendiente Técnico
+
+- Política de retención de snapshots antiguos para evitar crecimiento indefinido en `systemdata/workspaces/.../snapshots`.
+
+## 2026-06-03 - Retención De Snapshots Antiguos
+
+### Objetivo De La Sesión
+
+Implementar política de retención de snapshots para evitar crecimiento indefinido del directorio `systemdata/workspaces/<id>/snapshots/`.
+
+### Cambios Realizados
+
+- `SnapshotService.pruneOldSnapshots(workspaceId, maxSnapshots)` nuevo método: elimina snapshots antiguos dejando solo los `maxSnapshots` más recientes (ordenados por nombre de archivo, que incluye timestamp).
+- `CoreApplicationService.configureSnapshotRetention(int maxSnapshots)` nuevo método: configura cuántos snapshots conservar por workspace (default: 5).
+- `CoreApplicationService.saveCurrentSnapshot()` ahora llama a `pruneOldSnapshots` después de guardar si `maxSnapshots > 0`.
+- `maxSnapshots <= 0` deshabilita la poda (conserva todos los snapshots).
+
+### Tests Agregados
+
+- `caso53dretencionSnapshotsEliminaAntiguos`: crea 5 snapshots con `maxSnapshots=3`, verifica que quedan exactamente 3.
+- `caso53eretencionSnapshotsCeroNoElimina`: crea 5 snapshots con `maxSnapshots=0`, verifica que quedan los 5.
+
+### Validación
+
+- `mvn test` — **275 tests, 0 failures, 0 errors**
+- `mvn -Pstatic-analysis verify` — **0 bugs, 0 errors**
+- `./build.sh` — exitoso, `dist/qfolder.jar` (2.1M)
+
+## 2026-06-03 - Revisión Adicional De Calidad Build/Test/E2E
+
+### Objetivo De La Sesión
+
+Revisar si quedaban mejoras no capturadas en `WORK_PLAN.md` después de la planificación inicial.
+
+### Hallazgos Nuevos
+
+- `ClipboardImagePerformanceTest` imprime 25+ líneas `[PERF]` en cada `mvn test`; `BackendExtendedSimulationTest` imprime topología de malla. Son útiles, pero ensucian el suite normal y la salida CI.
+- `mvn -Pstatic-analysis verify` queda verde, pero muestra warnings recurrentes de SLF4J sin provider y Maven Shade por `module-info.class`/clases duplicadas en dependencias JSON.
+- El flujo E2E real multi-instancia sigue principalmente manual mediante `scripts/dev-3-instances.sh`, `scripts/dev-2-realinstances.sh` y `docs/MANUAL_E2E_CORE.md`.
+
+### Plan Actualizado
+
+Se agregaron 3 pendientes a `WORK_PLAN.md`:
+
+- **PENDIENTE-19:** Separar tests de performance/ruidosos del suite normal con tags/perfil Maven.
+- **PENDIENTE-20:** Limpiar warnings Maven Shade/SLF4J en `pom.xml`.
+- **PENDIENTE-21:** Automatizar smoke E2E multi-instancia con túnel mock.
+
+### Validación
+
+- Revisión documental únicamente; no se cambiaron fuentes Java en esta sesión.
+- Estado validado previamente: **275 tests, 0 failures**, SpotBugs **0 bugs**, `./build.sh` exitoso.
+
+## 2026-06-03 - Revisión y Planificación de Mejoras
+
+### Objetivo De La Sesión
+
+Identificar pendientes técnicos, mejoras de calidad y áreas de riesgo tras completar Fase 11 y sistema de snapshots.
+
+### Hallazgos
+
+#### Problemas Críticos Identificados
+
+1. **Controller.java - God Object (6190 líneas, 373 métodos)**
+   - Mezcla UI, lógica de negocio, red, archivos, chat, pizarra, notas, membresía
+   - Alto acoplamiento, difícil de testear y mantener
+   - Requiere refactorización en controllers especializados
+
+2. **Seguridad - privateKey en texto plano**
+   - `identity.setProperty("member.privateKey", localPrivateKey)` almacena clave privada sin protección
+   - Riesgo si archivo es accesible por otros procesos/usuarios
+   - Bloqueante para release público
+
+3. **Cobertura de tests incompleta**
+   - Sin tests: `adapters/network` (P2PNetworkAdapter, P2PMeshService, DirectBootstrap, CoreChunkTransferCoordinator)
+   - Sin tests: `client/hub` (EmbeddedWebSocketServer, CloudflareTunnel)
+   - Sin tests: `client/ws` (WsClient)
+   - Sin tests: `adapters/filesystem` (FileSystemEventStore, FileSystemFileChunkStore)
+   - Lógica crítica de red y persistencia sin validación automática
+
+#### Métricas del Código
+
+- **Controller.java:** 6190 líneas, 373 métodos
+- **Tests:** 275 tests en 15 archivos
+- **Cobertura:** Buena en `core.*`, incompleta en `adapters/*` y `client/*`
+- **Sincronización:** 6 archivos usan synchronized/ReentrantLock
+- **Tiempo:** 36 usos de currentTimeMillis/Thread.sleep (posibles race conditions no testeadas)
+
+### Plan Actualizado
+
+Se actualizaron WORK_PLAN.md con 8 nuevos pendientes priorizados:
+
+**Prioridad Alta (Pre-Release):**
+- PENDIENTE-11: Refactorización de Controller.java
+- PENDIENTE-12: Almacenamiento seguro de privateKey
+
+**Prioridad Media (Calidad):**
+- PENDIENTE-13: Tests para adapters/network
+- PENDIENTE-14: Tests para client/hub y client/ws
+- PENDIENTE-15: Tests para adapters/filesystem
+
+**Prioridad Baja (Mejoras Opcionales):**
+- PENDIENTE-16: Unificación de ramas CI/release
+- PENDIENTE-17: Métricas de performance
+- PENDIENTE-18: Documentación de API pública
+
+### Recomendación
+
+**Para release inminente:**
+1. PENDIENTE-12 (privateKey seguro) — bloqueante de seguridad
+2. PENDIENTE-13 (tests adapters/network) — robustez de red P2P
+
+**Para calidad a mediano plazo:**
+1. PENDIENTE-11 (refactor Controller) — mejora mantenibilidad
+2. PENDIENTE-13/14/15 (tests) — cobertura de código crítico
+
+### Validación
+
+- `mvn test` — **275 tests, 0 failures, 0 errors**
+- `mvn -Pstatic-analysis verify` — **0 bugs, 0 errors**
+- `./build.sh` — exitoso, `dist/qfolder.jar` (2.1M)
