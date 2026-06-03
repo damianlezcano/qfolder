@@ -12,9 +12,9 @@ public interface EventStore {
 	List<Event> listEvents(String workspaceId);
 	default List<Event> listEventsAfter(String workspaceId, Instant after) {
 		if (after == null) return listEvents(workspaceId);
-		Instant threshold = after;
+		Instant threshold = after.minusMillis(1);
 		return listEvents(workspaceId).stream()
-				.filter(e -> e.createdAt() != null && e.createdAt().isAfter(threshold))
+				.filter(e -> e.createdAt() != null && !e.createdAt().isBefore(threshold))
 				.toList();
 	}
 	boolean hasEvent(String eventId);

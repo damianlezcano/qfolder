@@ -10,9 +10,17 @@ import org.q3s.p2p.ports.AuthProvider;
 import org.q3s.p2p.ports.EventStore;
 
 /**
- * Unico punto de entrada para eventos en el core. Centraliza stamping, validacion,
+ * Punto de entrada unificado para eventos en el core. Centraliza stamping, validacion,
  * persistencia y notificacion a observadores. Los callers deben preferir este API
  * sobre llamadas directas a EventService / EventStore.
+ *
+ * Estado actual: la interfaz existe y tiene cobertura de tests (EventPipelineTest).
+ * El codigo de produccion (CoreApplicationService y los domain services) sigue
+ * usando EventService / EventStore directamente con instancias compartidas para
+ * preservar el cache de validacion. La migracion completa a este pipeline es
+ * trabajo preparatorio: se hara cuando el EventStore exponga APIs de subscripcion
+ * reactiva para reemplazar el patron de polling actual. Hasta entonces este API
+ * esta disponible para callers externos y como referencia arquitectonica.
  */
 public interface EventPipeline {
 
@@ -55,12 +63,14 @@ public interface EventPipeline {
 	final class DefaultEventPipeline implements EventPipeline {
 		private final EventStore store;
 		private final AuthProvider auth;
+		private final EventValidator validator;
 		private final List<Consumer<Event>> listeners = new CopyOnWriteArrayList<>();
 		private volatile Member currentAuthor;
 
 		DefaultEventPipeline(EventStore store, AuthProvider auth) {
 			this.store = store;
 			this.auth = auth;
+			this.validator = new EventValidator(store);
 		}
 
 		public void bindCurrentAuthor(Member author) {
@@ -86,7 +96,7 @@ public interface EventPipeline {
 				notify(event);
 				return true;
 			}
-			if (!new EventValidator(store).isAcceptable(event)) return false;
+			if (!validator.isAcceptable(event)) return false;
 			store.append(event);
 			notify(event);
 			return true;

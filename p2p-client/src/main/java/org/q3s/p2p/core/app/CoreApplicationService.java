@@ -43,6 +43,7 @@ public class CoreApplicationService {
 	private final IdGenerator ids;
 	private final AuthProvider auth;
 	private final EventFactory eventFactory;
+	private final EventService remoteEventService;
 	private final WorkspaceService workspaceService;
 	private final MembershipService membershipService;
 	private final ChatService chatService;
@@ -55,7 +56,7 @@ public class CoreApplicationService {
 	private volatile Path snapshotPath;
 	private volatile int snapshotEveryEvents = 50;
 	private volatile int snapshotMaxSnapshots = 5;
-	private int eventsSinceSnapshot;
+	private final java.util.concurrent.atomic.AtomicInteger eventsSinceSnapshot = new java.util.concurrent.atomic.AtomicInteger(0);
 
 	public CoreApplicationService(EventStore eventStore, FileChunkStore chunkStore, IdGenerator ids, boolean usePublicKeyAuth) {
 		this.eventStore = eventStore;
@@ -70,6 +71,7 @@ public class CoreApplicationService {
 		this.noteService = new NoteService(eventStore, eventFactory);
 		this.whiteboardService = new WhiteboardService(eventStore, eventFactory, ids);
 		this.chunkReplicator = new ChunkReplicator(eventStore, chunkStore);
+		this.remoteEventService = new EventService(eventStore, true);
 	}
 
 	public CoreApplicationService(EventStore eventStore, FileChunkStore chunkStore, IdGenerator ids) {
@@ -283,7 +285,7 @@ public class CoreApplicationService {
 			new org.q3s.p2p.core.state.MeshProjector().apply(state, event);
 			return true;
 		}
-		boolean accepted = new EventService(eventStore, true).accept(event);
+		boolean accepted = remoteEventService.accept(event);
 		if (accepted) maybeSaveSnapshot(event);
 		return accepted;
 	}
@@ -356,7 +358,7 @@ public class CoreApplicationService {
 		if (path == null) return Optional.empty();
 		SnapshotService service = new SnapshotService(path);
 		Path saved = service.save(currentWorkspaceId, eventStore.listEvents(currentWorkspaceId));
-		eventsSinceSnapshot = 0;
+		eventsSinceSnapshot.set(0);
 		if (snapshotMaxSnapshots > 0) {
 			service.pruneOldSnapshots(currentWorkspaceId, snapshotMaxSnapshots);
 		}
@@ -375,7 +377,11 @@ public class CoreApplicationService {
 		if (latest.isEmpty()) return WorkspaceStateBuilder.fromEvents(eventStore.listEvents(currentWorkspaceId));
 		List<Event> snapshotEvents = latest.get().snapshotEvents();
 		Instant threshold = latest.get().snapshotTimestamp();
-		List<Event> delta = eventStore.listEventsAfter(currentWorkspaceId, threshold);
+		java.util.Set<String> snapshotIds = new java.util.HashSet<>();
+		for (Event e : snapshotEvents) snapshotIds.add(e.eventId());
+		List<Event> delta = eventStore.listEventsAfter(currentWorkspaceId, threshold).stream()
+				.filter(e -> !snapshotIds.contains(e.eventId()))
+				.toList();
 		java.util.List<Event> combined = new java.util.ArrayList<>(snapshotEvents.size() + delta.size());
 		combined.addAll(snapshotEvents);
 		combined.addAll(delta);
@@ -415,8 +421,7 @@ public class CoreApplicationService {
 		Path path = snapshotPath;
 		if (path == null || event == null || event.isEphemeral()) return;
 		if (currentWorkspaceId == null || !currentWorkspaceId.equals(event.workspaceId())) return;
-		eventsSinceSnapshot++;
-		if (eventsSinceSnapshot >= snapshotEveryEvents) {
+		if (eventsSinceSnapshot.incrementAndGet() >= snapshotEveryEvents) {
 			saveCurrentSnapshot();
 		}
 	}

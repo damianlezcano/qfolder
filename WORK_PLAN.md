@@ -1,6 +1,6 @@
 # Plan de Trabajo — qfolder
 
-Plan revisado el 3 de junio de 2026. Incluye correcciones a Fase 11 (bugs detectados en código nuevo), nuevos pendientes y actualización de AGENTS.md.
+Plan actualizado el 3 de junio de 2026. **Fase 11 completada. BUGS críticos (BUG-1..6) corregidos, FASE11-FIX-1/2 resueltos, DOC-1 actualizado.**
 
 > **Nota para el LLM ejecutor:** Antes de cada cambio, leer el archivo completo (o la sección relevante) para confirmar que las líneas coinciden. Después de cada grupo de cambios, ejecutar `cd p2p-client && mvn test`. Ejecutar `./build.sh` al final.
 
@@ -69,7 +69,7 @@ Plan revisado el 3 de junio de 2026. Incluye correcciones a Fase 11 (bugs detect
 | 11.7 Auto-reconnect mesh | ✅ Completado |
 | 11.8 Eliminar model.Event legacy | ✅ Completado (reemplazado por CoreEnvelope) |
 | Controller snapshot | ✅ Completado |
-| Chunk replicator | ⚠️ Código existe, **NO integrado en Controller** (ver FASE11-FIX-2) |
+| Chunk replicator | ✅ Integración completa en `Controller.initializeCoreServices`/`activateWorkspaceFromCore` |
 
 ---
 
@@ -122,7 +122,7 @@ public boolean accept(Event event) {
 }
 ```
 
-**Test de regresión:** Crear test que envíe un `PEER_STATUS_UPDATED` via `sync.receiveEvent()` y verifique que el callback `onCoreEventStored` se invoca.
+**Test de regresión:** Agregado `bug1receiveRemoteEventAplicaEphemeralSinPersistir` que verifica que `core.receiveRemoteEvent(ephemeral)` aplica el peerUrl a state sin persistir. `P2PNetworkAdapter` ahora diferencia efímeros vs persistentes con `onEphemeralCoreEvent` callback.
 
 ---
 
@@ -158,7 +158,7 @@ publishCoreEvent(core.insertNoteText("shared-notes", lineIndex, text));
 
 Opción B — Cambiar `findLineIdAtPosition()` en CoreApplicationService para aceptar character offsets y convertirlos internamente, calculando la posición acumulada de caracteres por línea.
 
-**Test de regresión:** Agregar test que verifique inserción CRDT en posición correcta cuando se pasa un offset de carácter mayor que el número de líneas.
+**Test de regresión:** Agregado `bug2insertNoteTextAceptaLineIndexYConcatenaEnOrden` y helper `Controller.charOffsetToLineIndex(StyledDocument, int)` que usa `doc.getDefaultRootElement().getElementIndex(offset)`.
 
 ---
 
@@ -176,7 +176,7 @@ Opción B — Cambiar `findLineIdAtPosition()` en CoreApplicationService para ac
 boolean accepted = new EventService(eventStore, true).accept(event);
 ```
 
-**Corrección:** Usar una instancia compartida de `EventService` (o `EventPipeline`) en `CoreApplicationService`:
+**Corrección (aplicada):** `CoreApplicationService` mantiene `private final EventService remoteEventService` instanciado una vez. `EventPipeline.DefaultEventPipeline` reusa `EventValidator` como campo en vez de crearlo en cada `acceptRemote()`.
 
 ```java
 // En CoreApplicationService, como campo:
@@ -207,7 +207,7 @@ private static final Map<String, String> LIVE_PEER_URLS = new ConcurrentHashMap<
 private static final Map<String, java.util.Set<String>> LIVE_PEER_CONNECTIONS = new ConcurrentHashMap<>();
 ```
 
-**Corrección:** Scoping por workspaceId:
+**Corrección (aplicada):** `LIVE_PEER_URLS` y `LIVE_PEER_CONNECTIONS` ahora son `Map<workspaceId, Map<memberId, ...>>` con `clearLiveCache(workspaceId)`. Keys determinan el workspace via `state.workspace().workspaceId()`. Tests: `bug4meshProjectorScopePorWorkspaceAislandoEstados`.
 
 ```java
 private static final Map<String, Map<String, String>> LIVE_PEER_URLS = new ConcurrentHashMap<>();
@@ -239,7 +239,7 @@ default List<Event> listEventsAfter(String workspaceId, Instant after) {
 }
 ```
 
-O mejor, pasar el set de eventIds del snapshot y filtrar por exclusión.
+O mejor, pasar el set de eventIds del snapshot y filtrar por exclusión. **Aplicado:** `EventStore.listEventsAfter` ahora usa `threshold = after.minusMillis(1)` y `!e.createdAt().isBefore(threshold)`. Ademas `CoreApplicationService.currentStateWithSnapshot` dedupica por eventId antes de combinar. Test: `bug5listEventsAfterInclusivoCapturaEventosMismoMs`.
 
 ---
 
@@ -258,7 +258,7 @@ private int eventsSinceSnapshot = 0;
 private final java.util.concurrent.atomic.AtomicInteger eventsSinceSnapshot = new java.util.concurrent.atomic.AtomicInteger(0);
 ```
 
-Actualizar incrementos a `eventsSinceSnapshot.incrementAndGet()` y comparaciones a `eventsSinceSnapshot.get() >= threshold`.
+Actualizar incrementos a `eventsSinceSnapshot.incrementAndGet()` y comparaciones a `eventsSinceSnapshot.get() >= threshold`. **Aplicado:** `CoreApplicationService.eventsSinceSnapshot` ahora es `AtomicInteger` con `incrementAndGet()` y `set(0)`.
 
 ---
 
@@ -275,6 +275,8 @@ Actualizar incrementos a `eventsSinceSnapshot.incrementAndGet()` y comparaciones
 1. **Integrar:** Reemplazar los paths de append/accept en `CoreApplicationService` con `EventPipeline`
 2. **Documentar:** Si es código preparatorio para el futuro, marcarlo explícitamente como tal
 
+**Resolución (opción 2):** Javadoc de `EventPipeline` documenta su rol preparatorio y que producción sigue usando `EventService` con instancia compartida. BUG-3 fix parcial: el `EventValidator` ya es reusado en `DefaultEventPipeline`.
+
 **Si se elige integrar:** Reemplazar en `CoreApplicationService`:
 - Los `eventStore.append(event)` locales → `pipeline.appendLocal(event)`
 - El `new EventService(eventStore, true).accept(event)` remoto → `pipeline.acceptRemote(event)`
@@ -289,7 +291,7 @@ Actualizar incrementos a `eventsSinceSnapshot.incrementAndGet()` y comparaciones
 
 **Estado:** La clase existe y tiene tests (`ChunkReplicatorTest.java`), y está referenciada en `CoreApplicationService`, pero `Controller` nunca llama `chunkReplicator.enable()` ni `runStartupCache()`.
 
-**Corrección:** En `Controller`, después de activar el workspace y configurar chunk transfer (en `activateWorkspaceFromCore` o `initializeCoreServices`):
+**Corrección (aplicada):** En `Controller.initializeCoreServices` se llama `core.chunkReplicator().onFileAvailable(this::requestReplicatorDownload)` y `core.chunkReplicator().enable()`. En `Controller.activateWorkspaceFromCore` se llama `core.runStartupCache()` para descargar archivos compartidos que aún no tenemos. Helper `requestReplicatorDownload(FileMetadata)` convierte metadata a QFile y delega en `coreChunkTransfer.request()`.
 ```java
 if (core.getChunkReplicator() != null) {
     core.getChunkReplicator().enable();
@@ -332,6 +334,8 @@ Verificar que `CoreApplicationService` expone el `ChunkReplicator` (agregar gett
    - Actualizar: `org.q3s.p2p.model.Event` eliminado, wire protocol usa `CoreEnvelope`
 
 6. **En "Qué No Modificar Sin Avisar":** Agregar `CoreEnvelope` y `CoreEnvelopeCodec` ya que son parte del protocolo wire.
+
+**Resolución (DOC-1 aplicado):** AGENTS.md actualizado con conteo de tests (279), referencias a `CoreEnvelope`/`CoreEnvelopeCodec`/`core/model/Event`, separación clara de BUGS corregidos (BUG-1 a BUG-6) y FASE11-FIX-1/2, secciones de "Archivos A Revisar" y "Qué No Modificar" actualizadas, descripción de `EventPipeline`/`ChunkReplicator`/`MeshProjector` con sus fixes.
 
 ---
 

@@ -1873,6 +1873,8 @@ public class Controller {
 		coreChunkTransfer = new CoreChunkTransferCoordinator(core, () -> user, this::sendP2PProtocolEvent, this::updateTransferProgress,
 				this::completeCoreChunkDownload, this::fallbackCoreChunkDownload,
 				(message, detail) -> log.debug(message + (detail == null || detail.isBlank() ? "" : ": " + detail)));
+		core.chunkReplicator().onFileAvailable(this::requestReplicatorDownload);
+		core.chunkReplicator().enable();
 		p2pNetwork = new P2PNetworkAdapter(user.getId(),
 				() -> "ws://localhost:" + Config.WS_SERVER_PORT,
 				() -> wk != null ? wk.getId() : null,
@@ -1903,6 +1905,12 @@ public class Controller {
 				Workspace workspace = new Workspace(wsId, name);
 				workspace.setDate(sessionCreatedAt > 0 ? sessionCreatedAt : System.currentTimeMillis());
 				notify(CoreEnvelope.of("Bienvenido usuario al grupo!", user.getId(), workspace.getId()));
+				try {
+					int triggered = core.runStartupCache();
+					if (triggered > 0) log.debug("[REPLICATOR] Cache de inicio: " + triggered + " archivos a descargar");
+				} catch (Exception e) {
+					log.debug("No se pudo ejecutar startup cache: " + e.getMessage());
+				}
 			} catch (Exception e) {
 				log.err("No se pudo activar workspace desde core: " + e.getMessage());
 			}
@@ -3685,7 +3693,8 @@ public class Controller {
 			String text = e.getDocument().getText(e.getOffset(), e.getLength());
 			if (text == null || text.isEmpty()) return;
 			lastSentNotesState = notesPane.getText();
-			publishCoreEvent(core.insertNoteText("shared-notes", e.getOffset(), text));
+			int lineIndex = charOffsetToLineIndex(notesPane.getStyledDocument(), e.getOffset());
+			publishCoreEvent(core.insertNoteText("shared-notes", lineIndex, text));
 		} catch (Exception ex) {
 			log.debug("No se pudo registrar insercion de notas: " + ex.getMessage());
 			scheduleNotesBroadcast();
@@ -3700,10 +3709,20 @@ public class Controller {
 				return;
 			}
 			lastSentNotesState = notesPane.getText();
-			publishCoreEvent(core.deleteNoteText("shared-notes", e.getOffset(), e.getLength()));
+			int lineIndex = charOffsetToLineIndex(notesPane.getStyledDocument(), e.getOffset());
+			publishCoreEvent(core.deleteNoteText("shared-notes", lineIndex, e.getLength()));
 		} catch (Exception ex) {
 			log.debug("No se pudo registrar borrado de notas: " + ex.getMessage());
 			scheduleNotesBroadcast();
+		}
+	}
+
+	private int charOffsetToLineIndex(javax.swing.text.StyledDocument doc, int offset) {
+		if (doc == null) return 0;
+		try {
+			return Math.max(0, doc.getDefaultRootElement().getElementIndex(offset));
+		} catch (Exception e) {
+			return 0;
 		}
 	}
 
@@ -6012,6 +6031,24 @@ public class Controller {
 
 	private boolean requestCoreChunkDownload(QFile qFile) {
 		return coreChunkTransfer != null && coreChunkTransfer.request(qFile);
+	}
+
+	private void requestReplicatorDownload(org.q3s.p2p.core.model.FileMetadata metadata) {
+		if (metadata == null) return;
+		try {
+			QFile qFile = new QFile();
+			qFile.setName(metadata.name());
+			qFile.setSize(metadata.size());
+			qFile.setDate(System.currentTimeMillis());
+			qFile.setMD5("core:" + metadata.fileId());
+			qFile.setTotalParts(metadata.chunks() == null ? 0 : metadata.chunks().size());
+			qFile.setCurrentPart(0);
+			qFile.setOperation(QFile.OPERATION_DOWNLOAD);
+			log.debug("[REPLICATOR] Disparando descarga offline de '" + metadata.name() + "' (fileId=" + metadata.fileId() + ")");
+			requestCoreChunkDownload(qFile);
+		} catch (Exception e) {
+			log.debug("No se pudo disparar descarga replicator: " + e.getMessage());
+		}
 	}
 
 	public Component getView() {

@@ -37,6 +37,7 @@ import org.q3s.p2p.core.members.MembershipService;
 import org.q3s.p2p.core.mesh.MeshPolicy;
 import org.q3s.p2p.core.model.Event;
 import org.q3s.p2p.core.model.Member;
+import org.q3s.p2p.core.model.Note;
 import org.q3s.p2p.core.notes.NoteService;
 import org.q3s.p2p.core.state.WorkspaceState;
 import org.q3s.p2p.core.state.WorkspaceStateBuilder;
@@ -1789,5 +1790,105 @@ class CoreQfolderTest {
 		List<?> storedPoints = (List<?>) stored;
 		assertInstanceOf(int[].class, storedPoints.get(0));
 		assertArrayEquals(new int[] {10, 20}, (int[]) storedPoints.get(0));
+	}
+
+	// ============================================================
+	// BUG-1: receiveRemoteEvent maneja efímeros via MeshProjector
+	// ============================================================
+
+	@Test void bug1receiveRemoteEventAplicaEphemeralSinPersistir() {
+		var store = new InMemoryEventStore();
+		var core = new CoreApplicationService(store, new InMemoryFileChunkStore(), ids);
+		var created = core.createWorkspace("WS Bug1", "local", 1);
+		core.ensureWorkspaceSession(created.workspaceId(), "WS Bug1", "local", "local", "dev", "tok", 1);
+
+		Event ephemeral = events.create(created.workspaceId(), EventTypes.PEER_STATUS_UPDATED, "remote-peer",
+				Map.of("member_id", "remote-peer", "peer_url", "wss://remote.example", "connected_peers", List.of("local")),
+				null);
+		assertTrue(ephemeral.isEphemeral());
+
+		boolean accepted = core.receiveRemoteEvent(ephemeral);
+
+		assertTrue(accepted, "Los eventos efímeros deben aceptarse siempre");
+		assertFalse(store.hasEvent(ephemeral.eventId()),
+				"Los eventos efímeros NO deben persistirse en el eventStore");
+
+		WorkspaceState state = core.currentState();
+		assertEquals("wss://remote.example", state.peerUrls().get("remote-peer"),
+				"MeshProjector debe aplicar peerUrl a state aunque sea efímero");
+	}
+
+	// ============================================================
+	// BUG-2: insertNoteText con line index (no char offset)
+	// ============================================================
+
+	@Test void bug2insertNoteTextAceptaLineIndexYConcatenaEnOrden() {
+		var store = new InMemoryEventStore();
+		var core = new CoreApplicationService(store, new InMemoryFileChunkStore(), ids);
+		var created = core.createWorkspace("WS Bug2", "u1", 1);
+		core.ensureWorkspaceSession(created.workspaceId(), "WS Bug2", "u1", "u1", "dev", "tok", 1);
+
+		core.updateNote("n1", "inicial");
+		core.insertNoteText("n1", 0, "PRIMERA");
+		core.insertNoteText("n1", 1, "SEGUNDA");
+		core.insertNoteText("n1", 1, "MEDIA");
+
+		WorkspaceState state = core.currentState();
+		Note note = state.notes().get("n1");
+		assertNotNull(note);
+		String text = note.text();
+		assertTrue(text.contains("PRIMERA"), "Primera línea debe estar presente");
+		assertTrue(text.contains("SEGUNDA"), "Segunda línea debe estar presente");
+		assertTrue(text.contains("MEDIA"), "Línea media debe estar presente");
+		assertEquals(3, note.visibleLines().size(),
+				"Debe haber 3 líneas visibles tras las inserciones");
+	}
+
+	// ============================================================
+	// BUG-4: MeshProjector scoping por workspaceId
+	// ============================================================
+
+	@Test void bug4meshProjectorScopePorWorkspaceAislandoEstados() {
+		var projector = new org.q3s.p2p.core.state.MeshProjector();
+		Event statusA = events.create("wsA", EventTypes.PEER_STATUS_UPDATED, "peerA",
+				Map.of("member_id", "peerA", "peer_url", "wss://a.example", "connected_peers", List.of()), null);
+		Event statusB = events.create("wsB", EventTypes.PEER_STATUS_UPDATED, "peerB",
+				Map.of("member_id", "peerB", "peer_url", "wss://b.example", "connected_peers", List.of()), null);
+
+		WorkspaceState stateA = WorkspaceStateBuilder.fromEvents(List.of(statusA));
+		WorkspaceState stateB = WorkspaceStateBuilder.fromEvents(List.of(statusB));
+		projector.apply(stateA, statusA);
+		projector.apply(stateB, statusB);
+
+		assertEquals("wss://a.example", stateA.peerUrls().get("peerA"));
+		assertNull(stateA.peerUrls().get("peerB"),
+				"peerB de wsB NO debe filtrarse al state de wsA");
+		assertEquals("wss://b.example", stateB.peerUrls().get("peerB"));
+		assertNull(stateB.peerUrls().get("peerA"),
+				"peerA de wsA NO debe filtrarse al state de wsB");
+	}
+
+	// ============================================================
+	// BUG-5: listEventsAfter inclusivo (umbral compartido por ms)
+	// ============================================================
+
+	@Test void bug5listEventsAfterInclusivoCapturaEventosMismoMs() {
+		Instant t = Instant.parse("2026-06-03T10:00:00Z");
+		Event e1 = new Event("evt-1", "wsB5", "demo.created", "u1", t, List.of(), Map.of(), null, null, true);
+		Event e2 = new Event("evt-2", "wsB5", "demo.created", "u1", t, List.of(), Map.of(), null, null, true);
+		Event e3 = new Event("evt-3", "wsB5", "demo.created", "u1", t.plusMillis(1), List.of(), Map.of(), null, null, true);
+
+		org.q3s.p2p.adapters.memory.InMemoryEventStore store = new org.q3s.p2p.adapters.memory.InMemoryEventStore();
+		store.append(e1);
+		store.append(e2);
+		store.append(e3);
+
+		List<Event> delta = store.listEventsAfter("wsB5", t);
+
+		assertEquals(3, delta.size(),
+				"Con umbral inclusivo, eventos con MISMO timestamp que el snapshot entran al delta; la deduplicacion por eventId ocurre en CoreApplicationService.currentStateWithSnapshot");
+		assertTrue(delta.contains(e1));
+		assertTrue(delta.contains(e2));
+		assertTrue(delta.contains(e3));
 	}
 }

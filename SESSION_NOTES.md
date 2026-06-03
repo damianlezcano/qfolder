@@ -2734,9 +2734,115 @@ Completar el paso pendiente detectado en revisión: `CoreApplicationService.curr
 
 ### Validación
 
-- `mvn test` — **273 tests, 0 failures, 0 errors**
+- `mvn test` — **275 tests, 0 failures, 0 errors**
 - `mvn -Pstatic-analysis verify` — **0 bugs, 0 errors**
 - `./build.sh` — exitoso, `dist/qfolder.jar` (2.1M)
+
+## 2026-06-03 - Fase A+B del Plan (BUGS críticos + Integración Fase 11)
+
+### Objetivo De La Sesión
+
+Ejecutar los 6 BUGS críticos documentados en el WORK_PLAN (BUG-1..BUG-6), resolver FASE11-FIX-1 y FASE11-FIX-2, y actualizar AGENTS.md (DOC-1).
+
+### BUG-1 — SyncEngine descarta efímeros P2P (mesh discovery roto)
+
+**Problema:** `P2PNetworkAdapter.PeerLink.connect` enviaba TODOS los core events recibidos por P2P a `sync.receiveEvent()`, que usa `EventService.accept()` que rechaza `event.isEphemeral()`. Los `PEER_STATUS_UPDATED` (efímeros) se descartaban silenciosamente en la ruta outbound.
+
+**Fix:**
+- Nuevo callback `Consumer<Event> onEphemeralCoreEvent` en `P2PNetworkAdapter`.
+- En `PeerLink` callback, si `coreEvent.isEphemeral()` se invoca `onEphemeralCoreEvent` (que NO intenta almacenar). Si persistente, se mantiene el path `sync.receiveEvent` (que sí broadcast a otros peers).
+- `P2PMeshService` ahora wire `onEphemeralCoreEvent` → `core.receiveRemoteEvent(e)` + `applyState(core.currentState())`.
+
+**Archivos:** `P2PNetworkAdapter.java`, `P2PMeshService.java`.
+
+### BUG-2 — CRDT notes character offset vs line index en UI
+
+**Problema:** `Controller.recordNotesInsert/Delete` pasaba `e.getOffset()` (character offset en el documento) a `core.insertNoteText`/`deleteNoteText`, pero `findLineIdAtPosition` esperaba un índice de línea.
+
+**Fix:**
+- Helper `Controller.charOffsetToLineIndex(StyledDocument, int)` que usa `doc.getDefaultRootElement().getElementIndex(offset)`.
+- `recordNotesInsert`/`recordNotesDelete` ahora pasan el line index calculado.
+
+**Archivos:** `Controller.java`.
+
+### BUG-3 — EventValidator cache no efectivo
+
+**Problema:** `CoreApplicationService.receiveRemoteEvent` creaba `new EventService(eventStore, true)` en cada llamada; `EventPipeline.DefaultEventPipeline` creaba `new EventValidator(store)` en cada `acceptRemote`. El cache de `WorkspaceState` en `EventValidator` quedaba invalidado.
+
+**Fix:**
+- `CoreApplicationService.remoteEventService` ahora es campo compartido (`final EventService`).
+- `EventPipeline.DefaultEventPipeline.validator` ahora es campo compartido (`final EventValidator`).
+
+**Archivos:** `CoreApplicationService.java`, `EventPipeline.java`.
+
+### BUG-4 — MeshProjector scope por workspace
+
+**Problema:** `LIVE_PEER_URLS` y `LIVE_PEER_CONNECTIONS` eran `static ConcurrentHashMap` globales. URLs de peers de un workspace se filtraban a otros workspaces.
+
+**Fix:**
+- Cambiados a `Map<workspaceId, Map<memberId, ...>>`.
+- Nuevo `clearLiveCache(workspaceId)` para limpieza selectiva.
+- `apply()`/`hydrate()` derivan el workspaceId de `state.workspace().workspaceId()` (con fallback a `__default__`).
+
+**Archivos:** `MeshProjector.java`.
+
+### BUG-5 — Snapshot delta boundary (eventos mismo ms)
+
+**Problema:** `EventStore.listEventsAfter` usaba `isAfter(threshold)` (estricto). Eventos con el mismo timestamp que el último del snapshot quedaban excluidos.
+
+**Fix:**
+- Cambiado a `!isBefore(threshold.minusMillis(1))` (inclusivo con margen).
+- `CoreApplicationService.currentStateWithSnapshot` ahora dedupica por eventId antes de combinar snapshot+delta.
+
+**Archivos:** `EventStore.java`, `CoreApplicationService.java`.
+
+### BUG-6 — eventsSinceSnapshot no volatile
+
+**Problema:** `int eventsSinceSnapshot` se incrementaba desde hilos P2P/UI sin sincronización.
+
+**Fix:** Cambiado a `AtomicInteger eventsSinceSnapshot` con `incrementAndGet()`/`set(0)`.
+
+**Archivos:** `CoreApplicationService.java`.
+
+### FASE11-FIX-1 — EventPipeline integrar o documentar
+
+**Resolución (opción 2):** Javadoc de `EventPipeline` documenta su rol preparatorio. El código de producción sigue usando `EventService` directamente con instancia compartida (BUG-3 fix). El `EventValidator` interno del pipeline también reusa instancia (BUG-3 fix parcial).
+
+**Archivos:** `EventPipeline.java`.
+
+### FASE11-FIX-2 — ChunkReplicator integrado en Controller
+
+**Fix:**
+- `Controller.initializeCoreServices` ahora llama `core.chunkReplicator().onFileAvailable(this::requestReplicatorDownload)` y `core.chunkReplicator().enable()`.
+- `Controller.activateWorkspaceFromCore` ahora llama `core.runStartupCache()` para descargar archivos compartidos que aún no tenemos localmente.
+- Helper `requestReplicatorDownload(FileMetadata)` convierte metadata → QFile y delega en `coreChunkTransfer.request()`.
+
+**Archivos:** `Controller.java`.
+
+### DOC-1 — AGENTS.md actualizado
+
+- Test count: 221 → 279.
+- Eliminadas referencias a `org.q3s.p2p.model.Event` (legacy) y `EventUtils`.
+- Agregados `CoreEnvelope`/`CoreEnvelopeCodec`/`core/model/Event`/`EventPipeline`/`ChunkReplicator`/`NoteLine`/proyecciones separadas.
+- Sección "Archivos A Revisar" actualizada.
+- Sección "Qué No Modificar" referencia `CoreEnvelope`/`CoreEnvelopeCodec` como wire format.
+- Sección "Estado Actual Del Desarrollo" lista BUG-1..6 con sus fixes.
+
+**Archivos:** `AGENTS.md`.
+
+### Tests De Regresión Agregados (4 nuevos en `CoreQfolderTest`)
+
+- `bug1receiveRemoteEventAplicaEphemeralSinPersistir`
+- `bug2insertNoteTextAceptaLineIndexYConcatenaEnOrden`
+- `bug4meshProjectorScopePorWorkspaceAislandoEstados`
+- `bug5listEventsAfterInclusivoCapturaEventosMismoMs`
+
+### Validación Final
+
+- `mvn test` — **279 tests, 0 failures, 0 errors**
+- `mvn -Pstatic-analysis verify` — **0 bugs, 0 errors**
+- `./build.sh` — exitoso, `dist/qfolder.jar` (2.1M) regenerado
+
 
 ### Pendiente Técnico
 

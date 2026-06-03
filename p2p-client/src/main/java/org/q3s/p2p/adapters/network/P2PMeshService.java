@@ -51,6 +51,7 @@ public class P2PMeshService {
 		this.debug = debug == null ? ignored -> {} : debug;
 		this.policy = policy == null ? new MeshPolicy(2, 4) : policy;
 		p2p.onCoreEventStored(e -> { if (!shuttingDown) notifyEventStored(e); });
+		p2p.onEphemeralCoreEvent(e -> { if (!shuttingDown) applyEphemeralState(e); });
 		p2p.onCoreSyncApplied(events -> { if (!shuttingDown) applyState(core.currentState()); });
 		p2p.onPeerConnectionsChanged(peers -> {
 			if (shuttingDown) return;
@@ -341,6 +342,17 @@ public class P2PMeshService {
 	}
 
 	private void notifyEventStored(Event event) {
+		applyState(core.currentState());
+	}
+
+	/**
+	 * Aplica un evento core efímero recibido por P2P (como peer.status.updated) al estado
+	 * del workspace local sin persistirlo. Mantiene viva la URL/conexiones del peer remoto
+	 * en la malla y refresca la UI.
+	 */
+	private void applyEphemeralState(Event event) {
+		if (shuttingDown || event == null) return;
+		if (event.isEphemeral()) core.receiveRemoteEvent(event);
 		applyState(core.currentState());
 	}
 }

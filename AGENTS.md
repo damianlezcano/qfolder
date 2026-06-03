@@ -54,17 +54,22 @@ qfolder es una aplicación de escritorio para workspaces colaborativos peer-to-p
 - `org.q3s.p2p.client.UpdateChecker`: chequeo de releases en GitHub para auto-update.
 - `org.q3s.p2p.client.util.UserPreferences`: preferencias persistentes de usuario (idioma, look-and-feel) en `systemdata/preferences.properties`, con precedencia: system property > archivo preferences > default.
 - `org.q3s.p2p.client.util.LookAndFeelManager`: gestión de look and feel Swing (FlatLaf, Metal, Nimbus, System) con cambio en vivo vía `SwingUtilities.updateComponentTreeUI`.
-- `org.q3s.p2p.model.Event`: unidad principal de intercambio entre clientes/hub.
-- `org.q3s.p2p.model.User`, `Workspace`, `QFile`: modelos de usuario, workspace y archivo.
-- `org.q3s.p2p.model.util.EventUtils`: serialización/deserialización de eventos.
+- `org.q3s.p2p.model.User`, `Workspace`, `QFile`: modelos de usuario, workspace y archivo legacy.
 - `org.q3s.p2p.core.app.CoreApplicationService`: fachada nueva para conectar la UI Swing con el core descentralizado testeable.
-- `org.q3s.p2p.core.*`: modelos y servicios core nuevos para eventos, workspace, membresía, chat, archivos, pizarra, notas, mesh, sync y estado.
-- `org.q3s.p2p.ports.*`: puertos del core (`EventStore`, `NetworkAdapter`, `AuthProvider`, `FileChunkStore`, etc.).
+- `org.q3s.p2p.core.codec.CoreEnvelope` y `CoreEnvelopeCodec`: wire format JSON-Base64 versionado (`core.event`, `core.sync.request`, `core.sync.response`) que reemplaza al antiguo `org.q3s.p2p.model.Event` (eliminado en Fase 11.8).
+- `org.q3s.p2p.core.model.Event` (core): record inmutable con `eventId`, `workspaceId`, `type`, `authorMemberId`, `createdAt`, `parents`, `payload`, `auth`, `signature`, `persistent`. `isEphemeral()` retorna `!persistent`.
+- `org.q3s.p2p.core.events.EventPipeline` y `EventService`: pipeline unificado y facade de validacion/persistencia para eventos core. `CoreApplicationService` usa `EventService` directamente con instancia compartida para preservar el cache de `EventValidator` (BUG-3 fix). `EventPipeline` es el API preferido para callers externos.
+- `org.q3s.p2p.core.state.MembershipProjector`, `ContentProjector`, `MeshProjector`: proyecciones de estado separadas usadas por `WorkspaceStateBuilder`. `MeshProjector` mantiene cache de `LIVE_PEER_URLS`/`LIVE_PEER_CONNECTIONS` scoped por `workspaceId` (BUG-4 fix) y expone `clearLiveCache(workspaceId)`.
+- `org.q3s.p2p.core.model.NoteLine`: record CRDT line-based para notas colaborativas. `Note` rediseñado como `Map<String, NoteLine>` con orden estable por `afterLineId` (parent/children) y `(createdAt, lineId)` para siblings. `deleteLine` produce tombstones que prevalecen sobre `insert` posteriores con el mismo `lineId`.
+- `org.q3s.p2p.core.files.ChunkReplicator`: replicador opt-in de chunks para disponibilidad offline. `Controller.initializeCoreServices` lo activa con `enable()` y registra listener; `activateWorkspaceFromCore` dispara `core.runStartupCache()` para descargar archivos compartidos que aun no tenemos localmente.
+- `org.q3s.p2p.core.sync.SyncEngine`: sync de eventos faltantes entre peers via `store.getMissingEvents(knownIds)`. NO procesa eventos efimeros (esos van por la ruta `onEphemeralCoreEvent` del P2PNetworkAdapter, BUG-1 fix).
+- `org.q3s.p2p.core.*`: modelos y servicios core para eventos, workspace, membresía, chat, archivos, pizarra, notas, mesh, sync y estado.
+- `org.q3s.p2p.ports.*`: puertos del core (`EventStore`, `NetworkAdapter`, `AuthProvider`, `FileChunkStore`, etc.). `EventStore.listEventsAfter(workspaceId, after)` usa umbral inclusivo (`after.minusMillis(1)` y `!isBefore`) para no perder eventos con el mismo timestamp que el snapshot (BUG-5 fix).
 - `org.q3s.p2p.adapters.*`: adaptadores en memoria, filesystem y red simulada/placeholder real.
 - `org.q3s.p2p.adapters.network.CoreChunkTransferProtocol`: mensajes P2P para disponibilidad y transferencia explícita de chunks core (`Core chunk availability request/response`, `Core chunk request/response`). Los payloads usan encabezado versionado `QCHUNK1`.
 - `org.q3s.p2p.adapters.network.CoreChunkTransferCoordinator`: coordina disponibilidad, planificación, requests, reintentos, verificación hash y fallback de descargas distribuidas por chunks.
 - `org.q3s.p2p.adapters.network.SimulatedNetworkAdapter`: simulación de malla/gossip con soporte programable de packet loss y latencia para pruebas de resiliencia.
-- `org.q3s.p2p.adapters.network.P2PNetworkAdapter`: implementación real de `NetworkAdapter` sobre conexiones WebSocket directas entre peers, usando `MeshPolicy` y `SyncEngine` para gossip descentralizado. También sincroniza eventos faltantes directamente entre peers.
+- `org.q3s.p2p.adapters.network.P2PNetworkAdapter`: implementación real de `NetworkAdapter` sobre conexiones WebSocket directas entre peers, usando `MeshPolicy` y `SyncEngine` para gossip descentralizado. Rutas P2P: `onCoreEventStored` (eventos persistentes), `onEphemeralCoreEvent` (eventos efimeros como `peer.status.updated` que no se persisten, BUG-1 fix) y `onCoreSyncApplied` (delta sync).
 - `org.q3s.p2p.adapters.network.P2PMeshService`: servicio de orquestación de la malla P2P — gestiona peerAppeared, peerDisappeared, publish, peerCatalog y mergePeerCatalog. Testeable sin Controller.
 - `org.q3s.p2p.adapters.network.DirectBootstrap`: join directo a un peer sin pasar por el hub, con intercambio de PeerCatalog y sync inicial.
 - `org.q3s.p2p.adapters.network.InviteCode`: formato de invitación `ws://host:port?workspace=<base64>` para compartir entre peers.
@@ -158,7 +163,7 @@ qfolder es una aplicación de escritorio para workspaces colaborativos peer-to-p
 
 ## Reglas Para Futuras Sesiones
 
-- Antes de cambiar comportamiento de red/eventos, revisar `Event`, `EventUtils`, `WsClient`, `EmbeddedWebSocketServer`, `P2PNetworkAdapter`, `P2PMeshService`, `DirectBootstrap` y las ramas relevantes de `Controller.notify(...)`.
+- Antes de cambiar comportamiento de red/eventos, revisar `core/codec/CoreEnvelope`, `core/codec/CoreEnvelopeCodec`, `core/model/Event`, `core/events/EventService`, `core/events/EventPipeline`, `WsClient`, `EmbeddedWebSocketServer`, `P2PNetworkAdapter`, `P2PMeshService`, `DirectBootstrap` y las ramas relevantes de `Controller.notify(...)`.
 - Antes de cambiar UI, revisar `Controller`, `View`, componentes en `view/components` y recursos gráficos/i18n.
 - Antes de cambiar archivos, revisar `FileUtils`, `QFile`, `TabListFile`, `FileTableModel` y métodos de transferencia en `Controller`.
 - Antes de cambiar lógica core, revisar `CoreApplicationService`, servicios en `org.q3s.p2p.core`, puertos en `org.q3s.p2p.ports` y tests en `p2p-client/src/test`.
@@ -172,10 +177,10 @@ qfolder es una aplicación de escritorio para workspaces colaborativos peer-to-p
 
 - General: `README.md`, `p2p-client/pom.xml`, `build.sh`.
 - App start/config: `Main.java`, `Config.java`, `AppConfig.java`, `qfolder.properties.example`.
-- Eventos/red: `Event.java`, `EventUtils.java`, `WsClient.java`, `EmbeddedWebSocketServer.java`, `P2PNetworkAdapter.java`, `P2PMeshService.java`, `DirectBootstrap.java`.
+- Eventos/red: `core/codec/CoreEnvelope.java`, `core/codec/CoreEnvelopeCodec.java`, `core/model/Event.java`, `core/events/EventService.java`, `core/events/EventPipeline.java`, `WsClient.java`, `EmbeddedWebSocketServer.java`, `P2PNetworkAdapter.java`, `P2PMeshService.java`, `DirectBootstrap.java`.
 - UI principal: `Controller.java`, `View.java`.
-- Archivos: `QFile.java`, `FileUtils.java`, `TabListFile.java`, `FileTableModel.java`.
-- Core nuevo: `CoreApplicationService.java`, `CoreChunkTransferProtocol.java`, `CoreChunkTransferCoordinator.java`, `EventStore.java`, `NetworkAdapter.java`, `AuthProvider.java`, `FileChunkStore.java`, `WorkspaceStateBuilder.java`, `SyncEngine.java`, `MeshPolicy.java`, `DistributedChunkPlanner.java`.
+- Archivos: `QFile.java`, `FileUtils.java`, `TabListFile.java`, `FileTableModel.java`, `core/files/ChunkReplicator.java`, `core/files/DistributedChunkPlanner.java`.
+- Core nuevo: `CoreApplicationService.java`, `CoreChunkTransferProtocol.java`, `CoreChunkTransferCoordinator.java`, `EventStore.java`, `NetworkAdapter.java`, `AuthProvider.java`, `FileChunkStore.java`, `WorkspaceStateBuilder.java`, `SyncEngine.java`, `MeshPolicy.java`, `MembershipProjector.java`, `ContentProjector.java`, `MeshProjector.java`, `SnapshotService.java`, `NoteService.java`, `NoteLine.java`, `Note.java`.
 - Packaging: `scripts/package-linux.sh`, `scripts/package-windows.ps1`, `RELEASE.md`.
 - Util/preferencias: `UserPreferences.java`, `LookAndFeelManager.java`, `I18n.java`.
 - i18n: `p2p-client/src/main/resources/i18n/messages.properties`, `p2p-client/src/main/resources/i18n/messages_es.properties`.
@@ -185,7 +190,7 @@ qfolder es una aplicación de escritorio para workspaces colaborativos peer-to-p
 - `scripts/release.sh` y flujo de release.
 - `.github/workflows/maven-publish.yml`, porque requiere actualización coordinada con el flujo de ramas real (`main` en workflow vs `develop`/`master` en `scripts/release.sh`/`RELEASE.md`).
 - Versiones de Java/Maven/dependencias en `pom.xml`.
-- Protocolo de eventos (`Event.name`, payloads en `response`, serialización Base64/JSON) sin revisar compatibilidad entre clientes.
+- Protocolo de eventos (`CoreEnvelope.name`/`CoreEnvelopeCodec`, payloads en `response`, serialización Base64/JSON) sin revisar compatibilidad entre clientes.
 - Formato de estado/acciones de pizarra y notas si puede afectar sesiones mixtas entre versiones.
 - Rutas de packaging y descarga/ubicación de `cloudflared`.
 - Recursos binarios en `src/main/resources` salvo que el cambio sea intencional.
@@ -195,18 +200,22 @@ qfolder es una aplicación de escritorio para workspaces colaborativos peer-to-p
 ## Estado Actual Del Desarrollo
 
 - La aplicación se compila con `./build.sh` en este entorno.
-- La suite core se ejecuta con `cd p2p-client && mvn test` (221 tests, 0 failures). Incluye tests de i18n para columnas de tabla (`FileTableModelI18nTest`).
+- La suite core se ejecuta con `cd p2p-client && mvn test` (279 tests, 0 failures). Incluye tests de i18n para columnas de tabla (`FileTableModelI18nTest`) y tests de regresión para los BUGS críticos (BUG-1 a BUG-5).
 - Static analysis configurado con SpotBugs: `cd p2p-client && mvn -Pstatic-analysis verify`.
 - `dist/`, `build/`, `packages/` y `p2p-client/target/` son artefactos generados/ignorados.
 - Migración completada a core descentralizado event-sourced. El transporte real usa `P2PNetworkAdapter` sobre conexiones WebSocket directas entre peers; `CoreSyncBridge` y `WsHubService` fueron removidos del flujo activo.
 - Existe `DirectBootstrap` para join directo sin hub, `InviteCode` con formato `ws://host:port?workspace=<base64>`, y `PeerCatalog` con intercambio de URLs durante sync.
-- Los payloads core/sync usan JSON Base64 versionado (`QCOREJSON1`, `QCORESYNCJSON1`). Chunks usa formato string/Base64 propio con encabezado versionado `QCHUNK1`.
+- Los payloads core/sync usan JSON Base64 versionado (`QCOREJSON1`, `QCORESYNCJSON1`). Chunks usa formato string/Base64 propio con encabezado versionado `QCHUNK1`. Wire format completo encapsulado en `CoreEnvelope`/`CoreEnvelopeCodec` (Fase 11.8).
+- `MeshProjector` mantiene cache de peer URLs/connections scoped por `workspaceId` (BUG-4 fix). `EventStore.listEventsAfter` usa umbral inclusivo para no perder eventos con el mismo timestamp que el snapshot (BUG-5 fix). `P2PNetworkAdapter` maneja eventos efímeros vía `onEphemeralCoreEvent` callback separado de `onCoreEventStored` (BUG-1 fix).
+- `CoreApplicationService` mantiene un `EventService` compartido para validar eventos remotos (BUG-3 fix, preserva cache de `EventValidator`). `eventsSinceSnapshot` es `AtomicInteger` (BUG-6 fix). `Note` CRDT line-based con tombstones que bloquean resurrección por inserts tardíos. `Controller.insertNoteText`/`deleteNoteText` ahora reciben line index calculado desde character offset via `charOffsetToLineIndex` (BUG-2 fix).
+- `EventPipeline` (Fase 11.6) está implementado y testeado pero el código de producción usa `EventService` directamente con instancia compartida; el pipeline queda como API preparado para migración futura.
+- `ChunkReplicator` (Fase 11.7) ahora se activa vía `Controller.initializeCoreServices` (`enable()` + listener que dispara descargas). `Controller.activateWorkspaceFromCore` corre `core.runStartupCache()` para descargar archivos compartidos que aún no tenemos localmente (FASE11-FIX-2 resuelto).
 - El flujo productivo usa firmas Ed25519 reales; pendiente de seguridad: evaluar migrar `systemdata/identity.properties` a un almacén local más seguro para la clave privada antes de distribución pública amplia.
 - Hay simulaciones para malla de 10 usuarios, packet loss, latencia, particiones, churn, y estrés (500 eventos).
 - La descarga de archivos es distribuida por chunks con verificación SHA-256, reintentos y fallback de error si no hay chunks P2P disponibles. Para evitar colisiones nombre/tamaño, `CoreChunkTransferCoordinator` prioriza el `fileId` de `QFile.md5=core:<fileId>`.
 - El indexado local evita repetir `file.shared` si path/tamaño/mtime no cambiaron, con cache persistente por workspace.
 - Hay tests de resiliencia de conexión intermitente (flapping, degradación, latencia+loss simultáneo).
-- La suite incluye `CoreResilienceTest`, `CoreQfolderTest`, `CoreArchitectureTest`, `CoreWsClientTest`, `CoreControllerIntegrationTest`, `BackendExtendedSimulationTest` y `CoreWebSocketIntegrationTest`.
+- La suite incluye `CoreResilienceTest`, `CoreQfolderTest`, `CoreArchitectureTest`, `CoreWsClientTest`, `CoreControllerIntegrationTest`, `BackendExtendedSimulationTest`, `CoreWebSocketIntegrationTest`, `EventPipelineTest`, `EventValidatorTest`, `ChunkReplicatorTest` y `FileTableModelI18nTest`.
 - El workflow de GitHub Actions fue corregido para usar JDK 21 y `p2p-client/pom.xml`.
 - Pendientes de migración: formalizar `QCHUNK1` a JSON/CBOR, proteger mejor la clave privada local, y agregar replicación/cache de chunks si se quiere disponibilidad offline real de archivos.
 - Existe guía manual `docs/MANUAL_E2E_CORE.md`, launcher mock `scripts/dev-3-instances.sh` y launcher Cloudflare real `scripts/dev-2-realinstances.sh`.

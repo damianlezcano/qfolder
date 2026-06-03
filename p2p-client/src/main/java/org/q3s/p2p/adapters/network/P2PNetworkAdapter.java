@@ -30,6 +30,7 @@ public class P2PNetworkAdapter implements NetworkAdapter {
 	private final Map<String, PeerLink> peers = new ConcurrentHashMap<>();
 	private volatile boolean shuttingDown = false;
 	private Consumer<Event> onCoreEventStored;
+	private Consumer<Event> onEphemeralCoreEvent;
 	private Consumer<java.util.List<Event>> onCoreSyncApplied;
 	private Consumer<Set<String>> onPeerConnectionsChanged;
 
@@ -51,6 +52,7 @@ public class P2PNetworkAdapter implements NetworkAdapter {
 	}
 
 	public void onCoreEventStored(Consumer<Event> callback) { this.onCoreEventStored = callback; }
+	public void onEphemeralCoreEvent(Consumer<Event> callback) { this.onEphemeralCoreEvent = callback; }
 	public void onCoreSyncApplied(Consumer<java.util.List<Event>> callback) { this.onCoreSyncApplied = callback; }
 	public void onPeerConnectionsChanged(Consumer<Set<String>> callback) { this.onPeerConnectionsChanged = callback; }
 
@@ -195,8 +197,12 @@ public class P2PNetworkAdapter implements NetworkAdapter {
 					client = new WsClient(new URI(uri), null, envelope -> {
 						if (CoreEnvelopeCodec.CORE_EVENT_NAME.equals(envelope.name())) {
 							Event coreEvent = CoreEnvelopeCodec.decodeCoreEvent(envelope);
-							if (coreEvent != null && sync.receiveEvent(coreEvent)) {
-								if (onCoreEventStored != null) onCoreEventStored.accept(coreEvent);
+							if (coreEvent != null) {
+								if (coreEvent.isEphemeral()) {
+									if (onEphemeralCoreEvent != null) onEphemeralCoreEvent.accept(coreEvent);
+								} else if (sync.receiveEvent(coreEvent)) {
+									if (onCoreEventStored != null) onCoreEventStored.accept(coreEvent);
+								}
 							}
 						} else if (CoreEnvelopeCodec.CORE_SYNC_REQUEST_NAME.equals(envelope.name())) {
 							handleIncomingSyncRequest(envelope);
