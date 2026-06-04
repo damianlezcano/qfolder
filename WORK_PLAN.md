@@ -1,532 +1,966 @@
 # Plan de Trabajo — qfolder
 
-Plan revisado el 3 de junio de 2026. **279 tests, 0 failures, BUILD SUCCESS.**
-
-BUG-1 a BUG-6 corregidos. FASE11-FIX-2 completado. FASE11-FIX-1 documentado como futuro. DOC-1 parcialmente aplicado. Se identificaron **gaps residuales** y **nuevos pendientes menores** durante la revisión.
+Plan revisado el 3 de junio de 2026. **302 tests (default), 347 total, 0 failures, BUILD SUCCESS.**
 
 > **Nota para el LLM ejecutor:** Antes de cada cambio, leer el archivo completo (o la sección relevante) para confirmar que las líneas coinciden. Después de cada grupo de cambios, ejecutar `cd p2p-client && mvn test`. Ejecutar `./build.sh` al final.
 
-## Resumen
+## Estado general
 
-### Bugs Fase 11 — todos corregidos, gaps residuales pendientes
+Se implementó exitosamente una cantidad muy significativa de trabajo:
+- BUG-1 a BUG-6: todos corregidos
+- RESIDUAL-1, 3, 5, 6, 7: completados
+- PENDIENTE-1 a 10: completados
+- PENDIENTE-12 (SecureIdentityStore): completado
+- PENDIENTE-15 (tests filesystem): completado
+- PENDIENTE-17 (PerformanceMetrics): completado
+- PENDIENTE-18 (Javadoc): completado
+- PENDIENTE-19 (@Tag performance): completado
+- PENDIENTE-20 (SLF4J/Shade): completado
+- PENDIENTE-21 (smoke E2E): completado
+- FASE11-FIX-1: documentado como futuro (correcto)
+- FASE11-FIX-2: completado
+- DOC-1: mayormente completado
 
-| ID | Tarea | Estado | Gap residual |
-|---|---|---|---|
-| BUG-1 | SyncEngine efímeros P2P | ✅ Corregido | `SimulatedNetworkAdapter` no tiene bypass efímero (solo afecta tests de simulación) |
-| BUG-2 | CRDT offset notas | ✅ Corregido | `deleteNoteText()` ignora `length` (solo borra línea completa); CRDT es line-based, no character-based |
-| BUG-3 | EventValidator cache | ✅ Corregido | Sin test de regresión dedicado para reuso de cache |
-| BUG-4 | MeshProjector isolation | ✅ Corregido | `clearLiveCache(workspaceId)` definido pero NO llamado al desconectar workspace |
-| BUG-5 | Snapshot delta boundary | ✅ Corregido | — |
-| BUG-6 | eventsSinceSnapshot volatile | ✅ Corregido | Sin test de regresión dedicado |
-
-### Fase 11 — integración
-
-| ID | Tarea | Estado |
-|---|---|---|
-| FASE11-FIX-1 | EventPipeline en producción | ⏸️ Documentado como futuro (Javadoc explica que producción usa `EventService` directamente) |
-| FASE11-FIX-2 | ChunkReplicator en Controller | ✅ Completado (`enable()`, `onFileAvailable()`, `runStartupCache()`) |
-
-### Documentación
-
-| ID | Tarea | Estado | Gap residual |
-|---|---|---|---|
-| DOC-1 | AGENTS.md | ✅ Mayormente completado | Línea 139: `SnapshotService` aún dice "no asumir snapshot+delta" (desactualizado); Línea 220: menciona chunk replication como pendiente (ya implementado) |
-
-### Nuevos pendientes encontrados en esta revisión
-
-| ID | Tarea | Severidad | Estado |
-|---|---|---|---|
-| RESIDUAL-1 | `clearLiveCache(workspaceId)` no se llama al desconectar workspace | **Baja** | ✅ Completado |
-| RESIDUAL-2 | `deleteNoteText()` ignora parámetro `length` — solo borra línea completa | **Baja** | ✅ Completado |
-| RESIDUAL-3 | Faltan tests de regresión para BUG-3 y BUG-6 | **Baja** | ✅ Completado |
-| RESIDUAL-4 | `ChunkReplicator.processEvents()` no se llama para eventos `file.shared` incrementales post-startup | **Baja** | ✅ Completado |
-| RESIDUAL-5 | AGENTS.md líneas 139 y 220 desactualizadas (SnapshotService y chunk replication) | **Baja** | ✅ Completado |
-| RESIDUAL-6 | `EventValidatorTest` nombre misleading: `memberJoinApprovalEsAceptadoPorAutor` asserta `false` | **Muy baja** | ✅ Completado |
-| RESIDUAL-7 | `System.err.println` en producción (EmbeddedWebSocketServer, UpdateChecker, AppConfig) | **Muy baja** | ✅ Completado |
-
-## PENDIENTES
-
-| # | Tarea | Prioridad | Estado |
-|---|-------|-----------|--------|
-| PENDIENTE-1 a 10 | Fixes iniciales | — | ✅ Todos completados |
-| PENDIENTE-11 | Refactorización Controller.java (~6190 líneas, ~333 métodos) | Alta | 🟡 Parcial (NotesEditor extraído, no wireado) |
-| PENDIENTE-12 | Almacenamiento seguro de privateKey Ed25519 | Alta | ✅ Completado (SecureIdentityStore AES-256-GCM) |
-| PENDIENTE-13 | Tests unitarios dedicados adapters/network | Media | 🟡 Parcial (InviteCodeTest 7 + CoreChunkTransferProtocolTest 10) |
-| PENDIENTE-14 | Tests unitarios dedicados client/hub y client/ws | Media | 🟡 Parcial (sin tests, requiere Server) |
-| PENDIENTE-15 | Tests unitarios dedicados adapters/filesystem | Media | ✅ Completado (QfolderLayoutTest 12 + FileSystemEventStoreTest 9 + FileSystemFileChunkStoreTest 8) |
-| PENDIENTE-16 | Unificación de ramas CI/release | Baja | ⛔ Bloqueado (requiere decisión usuario) |
-| PENDIENTE-17 | Métricas de performance y profiling | Baja | ✅ Completado (PerformanceMetrics + 8 tests + wired en publishCoreEvent/ChunkTransfer/EventReceive) |
-| PENDIENTE-18 | Documentación de API pública | Muy baja | ✅ Completado (Javadoc en CoreApplicationService/EventStore/NetworkAdapter/FileChunkStore/AuthProvider) |
-| PENDIENTE-19 | Separar tests ruidosos del suite normal | Baja | ✅ Completado (@Tag("performance") + perfil) |
-| PENDIENTE-20 | Limpiar warnings Maven Shade/SLF4J | Baja | ✅ Completado (slf4j-nop + filtros + exclusion yasson) |
-| PENDIENTE-21 | Automatizar smoke E2E multi-instancia | Media | ✅ Completado (smoke-e2e-mock.sh headless, 13 checks) |
-
-### Fase 11 — estado verificado
-
-| Ítem | Estado |
-|---|---|
-| 11.1 EventPipeline | ⏸️ Código preparatorio; producción usa `EventService` (documentado) |
-| 11.2 Proyecciones separadas | ✅ Completado |
-| 11.3 PEER_STATUS efímero | ✅ Corregido (BUG-1 fix: `P2PNetworkAdapter` bypass + `onEphemeralCoreEvent` callback) |
-| 11.4 SnapshotService startup | ✅ Completado |
-| 11.5 CRDT notas | ✅ Corregido (BUG-2 fix: `charOffsetToLineIndex()` en Controller) |
-| 11.6 EventValidator cache | ✅ Corregido (BUG-3 fix: `remoteEventService` compartido) |
-| 11.7 Auto-reconnect mesh | ✅ Completado |
-| 11.8 Eliminar model.Event legacy | ✅ Completado |
-| Controller snapshot | ✅ Completado |
-| Chunk replicator | ✅ Completado (FASE11-FIX-2: integrado en Controller) |
+La revisión detectó **4 issues pendientes** (2 de integración, 1 parcial, 1 documental) y **1 issue nuevo de alta prioridad**.
 
 ---
 
-## Detalle: Bugs en código de Fase 11 (PRIORIDAD MÁXIMA)
+## Pendientes activos
 
-### BUG-1: SyncEngine descarta eventos efímeros en P2P inbound (rompe mesh discovery)
+| ID | Tarea | Severidad | Estado |
+|---|---|---|---|
+| NEW-1 | `clearLiveCache` no se ejecuta en flujo de join (solo create) | **Media** | ⏳ Pendiente |
+| NEW-2 | `file.shared` via sync batch no dispara ChunkReplicator | **Media** | ⏳ Pendiente |
+| NEW-3 | AGENTS.md test count desactualizado (dice ~279, real es 302/347) | **Baja** | ⏳ Pendiente |
+| PENDIENTE-11 | Refactorización Controller.java (parcial: NotesEditor extraído, no wireado) | Alta | 🟡 Parcial |
+| PENDIENTE-13 | Tests unitarios adapters/network (parcial: InviteCodeTest + CoreChunkTransferProtocolTest) | Media | 🟡 Parcial |
+| PENDIENTE-14 | Tests unitarios client/hub y client/ws | Media | ⏳ Pendiente |
+| PENDIENTE-16 | Unificación ramas CI/release | Baja | ⛔ Bloqueado (requiere decisión usuario) |
 
-**Severidad:** Crítica
-**Archivos:**
-- `p2p-client/src/main/java/org/q3s/p2p/core/events/EventService.java` (línea 22)
-- `p2p-client/src/main/java/org/q3s/p2p/core/sync/SyncEngine.java` (línea 25)
-- `p2p-client/src/main/java/org/q3s/p2p/adapters/network/P2PNetworkAdapter.java` (línea ~198)
+### Completados (verificados en código)
 
-**Problema:** `EventService.accept()` rechaza eventos efímeros (`event.isEphemeral()` retorna `true` → `return false`). `SyncEngine.receiveEvent()` usa `EventService.accept()`, y `P2PNetworkAdapter` inbound usa `sync.receiveEvent()` para eventos core recibidos. Como `PEER_STATUS_UPDATED` es ahora efímero (Fase 11.3), los eventos de estado de peers se descartan silenciosamente en el lado que **inició** la conexión WebSocket. Solo llegan por la ruta directa del `EmbeddedWebSocketServer` (inbound connections).
+| ID | Evidencia |
+|---|---|
+| BUG-1 a BUG-6 | Fixes verificados + tests de regresión (bug1..bug6 en CoreQfolderTest) |
+| RESIDUAL-1 | `clearLiveCache(wk.getId())` en `removeAllTab()` línea 4613 |
+| RESIDUAL-2 | Javadoc documenta semántica line-based; `length` ignorado por diseño |
+| RESIDUAL-3 | Tests `bug3remoteEventServiceEsCompartidoEntreLlamadas` y `bug6eventsSinceSnapshotEsAtomicInteger` |
+| RESIDUAL-4 | `processEvents` en callback `onCoreEventStored` (Controller línea 1868) — parcial, ver NEW-2 |
+| RESIDUAL-5 | AGENTS.md línea 142 (SnapshotService), línea 215/223 (ChunkReplicator) actualizados |
+| RESIDUAL-6 | Renombrado a `memberJoinApprovalEsRechazadoSiApproverNoEsAutorizado` + `memberJoinApprovalConFirmaInvalidaEsRechazado` |
+| RESIDUAL-7 | `System.err.println` reemplazado por `java.util.logging.Logger` en EmbeddedWebSocketServer, UpdateChecker, AppConfig |
+| PENDIENTE-12 | `SecureIdentityStore` con AES-256-GCM; `SecureIdentityStoreTest` (7 tests) |
+| PENDIENTE-15 | `QfolderLayoutTest` (12), `FileSystemEventStoreTest` (9), `FileSystemFileChunkStoreTest` (8) |
+| PENDIENTE-17 | `PerformanceMetrics` + `PerformanceMetricsTest` (8) + wired en publish/receive/chunk |
+| PENDIENTE-18 | Javadoc en CoreApplicationService, EventStore, NetworkAdapter, FileChunkStore, AuthProvider |
+| PENDIENTE-19 | `@Tag("performance")` en CoreResilienceTest + BackendExtendedSimulation; `-Pperformance-tests` |
+| PENDIENTE-20 | `slf4j-nop:2.0.13` agregado; `module-info.class` excluido en shade filters |
+| PENDIENTE-21 | `scripts/smoke-e2e-mock.sh` headless con 13 checks |
 
-**Impacto:** El mesh discovery está roto en una de las dos rutas P2P. Un peer que se une puede no recibir actualizaciones de estado de peers que están conectados via outbound.
+---
 
-**Código problemático (`EventService.java` línea ~22):**
+## Detalle de pendientes activos
+
+### NEW-1: `clearLiveCache` no se ejecuta en flujo de join
+
+**Severidad:** Media
+**Archivo:** `p2p-client/src/main/java/org/q3s/p2p/client/view/Controller.java`
+
+**Problema:** RESIDUAL-1 fue implementado: `removeAllTab()` llama `MeshProjector.clearLiveCache(wk.getId())` en línea 4613. Sin embargo, `wk` (el objeto `Workspace`) solo se asigna en el flujo de **crear** workspace (`jButton4ActionPerformed`). Cuando un usuario se **une** a un workspace (join), `wk` nunca se asigna, por lo que `wk != null` es `false` y `clearLiveCache` **nunca se ejecuta** al desconectar tras un join.
+
+**Código actual (Controller.java ~4612):**
 ```java
-public boolean accept(Event event) {
-    if (event == null || event.isEphemeral() || store.hasEvent(event.eventId())) return false;
+if (wk != null) {
+    try { org.q3s.p2p.core.state.MeshProjector.clearLiveCache(wk.getId()); } catch (Exception ignored) {}
+}
 ```
 
-**Corrección:** En `P2PNetworkAdapter`, los eventos core inbound deben pasar por `CoreApplicationService.receiveRemoteEvent()` en lugar de `sync.receiveEvent()`, ya que `receiveRemoteEvent()` maneja correctamente eventos efímeros (los aplica al estado sin persistirlos):
+**Corrección:** Usar `core.currentWorkspaceId()` en lugar de `wk.getId()`, ya que `core` siempre tiene el workspace ID activo independientemente de si fue create o join:
 
-Opción A — Cambiar en `P2PNetworkAdapter` la ruta inbound (alrededor de línea 198):
 ```java
-if (CoreEnvelopeCodec.CORE_EVENT_NAME.equals(envelope.name())) {
-    Event coreEvent = CoreEnvelopeCodec.decodeCoreEvent(envelope);
-    if (coreEvent != null) {
-        boolean accepted;
-        if (coreEvent.isEphemeral()) {
-            // Eventos efímeros: aplicar al estado sin persistir
-            if (onCoreEventStored != null) onCoreEventStored.accept(coreEvent);
-            accepted = true;
-        } else {
-            accepted = sync.receiveEvent(coreEvent);
-            if (accepted && onCoreEventStored != null) onCoreEventStored.accept(coreEvent);
-        }
+try {
+    core.currentWorkspaceId().ifPresent(wsId ->
+        org.q3s.p2p.core.state.MeshProjector.clearLiveCache(wsId)
+    );
+} catch (Exception ignored) {}
+```
+
+Esto funciona tanto para create como para join. Eliminar el check `if (wk != null)` ya que `core.currentWorkspaceId()` retorna `Optional.empty()` si no hay workspace activo.
+
+**Test sugerido:** Verificar que `clearLiveCache` se ejecuta al desconectar después de un join (no solo create).
+
+**Estimación:** 5 min
+
+---
+
+### NEW-2: `file.shared` via sync batch no dispara ChunkReplicator
+
+**Severidad:** Media
+**Archivo:** `p2p-client/src/main/java/org/q3s/p2p/client/view/Controller.java`
+
+**Problema:** RESIDUAL-4 fue parcialmente implementado: `processEvents` se llama en el callback `p2pNetwork.onCoreEventStored()` (línea ~1868), que cubre eventos individuales recibidos por gossip P2P. Pero cuando eventos llegan via **sync batch** (`SyncEngine.applyReceivedEvents`), el callback `onCoreSyncApplied` **no** invoca `processEvents` para cada `file.shared`. Esto significa que archivos compartidos que solo llegan durante el sync inicial (join) no disparan replicación automática — solo se cubren por `runStartupCache()` si este ya corrió.
+
+**Impacto:** Si un archivo se comparte justo antes de que un peer se una y llega via sync batch (no gossip individual), el replicator no lo detecta incrementalmente. `runStartupCache()` en `activateWorkspaceFromCore()` cubre el caso startup, pero hay una ventana de tiempo entre sync y startup cache donde el archivo podría perderse.
+
+**Corrección:** En el handler de sync responses (buscar `acceptCoreSyncOnDirect` o `onCoreSyncApplied` en Controller), después de aplicar los eventos de sync, filtrar los `file.shared` y pasarlos al replicator:
+
+```java
+// Después de procesar sync batch:
+List<Event> fileEvents = syncEvents.stream()
+    .filter(e -> EventTypes.FILE_SHARED.equals(e.type()))
+    .toList();
+if (!fileEvents.isEmpty()) {
+    try {
+        core.chunkReplicator().processEvents(wsId, fileEvents);
+    } catch (Exception ex) {
+        log.debug("ChunkReplicator sync batch: " + ex.getMessage());
     }
 }
 ```
 
-Opción B — Modificar `EventService.accept()` para no rechazar efímeros sino aplicarlos sin persistir:
-```java
-public boolean accept(Event event) {
-    if (event == null || store.hasEvent(event.eventId())) return false;
-    if (event.isEphemeral()) return true; // aceptar sin persistir
-    // ... validación y persistencia normal
-}
-```
+Alternativamente, dado que `runStartupCache()` ya corre al activar workspace y procesa `processCurrentState()` (que lee todos los eventos del store), este gap solo afecta la ventana temporal entre sync completado y activación. Si la activación ocurre inmediatamente después del sync, el impacto es muy bajo.
 
-**Test de regresión:** Agregado `bug1receiveRemoteEventAplicaEphemeralSinPersistir` que verifica que `core.receiveRemoteEvent(ephemeral)` aplica el peerUrl a state sin persistir. `P2PNetworkAdapter` ahora diferencia efímeros vs persistentes con `onEphemeralCoreEvent` callback.
+**Estimación:** 15 min
 
 ---
 
-### BUG-2: CRDT notes — character offset tratado como line index en UI
-
-**Severidad:** Alta
-**Archivos:**
-- `p2p-client/src/main/java/org/q3s/p2p/core/app/CoreApplicationService.java` — método `findLineIdAtPosition()`
-- `p2p-client/src/main/java/org/q3s/p2p/client/view/Controller.java` — líneas ~3688, ~3703
-
-**Problema:** `Controller` pasa `DocumentEvent.getOffset()` (un **offset de carácter** en el documento) a `core.insertNoteText()` y `core.deleteNoteText()`, que internamente llaman `findLineIdAtPosition()`. Este método compara el `position` contra un **índice de línea** (`i`), no contra un offset de carácter. Además, `deleteNoteText()` ignora el parámetro `length` — solo borra líneas completas.
-
-**Código problemático (Controller.java ~3688):**
-```java
-publishCoreEvent(core.insertNoteText("shared-notes", e.getOffset(), text));
-```
-
-```java
-publishCoreEvent(core.deleteNoteText("shared-notes", e.getOffset(), e.getLength()));
-```
-
-**Impacto:** Las operaciones CRDT de notas desde la UI producen inserción/eliminación en posiciones incorrectas. El path de rich-text via `NOTE_UPDATED` (snapshot completo) sigue funcionando como fallback.
-
-**Corrección:** Hay dos opciones:
-
-Opción A (recomendada) — Mapear el character offset a un line index en Controller antes de llamar al core:
-```java
-// En el document listener de notas en Controller:
-int lineIndex = notesPane.getStyledDocument().getDefaultRootElement()
-    .getElementIndex(e.getOffset());
-publishCoreEvent(core.insertNoteText("shared-notes", lineIndex, text));
-```
-
-Opción B — Cambiar `findLineIdAtPosition()` en CoreApplicationService para aceptar character offsets y convertirlos internamente, calculando la posición acumulada de caracteres por línea.
-
-**Test de regresión:** Agregado `bug2insertNoteTextAceptaLineIndexYConcatenaEnOrden` y helper `Controller.charOffsetToLineIndex(StyledDocument, int)` que usa `doc.getDefaultRootElement().getElementIndex(offset)`.
-
----
-
-### BUG-3: EventValidator cache no es efectivo
-
-**Severidad:** Media
-**Archivos:**
-- `p2p-client/src/main/java/org/q3s/p2p/core/app/CoreApplicationService.java` (línea ~286)
-- `p2p-client/src/main/java/org/q3s/p2p/core/events/EventPipeline.java` (línea ~89)
-
-**Problema:** `CoreApplicationService.receiveRemoteEvent()` crea un **nuevo** `EventService` por cada llamada. `EventPipeline.acceptRemote()` crea un **nuevo** `EventValidator` por cada llamada. Ambos eliminan el beneficio del cache de `WorkspaceState` en `EventValidator`.
-
-**Código problemático (CoreApplicationService.java ~286):**
-```java
-boolean accepted = new EventService(eventStore, true).accept(event);
-```
-
-**Corrección (aplicada):** `CoreApplicationService` mantiene `private final EventService remoteEventService` instanciado una vez. `EventPipeline.DefaultEventPipeline` reusa `EventValidator` como campo en vez de crearlo en cada `acceptRemote()`.
-
-```java
-// En CoreApplicationService, como campo:
-private final EventService remoteEventService;
-
-// En constructor:
-this.remoteEventService = new EventService(eventStore, true);
-
-// En receiveRemoteEvent:
-boolean accepted = remoteEventService.accept(event);
-```
-
-Hacer lo mismo en `EventPipeline` — reusar el `EventValidator` como campo en vez de crearlo en cada `acceptRemote()`.
-
----
-
-### BUG-4: MeshProjector — cache estático global sin aislamiento por workspace
-
-**Severidad:** Media
-**Archivos:**
-- `p2p-client/src/main/java/org/q3s/p2p/core/state/MeshProjector.java` (líneas 18–19)
-
-**Problema:** `LIVE_PEER_URLS` y `LIVE_PEER_CONNECTIONS` son `static ConcurrentHashMap` compartidos entre todos los workspaces del mismo JVM. URLs de peers del workspace A pueden filtrarse al workspace B via `hydrate()`. `clearLiveCache()` existe pero nunca se llama desde producción.
-
-**Código problemático:**
-```java
-private static final Map<String, String> LIVE_PEER_URLS = new ConcurrentHashMap<>();
-private static final Map<String, java.util.Set<String>> LIVE_PEER_CONNECTIONS = new ConcurrentHashMap<>();
-```
-
-**Corrección (aplicada):** `LIVE_PEER_URLS` y `LIVE_PEER_CONNECTIONS` ahora son `Map<workspaceId, Map<memberId, ...>>` con `clearLiveCache(workspaceId)`. Keys determinan el workspace via `state.workspace().workspaceId()`. Tests: `bug4meshProjectorScopePorWorkspaceAislandoEstados`.
-
-```java
-private static final Map<String, Map<String, String>> LIVE_PEER_URLS = new ConcurrentHashMap<>();
-private static final Map<String, Map<String, java.util.Set<String>>> LIVE_PEER_CONNECTIONS = new ConcurrentHashMap<>();
-```
-
-Y en `apply()` / `hydrate()`, usar `workspaceId` como clave exterior. Llamar `clearLiveCache(workspaceId)` en `removeAllTab()` / disconnect de Controller.
-
-**Alternativa más simple:** Llamar `MeshProjector.clearLiveCache()` al desconectar de un workspace (en `Controller.removeAllTab()` o `showJoinAfterWorkspaceLost()`).
-
----
-
-### BUG-5: Snapshot delta boundary — eventos con mismo milisegundo pueden perderse
-
-**Severidad:** Media
-**Archivo:** `p2p-client/src/main/java/org/q3s/p2p/ports/EventStore.java` — método default `listEventsAfter()`
-
-**Problema:** El threshold para delta es `max(createdAt)` de los eventos del snapshot. Usa `isAfter(threshold)` (estricto), lo que excluye eventos con el **mismo timestamp** que el último evento del snapshot pero que **no estaban incluidos** en él (race de mismo milisegundo).
-
-**Corrección:** Cambiar `isAfter` a `!isBefore` (inclusivo), y luego filtrar los que ya están en el snapshot por `eventId`:
-
-```java
-default List<Event> listEventsAfter(String workspaceId, Instant after) {
-    if (after == null) return listEvents(workspaceId);
-    Instant threshold = after.minusMillis(1); // margen de 1ms
-    return listEvents(workspaceId).stream()
-            .filter(e -> e.createdAt() != null && e.createdAt().isAfter(threshold))
-            .toList();
-}
-```
-
-O mejor, pasar el set de eventIds del snapshot y filtrar por exclusión. **Aplicado:** `EventStore.listEventsAfter` ahora usa `threshold = after.minusMillis(1)` y `!e.createdAt().isBefore(threshold)`. Ademas `CoreApplicationService.currentStateWithSnapshot` dedupica por eventId antes de combinar. Test: `bug5listEventsAfterInclusivoCapturaEventosMismoMs`.
-
----
-
-### BUG-6: CoreApplicationService.eventsSinceSnapshot no es volatile
+### NEW-3: AGENTS.md test count desactualizado
 
 **Severidad:** Baja
-**Archivo:** `p2p-client/src/main/java/org/q3s/p2p/core/app/CoreApplicationService.java` (campo ~58, uso ~418–420)
-
-**Problema:** El contador `eventsSinceSnapshot` se incrementa desde hilos P2P/UI sin `volatile` ni sincronización. Puede causar snapshots no guardados o duplicados.
-
-**Corrección:**
-```java
-// Antes:
-private int eventsSinceSnapshot = 0;
-// Después:
-private final java.util.concurrent.atomic.AtomicInteger eventsSinceSnapshot = new java.util.concurrent.atomic.AtomicInteger(0);
-```
-
-Actualizar incrementos a `eventsSinceSnapshot.incrementAndGet()` y comparaciones a `eventsSinceSnapshot.get() >= threshold`. **Aplicado:** `CoreApplicationService.eventsSinceSnapshot` ahora es `AtomicInteger` con `incrementAndGet()` y `set(0)`.
-
----
-
-## Detalle: Fase 11 items con implementación incompleta
-
-### FASE11-FIX-1: EventPipeline no conectado a producción
-
-**Severidad:** Media
-**Archivo:** `p2p-client/src/main/java/org/q3s/p2p/core/events/EventPipeline.java`
-
-**Estado:** La clase existe y tiene tests (`EventPipelineTest.java`), pero **ningún código de producción la usa**. `CoreApplicationService` y los domain services siguen usando `eventStore.append()` directo y `new EventService(store, true)` para validación remota.
-
-**Opciones:**
-1. **Integrar:** Reemplazar los paths de append/accept en `CoreApplicationService` con `EventPipeline`
-2. **Documentar:** Si es código preparatorio para el futuro, marcarlo explícitamente como tal
-
-**Resolución (opción 2):** Javadoc de `EventPipeline` documenta su rol preparatorio y que producción sigue usando `EventService` con instancia compartida. BUG-3 fix parcial: el `EventValidator` ya es reusado en `DefaultEventPipeline`.
-
-**Si se elige integrar:** Reemplazar en `CoreApplicationService`:
-- Los `eventStore.append(event)` locales → `pipeline.appendLocal(event)`
-- El `new EventService(eventStore, true).accept(event)` remoto → `pipeline.acceptRemote(event)`
-- Registrar listeners en el pipeline para broadcast P2P y UI refresh
-
----
-
-### FASE11-FIX-2: ChunkReplicator no integrado en Controller
-
-**Severidad:** Media
-**Archivo:** `p2p-client/src/main/java/org/q3s/p2p/core/files/ChunkReplicator.java`
-
-**Estado:** La clase existe y tiene tests (`ChunkReplicatorTest.java`), y está referenciada en `CoreApplicationService`, pero `Controller` nunca llama `chunkReplicator.enable()` ni `runStartupCache()`.
-
-**Corrección (aplicada):** En `Controller.initializeCoreServices` se llama `core.chunkReplicator().onFileAvailable(this::requestReplicatorDownload)` y `core.chunkReplicator().enable()`. En `Controller.activateWorkspaceFromCore` se llama `core.runStartupCache()` para descargar archivos compartidos que aún no tenemos. Helper `requestReplicatorDownload(FileMetadata)` convierte metadata a QFile y delega en `coreChunkTransfer.request()`.
-```java
-if (core.getChunkReplicator() != null) {
-    core.getChunkReplicator().enable();
-    core.getChunkReplicator().runStartupCache();
-}
-```
-
-Verificar que `CoreApplicationService` expone el `ChunkReplicator` (agregar getter si no existe).
-
----
-
-## Detalle: Actualización de AGENTS.md
-
-### DOC-1: AGENTS.md desactualizado
-
-**Severidad:** Alta (afecta a todos los LLMs que lean el archivo)
 **Archivo:** `AGENTS.md`
 
-**Cambios necesarios:**
+**Problema:** AGENTS.md probablemente dice ~279 tests, pero el conteo real actual es:
+- **302 tests** en suite default (`mvn test`, excluye `@Tag("performance")`)
+- **347 tests** en total (incluyendo 45 de performance)
+- **23 test files** (no 15)
 
-1. **Test count:** Cambiar "221 tests, 0 failures" → obtener el count real ejecutando `cd p2p-client && mvn test` y actualizar. Actualmente ~275 tests.
+**Corrección:** Buscar la línea que menciona el conteo de tests y actualizarla a:
 
-2. **Eliminar referencias a clases borradas:**
-   - `org.q3s.p2p.model.Event` — ya no existe. Reemplazar por `org.q3s.p2p.core.model.Event` (modelo core) y `CoreEnvelope` (wire format)
-   - `org.q3s.p2p.model.util.EventUtils` — ya no existe. Reemplazar por `CoreEventCodec` y `CoreEnvelopeCodec`
-   - En "Archivos A Revisar": `Event.java` → `core/model/Event.java`; `EventUtils.java` → `CoreEventCodec.java`, `CoreEnvelopeCodec.java`
+```
+- La suite core se ejecuta con `cd p2p-client && mvn test` (302 tests default, 0 failures; 347 total con `-Pperformance-tests`).
+```
 
-3. **Agregar clases nuevas a "Componentes Principales":**
-   - `org.q3s.p2p.core.events.EventPipeline`: pipeline unificado de ingesta de eventos (local y remoto)
-   - `org.q3s.p2p.core.state.MembershipProjector`, `ContentProjector`, `MeshProjector`: proyecciones de estado separadas usadas por `WorkspaceStateBuilder`
-   - `org.q3s.p2p.core.codec.CoreEnvelope` y `CoreEnvelopeCodec`: formato wire JSON-Base64 que reemplaza al antiguo `model.Event`
-   - `org.q3s.p2p.core.files.ChunkReplicator`: replicación proactiva de chunks para disponibilidad offline
-   - `org.q3s.p2p.core.model.NoteLine`: línea CRDT para notas colaborativas
+Verificar también que la lista de test files mencionados incluya los nuevos:
+- `SecureIdentityStoreTest`, `NotesEditorTest`, `PerformanceMetricsTest`
+- `QfolderLayoutTest`, `FileSystemEventStoreTest`, `FileSystemFileChunkStoreTest`
+- `InviteCodeTest`, `CoreChunkTransferProtocolTest`
 
-4. **Actualizar "SnapshotService":** Ya no es solo para guardar/cargar snapshots — ahora está integrado en el startup via `CoreApplicationService.configureSnapshotPath()` y `currentState()` usa snapshot+delta. Auto-save cada N eventos.
-
-5. **Actualizar "Estado Actual Del Desarrollo":**
-   - Tests: actualizar conteo
-   - Agregar: EventPipeline, proyecciones separadas, CRDT line-based para notas, auto-reconnect mesh, CoreEnvelope como wire format
-   - Actualizar: `org.q3s.p2p.model.Event` eliminado, wire protocol usa `CoreEnvelope`
-
-6. **En "Qué No Modificar Sin Avisar":** Agregar `CoreEnvelope` y `CoreEnvelopeCodec` ya que son parte del protocolo wire.
-
-**Resolución (DOC-1 aplicado):** AGENTS.md actualizado con conteo de tests (279), referencias a `CoreEnvelope`/`CoreEnvelopeCodec`/`core/model/Event`, separación clara de BUGS corregidos (BUG-1 a BUG-6) y FASE11-FIX-1/2, secciones de "Archivos A Revisar" y "Qué No Modificar" actualizadas, descripción de `EventPipeline`/`ChunkReplicator`/`MeshProjector` con sus fixes.
+**Estimación:** 5 min
 
 ---
 
-## Detalle de Pendientes Originales (sin cambios en implementación)
+### PENDIENTE-11: Refactorización Controller.java (parcial)
 
-### Completados (PENDIENTE-1 a PENDIENTE-10)
+**Estado:** `NotesEditor` fue extraído como clase separada con 5 tests (`NotesEditorTest`), pero **no está wireado** al Controller. El Controller sigue usando su propia lógica inline de notas. No se crearon `UIController`, `NetworkController`, `FileController`, etc.
 
-Todos completados en sesiones anteriores. Ver historial en SESSION_NOTES.md.
+**Siguiente paso:** Si se desea avanzar, integrar `NotesEditor` en Controller reemplazando la lógica inline de notas. Luego continuar con la extracción de otros controllers (chat, whiteboard, etc.) de forma incremental.
 
-## Pendientes a futuro (no implementados)
+**Riesgo:** Alto. No se recomienda sin tests de integración completos.
 
-### Prioridad Alta (Pre-Release)
+---
 
-#### PENDIENTE-11: Refactorización de Controller.java (God Object)
-- **Problema:** `Controller.java` tiene ~6190 líneas y ~333 métodos. Mezcla UI, lógica de negocio, red, archivos, chat, pizarra, notas, membresía, etc.
-- **Impacto:** Mantenibilidad baja, difícil de testear, alto acoplamiento.
-- **Propuesta:** Separar en controllers especializados:
-  - `UIController` — gestión de vistas, tabs, i18n, look-and-feel
-  - `NetworkController` — P2P, WebSocket, Cloudflare, mesh
-  - `FileController` — transferencia de archivos, chunks, indexación
-  - `ChatController` — mensajes, adjuntos, historial
-  - `WhiteboardController` — pizarra colaborativa, strokes, objetos
-  - `NotesController` — notas CRDT, snapshots, formato rico
-  - `MembershipController` — aprobación de peers, identidad, auth
-- **Archivos:** `Controller.java` → 6-7 archivos nuevos
-- **Tests:** Agregar tests unitarios para cada controller extraído
-- **Riesgo:** Alto (refactor masivo), requiere migración incremental
+### PENDIENTE-13: Tests unitarios adapters/network (parcial)
 
-#### PENDIENTE-12: Almacenamiento seguro de privateKey Ed25519
-- **Problema:** `Controller.java` almacena `member.privateKey` en `identity.properties` como texto plano.
-- **Código actual:** `identity.setProperty("member.privateKey", localPrivateKey)`
-- **Impacto:** Riesgo de seguridad si el archivo es accesible por otros procesos/usuarios.
-- **Propuesta:** Usar Java KeyStore (JKS) o plataforma-specific secure storage:
-  - Linux: `libsecret` via D-Bus
-  - Windows: Windows Credential Manager
-  - macOS: Keychain
-  - Fallback: JKS con passphrase derivada de hardware ID
-- **Archivos:** `Controller.java`, nuevo `SecureIdentityStore.java`
-- **Tests:** Verificar que privateKey no aparece en logs ni en plaintext en disco
-- **Riesgo:** Medio (cambio de API de identidad)
+**Estado:** Se agregaron `InviteCodeTest` (7 tests) y `CoreChunkTransferProtocolTest` (10 tests). Faltan:
+- `P2PNetworkAdapterTest` — routing, timeouts, ephemeral bypass
+- `P2PMeshServiceTest` — formación de mesh, reconexión, failover
+- `DirectBootstrapTest` — join exitoso/fallido, retry, cleanup
 
-### Prioridad Media (Calidad y Robustez)
+---
 
-#### PENDIENTE-13: Tests unitarios dedicados para adapters/network
-- **Problema:** `P2PNetworkAdapter`, `P2PMeshService`, `DirectBootstrap`, `CoreChunkTransferCoordinator` **no tienen test files dedicados**. Sin embargo, ya existe cobertura parcial de integración:
-  - `CoreWsClientTest` (3 tests para P2PNetworkAdapter)
-  - `CoreWebSocketIntegrationTest` (6 tests, incluye DirectBootstrap)
-  - `CoreControllerIntegrationTest` (9 tests de mesh, 6 de chunks)
-- **Gap real:** Faltan tests **unitarios aislados** para routing, timeouts, retry logic, cancelación y edge cases que no se cubren en integración.
-- **Propuesta:**
-  - `P2PNetworkAdapterTest` — envío/recepción de envelopes, routing por peerId, timeouts
-  - `P2PMeshServiceTest` — formación de mesh, reconexión, failover, `applyPeerDiscoveryState`
-  - `DirectBootstrapTest` — join exitoso/fallido, retry logic, cleanup de recursos (WsClient leak)
-  - `CoreChunkTransferCoordinatorTest` — descarga distribuida, reintentos, cancelación, deduplicación
-- **Archivos:** 4 nuevos archivos de test
-- **Riesgo:** Bajo (solo agrega tests)
+### PENDIENTE-14: Tests unitarios client/hub y client/ws
 
-#### PENDIENTE-14: Tests unitarios dedicados para client/hub y client/ws
-- **Problema:** `EmbeddedWebSocketServer`, `CloudflareTunnel`, `WsClient` no tienen test files dedicados. Existe cobertura parcial:
-  - `CoreWsClientTest` — 6 tests de WsClient (null-logger, onClose, sendEnvelope) + 3 de P2PNetworkAdapter
-  - `CoreWebSocketIntegrationTest` — usa `EmbeddedWebSocketServer` internamente pero no lo testea en aislamiento
-  - `CloudflareTunnel` — zero cobertura de test
-- **Gap real:** `WsClient` retries, `EmbeddedWebSocketServer` lifecycle, `CloudflareTunnel` mock/real.
-- **Propuesta:**
-  - `EmbeddedWebSocketServerTest` — inicio/detención, manejo de conexiones, mensajes directos
-  - `CloudflareTunnelTest` — inicio con cloudflared real vs mock, cleanup de procesos
-  - `WsClientTest` — conexión/desconexión, reintentos, manejo de envelopes completo
-- **Archivos:** 3 nuevos archivos de test
-- **Nota:** `CoreWsClientTest` ya cubre edge cases — evaluar si renombrarlo a `WsClientTest` y ampliarlo en lugar de crear uno nuevo
-- **Riesgo:** Bajo (solo agrega tests)
+**Estado:** Sin cambios. `CoreWsClientTest` sigue siendo la única cobertura parcial. Faltan:
+- `EmbeddedWebSocketServerTest`
+- `CloudflareTunnelTest`
+- `WsClientTest` dedicado (o ampliación de CoreWsClientTest)
 
-#### PENDIENTE-15: Tests unitarios dedicados para adapters/filesystem
-- **Problema:** `FileSystemEventStore`, `FileSystemFileChunkStore`, `QfolderLayout` no tienen test files dedicados. Existe cobertura parcial:
-  - `BackendExtendedSimulationTest` — 1 test de FileSystemEventStore + snapshots, 3 de chunk store
-  - `CoreQfolderTest` — ~15 tests usan `QfolderLayout` indirectamente, incluye test de snapshot corrupto
-- **Gap real:** Concurrent access, corruption recovery, format migration, edge cases de filesystem.
-- **Propuesta:**
-  - `FileSystemEventStoreTest` — append, list, concurrent access, corruption recovery
-  - `FileSystemFileChunkStoreTest` — put/get chunks, reconstruct file, hash verification
-  - `QfolderLayoutTest` — folder naming, workspace discovery, migration de formatos antiguos
-- **Archivos:** 3 nuevos archivos de test
-- **Riesgo:** Bajo (solo agrega tests)
+---
 
-### Prioridad Baja (Mejoras Opcionales)
+## Tests verificados
 
-#### PENDIENTE-16: Unificación de ramas CI/release
-- **Problema:** `RELEASE.md` y `scripts/release.sh` usan flujo `develop → master`, pero `.github/workflows/maven-publish.yml` corre sobre `main`.
-- **Impacto:** Confusión en releases, posible desincronización.
-- **Propuesta:** Decidir una de 3 opciones:
-  1. Cambiar RELEASE.md/release.sh para usar `main`
-  2. Cambiar workflow para usar `master`
-  3. Mantener dual con documentación explícita (estado actual)
-- **Archivos:** `RELEASE.md`, `scripts/release.sh`, `.github/workflows/maven-publish.yml`
-- **Nota:** AGENTS.md prohíbe modificar workflow sin aviso explícito
-- **Riesgo:** Medio (cambio de flujo de release)
+```
+cd p2p-client && mvn test
+  302 tests, 0 failures, 0 errors — BUILD SUCCESS (9s)
 
-#### PENDIENTE-17: Métricas de performance y profiling
-- **Problema:** No hay métricas de performance para operaciones críticas (sync, chunk transfer, CRDT merge).
-- **Impacto:** Regresiones de performance no se detectan hasta que son evidentes en producción.
-- **Propuesta:**
-  - Agregar métricas JMX o Micrometer para: eventos/segundo, chunks transferidos, tiempo de sync, tamaño de snapshots
-  - Dashboard simple en UI (tab "Performance" opcional)
-  - Alertas si operaciones críticas superan umbrales (ej: sync > 5s)
-- **Archivos:** Nuevo `PerformanceMetrics.java`, integración en `CoreApplicationService`
-- **Riesgo:** Bajo (adición, no modificación)
+cd p2p-client && mvn -Pperformance-tests test
+  347 tests total (incluye 45 performance)
+```
 
-#### PENDIENTE-18: Documentación de API pública
-- **Problema:** Clases públicas (`CoreApplicationService`, `P2PNetworkAdapter`, `EventStore`, etc.) no tienen Javadoc completo.
-- **Impacto:** Difícil para nuevos contribuidores entender contratos y uso correcto.
-- **Propuesta:**
-  - Agregar Javadoc a todas las clases/interfaces públicas
-  - Generar sitio con `mvn site` (plugin maven-javadoc-plugin)
-  - Incluir ejemplos de uso en Javadoc
-- **Archivos:** Todos los `.java` en `src/main/java`
-- **Riesgo:** Muy bajo (solo documentación)
+Test files (23):
 
-#### PENDIENTE-19: Separar tests de performance/ruidosos del suite normal
-- **Problema:** `ClipboardImagePerformanceTest` imprime 25+ líneas `[PERF]` en cada `mvn test`; `BackendExtendedSimulationTest` imprime topología de malla. El suite normal queda ruidoso y menos apto para CI limpio.
-- **Impacto:** Dificulta leer fallos reales en CI y mezcla tests funcionales con mediciones de performance.
-- **Propuesta:**
-  - Marcar tests de performance con `@Tag("performance")`.
-  - Configurar Surefire para excluir `performance` por default.
-  - Agregar perfil Maven `-Pperformance-tests` para ejecutarlos explícitamente.
-  - Reemplazar `System.out.println` por logs condicionales o `TestReporter`.
-- **Archivos:** `ClipboardImagePerformanceTest.java`, `BackendExtendedSimulationTest.java`, `pom.xml`
-- **Riesgo:** Bajo
+| File | Tests |
+|---|---|
+| CoreQfolderTest | 125 |
+| CoreResilienceTest | 35 |
+| CoreArchitectureTest | 24 |
+| CoreControllerIntegrationTest | 23 |
+| QfolderLayoutTest | 12 |
+| BackendExtendedSimulationTest | 10 |
+| CoreChunkTransferProtocolTest | 10 |
+| EventValidatorTest | 10 |
+| CoreWsClientTest | 9 |
+| FileSystemEventStoreTest | 9 |
+| FileSystemFileChunkStoreTest | 8 |
+| PerformanceMetricsTest | 8 |
+| ChunkReplicatorTest | 7 |
+| CoreWebSocketIntegrationTest | 7 |
+| InviteCodeTest | 7 |
+| SecureIdentityStoreTest | 7 |
+| AppConfigTest | 6 |
+| ClipboardImagePerformanceTest | 6 |
+| EventPipelineTest | 6 |
+| I18nTest | 6 |
+| NotesEditorTest | 5 |
+| FileTableModelI18nTest | 4 |
+| FileUtilsTest | 3 |
 
-#### PENDIENTE-20: Limpiar warnings Maven Shade/SLF4J
-- **Problema:** `mvn -Pstatic-analysis verify` muestra warnings recurrentes:
-  - `SLF4J: No SLF4J providers were found`.
-  - `maven-shade-plugin` reporta `module-info.class` y clases duplicadas por `jakarta.json-api`, `org.glassfish:jakarta.json` y la variante `module` transitiva.
-- **Impacto:** Build ruidoso; warnings reales pueden pasar desapercibidos. El fat JAR incluye recursos/clases duplicados.
-- **Propuesta:**
-  - Agregar binding SLF4J explícito (`slf4j-nop` o `slf4j-simple`) según decisión de logging.
-  - Revisar árbol de dependencias JSON-B/Yasson y excluir duplicados transitivos cuando sea seguro.
-  - Ajustar filtros del shade plugin para `module-info.class` y duplicados conocidos.
-- **Archivos:** `pom.xml`
-- **Riesgo:** Medio (tocar dependencias/shade afecta packaging)
-
-#### PENDIENTE-21: Automatizar smoke E2E multi-instancia
-- **Problema:** El flujo completo P2P sigue validándose principalmente por scripts manuales (`dev-3-instances.sh`, `dev-2-realinstances.sh`) y checklist `docs/MANUAL_E2E_CORE.md`.
-- **Impacto:** Regresiones de UI/red reales pueden escapar aunque los tests unitarios pasen.
-- **Propuesta:**
-  - Crear smoke test headless/scriptable para 2-3 instancias con túnel mock.
-  - Validar creación/join, chat, metadata de archivos, transferencia por chunks y notas básicas.
-  - Guardar logs por instancia y fallar si aparecen errores críticos.
-  - Mantener Cloudflare real como validación manual/semi-manual separada.
-- **Archivos:** `scripts/dev-3-instances.sh`, nuevo script `scripts/smoke-e2e-mock.sh`, posible doc en `docs/`.
-- **Riesgo:** Medio (automatización con Swing/procesos puede ser frágil)
-
-## Tests
-
-- `cd p2p-client && mvn test` — verificar count actualizado (último conocido: ~275 tests)
-- `cd p2p-client && mvn -Pstatic-analysis verify` — 0 bugs, 0 errores
-- `./build.sh` — exitoso, genera `dist/qfolder.jar`
+---
 
 ## Orden de ejecución recomendado
 
-### Fase A — Bugs críticos (ejecutar primero)
-1. **BUG-1** — SyncEngine descarta efímeros P2P (15 min) — rompe mesh
-2. **BUG-2** — CRDT offset en notas (20 min) — rompe edición colaborativa
-3. **BUG-6** — eventsSinceSnapshot volatile (5 min) — fix trivial
-4. **BUG-5** — Snapshot delta boundary (10 min)
-5. **BUG-3** — EventValidator cache (15 min)
-6. **BUG-4** — MeshProjector scope por workspace (15 min)
-7. Ejecutar `cd p2p-client && mvn test` para verificar
+### Fase A — Fixes rápidos (~25 min)
+1. **NEW-1** — `clearLiveCache` usar `core.currentWorkspaceId()` (5 min)
+2. **NEW-3** — AGENTS.md test count (5 min)
+3. **NEW-2** — ChunkReplicator sync batch (15 min, opcional si `runStartupCache` cubre)
+4. Ejecutar `cd p2p-client && mvn test`
 
-### Fase B — Integración de Fase 11
-8. **FASE11-FIX-1** — EventPipeline integrar o documentar (30 min)
-9. **FASE11-FIX-2** — ChunkReplicator integrar en Controller (15 min)
-10. Ejecutar tests
+### Fase B — Tests faltantes (si se desea cobertura completa)
+5. **PENDIENTE-13** — P2PNetworkAdapterTest, P2PMeshServiceTest, DirectBootstrapTest
+6. **PENDIENTE-14** — EmbeddedWebSocketServerTest, CloudflareTunnelTest, WsClientTest
 
-### Fase C — Documentación
-11. **DOC-1** — Actualizar AGENTS.md (30 min)
+### Fase C — Refactoring (solo si hay scope)
+7. **PENDIENTE-11** — Integrar NotesEditor, luego extraer más controllers
 
-### Fase D — Pre-release (si aplica)
-12. **PENDIENTE-12** — privateKey seguro
-13. **PENDIENTE-13/14/15** — Tests unitarios dedicados
-14. **PENDIENTE-11** — Refactor Controller (solo si hay tiempo/scope)
+**Nota:** PENDIENTE-16 (unificación CI/release) sigue bloqueado — requiere decisión explícita del usuario sobre estrategia de ramas.
 
-### Fase E — Calidad y mejoras
-15. **PENDIENTE-19** — Separar tests ruidosos
-16. **PENDIENTE-20** — Warnings Maven/SLF4J
-17. **PENDIENTE-9** — Habilitar SpotBugs en CI (requiere aviso al usuario, AGENTS.md prohíbe cambiar workflow sin permiso)
-18. **PENDIENTE-17** — Métricas de performance
-19. **PENDIENTE-18** — Javadoc
-20. **PENDIENTE-21** — Smoke E2E automatizado
+---
 
-**Nota:** PENDIENTE-16 (unificación CI/release) requiere decisión explícita del usuario sobre estrategia de ramas.
+# Propuestas de Mejora — Performance, Estabilidad, Seguridad y Usabilidad
+
+Análisis profundo realizado el 3 de junio de 2026 sobre el código actual. Cada propuesta incluye severidad, archivos a modificar y pasos de implementación detallados para otra LLM.
+
+## PERFORMANCE
+
+### PERF-1: Cache de WorkspaceState — evitar rebuild O(N) en cada acceso
+
+**Severidad:** Crítica
+**Impacto:** `currentState()` se llama ~2 veces por cada evento efímero, 1 vez por cada evento persistente, en cada keystroke de notas, en cada lookup de chunks, etc. Cada llamada lee todos los archivos `.evt` del disco y replay todos los eventos por 3 projectors. Con 1000+ eventos, cada acceso tarda cientos de milisegundos.
+
+**Archivos:**
+- `p2p-client/src/main/java/org/q3s/p2p/core/app/CoreApplicationService.java`
+- `p2p-client/src/main/java/org/q3s/p2p/core/state/WorkspaceStateBuilder.java`
+
+**Implementación:**
+
+1. Agregar campo cache en `CoreApplicationService`:
+```java
+private volatile WorkspaceState cachedState;
+private final java.util.concurrent.atomic.AtomicLong stateVersion = new AtomicLong(0);
+```
+
+2. En `currentState()`, retornar cache si es válido:
+```java
+public WorkspaceState currentState() {
+    requireWorkspace();
+    WorkspaceState cached = this.cachedState;
+    if (cached != null) return cached;
+    WorkspaceState state = (snapshotPath != null)
+        ? currentStateWithSnapshot(snapshotPath)
+        : WorkspaceStateBuilder.fromEvents(eventStore.listEvents(currentWorkspaceId));
+    this.cachedState = state;
+    return state;
+}
+```
+
+3. Invalidar cache en TODOS los puntos donde se persisten eventos:
+```java
+private void invalidateStateCache() {
+    this.cachedState = null;
+    stateVersion.incrementAndGet();
+}
+```
+   Llamar `invalidateStateCache()` en:
+   - `afterLocalEvent()` (~línea 439): después de `maybeSaveSnapshot`, agregar `invalidateStateCache()`.
+   - `receiveRemoteEvent()` (~línea 312): después de `remoteEventService.accept(event)` exitoso, antes de `return accepted`. Agregar `if (accepted) invalidateStateCache()`.
+   - `receiveRemoteEvents()` (~línea 317): este ya llama `receiveRemoteEvent` en loop, así que se invalida por cada evento individual. Pero considerar invalidar UNA sola vez al final del batch para eficiencia.
+   - `initializeFromExisting()` (~línea 133): al setear workspace, invalidar por si había cache de workspace anterior.
+   - `initializeCoreSession()` (~línea 108): al crear workspace, invalidar.
+
+4. Para efímeros, aplicar sobre el cache sin rebuild:
+```java
+if (event.isEphemeral()) {
+    WorkspaceState state = currentState(); // usa cache
+    new MeshProjector().apply(state, event);
+    return true;
+}
+```
+
+5. Agregar método `currentStateVersion()` para que callers puedan evitar trabajo si no cambió.
+
+**Precauciones:** `WorkspaceState` contiene maps mutables. Si callers modifican el estado retornado, pueden corromper el cache. Considerar defensive copy o hacer `WorkspaceState` inmutable.
+
+**Test:** Verificar que `currentState()` retorna el mismo objeto entre llamadas si no hubo eventos nuevos.
+
+**Estimación:** 45 min
+
+---
+
+### PERF-2: Mover file indexing fuera del EDT
+
+**Severidad:** Crítica
+**Impacto:** `indexFilesInCore()` lee cada archivo completo para SHA-256, luego `core.shareFile()` lee el archivo completo otra vez (via `Files.readAllBytes`). Todo corre en el EDT, congelando la UI.
+
+**Archivos:**
+- `p2p-client/src/main/java/org/q3s/p2p/client/view/Controller.java` — `indexFilesInCore()`, `refreshLocalFilesAndNotify()`
+
+**Implementación:**
+
+1. Crear wrapper async en Controller:
+```java
+private void indexFilesInCoreAsync(List<QFile> files, String baseDir) {
+    new Thread(() -> {
+        indexFilesInCore(files, baseDir);
+        SwingUtilities.invokeLater(() -> {
+            refreshArchivosTable();
+            refreshTables();
+        });
+    }, "file-indexer").start();
+}
+```
+
+2. En `refreshLocalFilesAndNotify()`, reemplazar `indexFilesInCore(files, baseDir)` por `indexFilesInCoreAsync(files, baseDir)`.
+
+3. Mover `saveIndexedCoreFilesCache()` fuera del loop — guardar una sola vez al final del batch, no después de cada archivo.
+
+4. Evitar doble lectura: `core.shareFile(path)` ya calcula hash y chunks. Eliminar el `sha256File()` previo y usar el hash del core como clave de dedup.
+
+**Precauciones:** El acceso a `user.setFiles()` y refresh de tabla debe sincronizarse con el EDT. El hilo de indexación no debe acceder a componentes Swing directamente.
+
+**Estimación:** 30 min
+
+---
+
+### PERF-3: Debounce de `applyCoreStateToVisuals`
+
+**Severidad:** Alta
+**Impacto:** Cada evento P2P (chat, nota, whiteboard, peer status) dispara rebuild completo del state + refresh de TODOS los tabs. Un burst de 50 mensajes de chat causa 50 rebuilds + 50 refreshes de tabla de archivos, whiteboard, notas, etc.
+
+**Archivos:**
+- `p2p-client/src/main/java/org/q3s/p2p/client/view/Controller.java`
+- `p2p-client/src/main/java/org/q3s/p2p/adapters/network/P2PMeshService.java`
+
+**Implementación:**
+
+1. Agregar campo debounce en Controller:
+```java
+private final javax.swing.Timer visualRefreshDebounce = new javax.swing.Timer(100, e -> {
+    applyCoreStateToVisualsNow(core.currentState());
+});
+{ visualRefreshDebounce.setRepeats(false); }
+```
+
+2. Crear wrapper que coalesce llamadas:
+```java
+private void scheduleVisualRefresh() {
+    visualRefreshDebounce.restart(); // cada nueva llamada resetea el timer de 100ms
+}
+```
+
+3. Reemplazar las llamadas directas a `applyCoreStateToVisuals(core.currentState())` en `P2PMeshService` callbacks por `scheduleVisualRefresh()`.
+
+4. Detener el timer en `shutdown()`.
+
+**Resultado:** Bajo burst, solo 1 refresh ocurre 100ms después del último evento.
+
+**Estimación:** 20 min
+
+---
+
+### PERF-4: `FileSystemEventStore.listEventsAfter` — no leer todos los eventos
+
+**Severidad:** Alta
+**Impacto:** El método default en `EventStore` interface llama `listEvents()` (lee TODOS los archivos del disco), luego filtra en memoria. Con snapshots, solo necesitamos los eventos recientes.
+
+**Archivo:** `p2p-client/src/main/java/org/q3s/p2p/adapters/filesystem/FileSystemEventStore.java`
+
+**Implementación:**
+
+1. Override `listEventsAfter` en `FileSystemEventStore`:
+```java
+@Override
+public List<Event> listEventsAfter(String workspaceId, Instant after) {
+    if (after == null) return listEvents(workspaceId);
+    Path dir = eventsDir(workspaceId);
+    if (!Files.isDirectory(dir)) return List.of();
+    Instant threshold = after.minusMillis(1);
+    try (var files = Files.list(dir)) {
+        return files
+            .filter(f -> f.toString().endsWith(".evt"))
+            .filter(f -> fileModifiedAfter(f, threshold))
+            .sorted()
+            .map(this::readEvent)
+            .filter(e -> e != null && e.createdAt() != null && !e.createdAt().isBefore(threshold))
+            .toList();
+    }
+}
+
+private boolean fileModifiedAfter(Path f, Instant threshold) {
+    try {
+        return Files.getLastModifiedTime(f).toInstant().isAfter(threshold.minusSeconds(60));
+    } catch (Exception e) { return true; }
+}
+```
+
+2. Esto filtra por fecha de archivo antes de leer contenido, reduciendo I/O drasticamente.
+
+**Estimación:** 20 min
+
+---
+
+## ESTABILIDAD
+
+### STAB-1: Limitar tamaño de payloads sync — paginación
+
+**Severidad:** Crítica
+**Impacto:** Sync request envía TODOS los event IDs conocidos. Sync response envía TODOS los eventos faltantes en un solo mensaje WebSocket. Con 1000+ eventos, los frames pueden ser de varios MB, causando OOM o timeout.
+
+**Archivos:**
+- `p2p-client/src/main/java/org/q3s/p2p/adapters/network/P2PNetworkAdapter.java` — `sendSyncRequest()`, `handleIncomingSyncRequest()`
+- `p2p-client/src/main/java/org/q3s/p2p/core/codec/CoreEnvelopeCodec.java`
+
+**Implementación:**
+
+1. Definir constante `MAX_SYNC_BATCH = 200` en `P2PNetworkAdapter`.
+
+2. En `handleIncomingSyncRequest()`, paginar la respuesta:
+```java
+List<Event> missing = store.getMissingEvents(wsId, knownIds);
+for (int i = 0; i < missing.size(); i += MAX_SYNC_BATCH) {
+    List<Event> batch = missing.subList(i, Math.min(i + MAX_SYNC_BATCH, missing.size()));
+    CoreEnvelope response = CoreEnvelope.of(
+        CoreEnvelopeCodec.CORE_SYNC_RESPONSE_NAME, localPeerId,
+        CoreEnvelopeCodec.encodeSyncPayload(batch));
+    link.send(response);
+}
+```
+
+3. En `handleIncomingSyncResponse()`, acumular los eventos de múltiples batches antes de notificar.
+
+4. En `Controller.sendDirectCoreSyncSnapshot()`, paginar también:
+```java
+List<Event> allEvents = core.events();
+for (int i = 0; i < allEvents.size(); i += 200) {
+    // enviar batch
+}
+```
+
+**Precauciones:** El receptor debe aceptar múltiples sync responses del mismo peer sin confusión. Agregar un sequence number o flag `final=true` en el último batch.
+
+**Estimación:** 45 min
+
+---
+
+### STAB-2: Shutdown completo y ordenado
+
+**Severidad:** Alta
+**Impacto:** `Controller.shutdown()` no cierra chunk coordinator, timers, ni conexiones directas. Threads y conexiones zombie persisten.
+
+**Archivo:** `p2p-client/src/main/java/org/q3s/p2p/client/view/Controller.java` — método `shutdown()`
+
+**Implementación:**
+
+1. Reemplazar el `Thread.sleep(350)` por un shutdown ordenado:
+```java
+public void shutdown() {
+    // 1. Detener timers
+    if (visualRefreshDebounce != null) visualRefreshDebounce.stop();
+    if (notesSyncTimer != null) notesSyncTimer.stop();
+    if (joinTimeoutTimer != null) { joinTimeoutTimer.stop(); joinTimeoutTimer = null; }
+
+    // 2. Detener chunk coordinator
+    if (coreChunkTransfer != null) coreChunkTransfer.shutdown();
+
+    // 3. Desconectar mesh P2P
+    if (p2pMesh != null) p2pMesh.disconnectAll();
+
+    // 4. Cerrar conexiones directas
+    for (WebSocket ws : directPeerConnections.values()) {
+        try { ws.close(); } catch (Exception ignored) {}
+    }
+    directPeerConnections.clear();
+
+    // 5. Limpiar mesh cache
+    try { core.currentWorkspaceId().ifPresent(MeshProjector::clearLiveCache); } catch (Exception ignored) {}
+
+    // 6. Detener tunnel
+    if (cloudflareTunnel != null) cloudflareTunnel.stop();
+
+    // 7. Detener WebSocket server
+    if (wsServer != null) wsServer.shutdown();
+
+    // 8. Cerrar WsClient legacy
+    if (wsClient != null) { try { wsClient.close(); } catch (Exception ignored) {} }
+
+    // 9. Flush y cerrar cola de envíos
+    outboundEventQueue.shutdown();
+    try { outboundEventQueue.awaitTermination(2, TimeUnit.SECONDS); } catch (InterruptedException ignored) {}
+}
+```
+
+2. Actualizar shutdown hook para incluir `saveSessionHistory`:
+```java
+Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+    try {
+        if (p2pMesh != null) p2pMesh.disconnectAll();
+        saveSessionHistory("shutdown-hook");
+    } catch (Exception ignored) {}
+}, "shutdown-hook"));
+```
+
+**Estimación:** 20 min
+
+---
+
+### STAB-3: Preservar catálogo de peers en disconnect transitorio
+
+**Severidad:** Media
+**Impacto:** `peerDisappeared()` elimina al peer del catálogo. Si el peer reconecta 5 segundos después, necesita ser redescubierto via gossip. Bajo Cloudflare flap, un peer puede salir y volver del mesh repetidamente.
+
+**Archivo:** `p2p-client/src/main/java/org/q3s/p2p/adapters/network/P2PMeshService.java`
+
+**Implementación:**
+
+1. En `peerDisappeared()`, NO borrar del catálogo; solo marcar como desconectado:
+```java
+public void peerDisappeared(String peerId) {
+    if (peerId == null || shuttingDown) return;
+    // No eliminar del catálogo — permitir auto-reconnect
+    p2p.disconnectFrom(peerId);
+    scheduleAutoReconnect(); // intentará reconectar usando la URL del catálogo
+    // ...
+}
+```
+
+2. Agregar TTL para entradas del catálogo — si después de 5 minutos no reconecta, recién limpiar.
+
+**Estimación:** 15 min
+
+---
+
+## SEGURIDAD
+
+### SEC-1: Validar membership antes de responder sync y chunks
+
+**Severidad:** Crítica
+**Impacto:** Cualquier persona con una URL de invite puede conectarse al WebSocket, enviar un `core.sync.request` y recibir TODO el historial del workspace (chat, notas, metadata de archivos). Luego puede solicitar chunks para descargar los archivos completos. No se verifica si el peer está autorizado.
+
+**Archivos:**
+- `p2p-client/src/main/java/org/q3s/p2p/client/view/Controller.java` — `respondCoreSyncOnDirect()`, `handleDirectPeerEvent()`
+- `p2p-client/src/main/java/org/q3s/p2p/adapters/network/P2PNetworkAdapter.java` — `handleIncomingSyncRequest()`
+- `p2p-client/src/main/java/org/q3s/p2p/adapters/network/CoreChunkTransferCoordinator.java` — `sendChunk()`
+
+**Implementación:**
+
+1. En `respondCoreSyncOnDirect()` (~línea 1080), verificar membership antes de enviar sync. **Nota:** este método usa `wk != null ? wk.getId() : null` para obtener el workspace ID — puede ser null en join (mismo issue que NEW-1). Usar `core.currentWorkspaceId()` en su lugar:
+```java
+private void respondCoreSyncOnDirect(CoreEnvelope envelope, WebSocket conn) {
+    try {
+        if (envelope.userId() == null || envelope.userId().equals(user.getId())) return;
+        String wsId = core.currentWorkspaceId().orElse(null);
+        if (wsId == null) return;
+        // Nuevo: verificar membership
+        WorkspaceState state = core.currentState();
+        if (!state.isAuthorized(envelope.userId())) {
+            log.debug("Sync request rechazado: peer no autorizado " + envelope.userId());
+            return;
+        }
+        // ... continuar con sync normal (decodeKnownEventIds, missingEvents, send)
+    } catch (Exception e) {
+        log.debug("Error respondCoreSyncOnDirect: " + e.getMessage());
+    }
+}
+```
+**Importante:** `isAuthorized(String memberId)` en `WorkspaceState` verifica en `authorizedMembers` map. El `envelope.userId()` debe corresponder al `memberId` del peer. Verificar que los peers se registran con su user ID como member ID (este es el patrón actual en `initializeCoreSession`).
+
+2. En `P2PNetworkAdapter.handleIncomingSyncRequest()`, aplicar la misma verificación.
+
+3. En `CoreChunkTransferCoordinator.sendChunk(CoreEnvelope event, WebSocket directConn)`, verificar membership. El ID del solicitante está en `event.userId()`:
+```java
+private void sendChunk(CoreEnvelope event, WebSocket directConn) {
+    try {
+        if (event.userId() == null) return;
+        // Verificar membership antes de enviar datos
+        WorkspaceState state = core.currentState();
+        if (!state.isAuthorized(event.userId())) {
+            debug.accept("[CHUNK] Chunk request rechazado: peer no autorizado", event.userId());
+            return;
+        }
+        // ... resto del código existente (parse request, read chunk, send response)
+```
+**Nota:** `CoreChunkTransferCoordinator` no tiene referencia directa a `core`. Inyectar un `Supplier<WorkspaceState>` en el constructor, o pasar un `Predicate<String> isAuthorized` como parámetro funcional.
+
+**Precauciones:** Los peers en proceso de join (pre-aprobación) necesitan recibir al menos el evento de join request y la respuesta de aprobación. Considerar un "handshake mínimo" vs sync completo.
+
+**Estimación:** 30 min
+
+---
+
+### SEC-2: Validar eventos efímeros (firma o membership check)
+
+**Severidad:** Crítica
+**Impacto:** Los eventos efímeros como `PEER_STATUS_UPDATED` no se validan. Un atacante puede inyectar un `peer.status.updated` con el `member_id` de cualquier peer legítimo y redirigir su `peer_url` al endpoint del atacante. Otros peers conectarán al host malicioso.
+
+**Archivos:**
+- `p2p-client/src/main/java/org/q3s/p2p/core/app/CoreApplicationService.java` — `receiveRemoteEvent()` branch efímero
+- `p2p-client/src/main/java/org/q3s/p2p/adapters/network/P2PMeshService.java` — `applyEphemeralState()`
+
+**Implementación:**
+
+1. En `receiveRemoteEvent()`, verificar que el autor del efímero es miembro autorizado:
+```java
+if (event.isEphemeral()) {
+    WorkspaceState state = currentState();
+    if (!state.isAuthorized(event.authorMemberId())) {
+        return false; // rechazar efímeros de no-miembros
+    }
+    new MeshProjector().apply(state, event);
+    return true;
+}
+```
+
+2. Opcionalmente, firmar eventos efímeros también (requiere cambio en `EventFactory` para que stamp funcione con efímeros).
+
+**Estimación:** 15 min
+
+---
+
+### SEC-3: Protección contra path traversal en downloads
+
+**Severidad:** Alta
+**Impacto:** Un miembro malicioso puede publicar un `file.shared` con `name: "../../.ssh/authorized_keys"`. Cuando otros peers descargan el archivo, se escribe fuera del directorio `files/`.
+
+**Archivo:** `p2p-client/src/main/java/org/q3s/p2p/client/view/Controller.java` — `completeCoreChunkDownload()`, `completeFileDownload()`
+
+**Implementación:**
+
+1. Crear helper de sanitización:
+```java
+private String sanitizeFileName(String name) {
+    if (name == null) return "unnamed";
+    // Eliminar path traversal
+    String safe = name.replace("..", "").replace("/", "_").replace("\\", "_");
+    // Eliminar caracteres de control
+    safe = safe.replaceAll("[\\x00-\\x1f]", "");
+    if (safe.isBlank()) safe = "unnamed";
+    return safe;
+}
+```
+
+2. Aplicar en `completeCoreChunkDownload()` antes de construir el path:
+```java
+String safeName = sanitizeFileName(metadata.name());
+String localPath = uniqueFilePath(getSessionFilesDir().getAbsolutePath() + File.separator + safeName);
+```
+
+3. Validar que el path resuelto está dentro del directorio esperado:
+```java
+Path target = Path.of(localPath).normalize();
+Path base = getSessionFilesDir().toPath().normalize();
+if (!target.startsWith(base)) {
+    log.err("Path traversal detectado: " + metadata.name());
+    return;
+}
+```
+
+4. Aplicar lo mismo en `completeFileDownload()` y `openFile()`.
+
+**Estimación:** 15 min
+
+---
+
+### SEC-4: Límite de tamaño de mensajes WebSocket
+
+**Severidad:** Alta
+**Impacto:** No hay límite en el tamaño de frames WebSocket. Un atacante puede enviar un frame de varios GB, causando OOM durante Base64 decode antes de cualquier validación.
+
+**Archivo:** `p2p-client/src/main/java/org/q3s/p2p/client/hub/EmbeddedWebSocketServer.java`
+
+**Implementación:**
+
+1. Usar `setMaxFrameSize` en el constructor del server (Java-WebSocket soporta esto — buscar en javadoc de la librería la constante correcta).
+
+2. Si `setMaxFrameSize` no está disponible en la versión actual, validar en `onMessage`:
+```java
+@Override
+public void onMessage(WebSocket conn, String message) {
+    if (message.length() > 10_000_000) { // 10MB max
+        err("Message too large: " + message.length() + " bytes, closing connection");
+        conn.close(1009, "Message too large");
+        return;
+    }
+    // ... procesamiento normal
+}
+```
+
+3. Aplicar lo mismo en `WsClient` incoming messages.
+
+**Estimación:** 10 min
+
+---
+
+## USABILIDAD
+
+### UX-1: Feedback de conexión/reconexión visible
+
+**Severidad:** Alta
+**Impacto:** Cuando un peer se desconecta o reconecta, no hay notificación en chat ni indicador visual persistente. El usuario no sabe si sus mensajes están llegando a otros peers.
+
+**Archivos:**
+- `p2p-client/src/main/java/org/q3s/p2p/client/view/Controller.java`
+- `p2p-client/src/main/resources/i18n/messages.properties` y `messages_es.properties`
+
+**Implementación:**
+
+1. En `handlePeerDisconnected()` (Controller.java ~línea 1107), agregar notificación dentro del `invokeLater` existente (~1111). El método existente para mensajes de sistema es `appendChatSystemMessage(String)`:
+```java
+private void handlePeerDisconnected(String peerId) {
+    if (peerId == null || peerId.isBlank()) return;
+    directPeerConnections.remove(peerId);
+    if (p2pMesh != null) p2pMesh.peerDisappeared(peerId);
+    javax.swing.SwingUtilities.invokeLater(() -> {
+        User stored = knownMembers.get(peerId);
+        if (stored != null) stored.setOnline(false);
+        // Nuevo: notificación en chat
+        String name = stored != null && stored.getName() != null ? stored.getName() : peerId;
+        appendChatSystemMessage(I18n.get("chat.peerDisconnected", name));
+        refreshMembersTable();
+        refreshArchivosTable();
+    });
+    log.info("Peer desconectado del endpoint local: " + peerId);
+}
+```
+**Nota:** Ya existen keys similares — `chat.userDisconnected` (línea 1464) y `chat.userReconnected` (línea 2251) usadas en el flujo legacy. Reutilizar esas mismas keys si aplican, o crear nuevas para P2P. Verificar nombres existentes en `messages.properties` antes de agregar.
+
+2. En `P2PMeshService`, cuando la reconexión exitosa ocurre (dentro del `peerAppeared` → `connectTo` → callback onOpen), notificar mediante un callback de UI. Agregar un `Consumer<String> onPeerReconnected` al constructor de `P2PMeshService` y llamarlo cuando reconecta un peer del catálogo. En Controller, registrar el callback para mostrar `appendChatSystemMessage(I18n.get("chat.userReconnected", name))`.
+
+3. Agregar keys i18n si no existen aún (verificar primero `messages.properties`):
+```properties
+# messages.properties (español) — pueden ya existir como chat.userDisconnected / chat.userReconnected
+chat.peerDisconnected={0} se desconectó
+chat.peerReconnected={0} se reconectó
+```
+
+4. Agregar indicador de peers conectados en la barra de título. Buscar dónde se actualiza el título de la ventana (buscar `setTitle` en Controller) y agregar count:
+```java
+int connectedPeerCount = directPeerConnections.size();
+view.setTitle(user.getName() + " - " + workspaceName + " (" + connectedPeerCount + " peers)");
+```
+
+**Estimación:** 25 min
+
+---
+
+### UX-2: Indicador de "typing" en chat
+
+**Severidad:** Media
+**Impacto:** `EventTypes.USER_TYPING` existe como tipo efímero en el core pero no está implementado ni en envío ni en recepción UI. Es una feature esperada en cualquier chat colaborativo.
+
+**Archivos:**
+- `p2p-client/src/main/java/org/q3s/p2p/client/view/Controller.java`
+- `p2p-client/src/main/java/org/q3s/p2p/core/events/EventTypes.java`
+- `p2p-client/src/main/java/org/q3s/p2p/core/app/CoreApplicationService.java`
+
+**Implementación:**
+
+1. En Controller, agregar debounce para enviar typing. El campo `chatInput` es un `JTextField` declarado en línea ~153, inicializado en ~2620. Agregar listener en el mismo lugar donde se configura el chat (~2635):
+```java
+private javax.swing.Timer typingDebounce;
+// En el método donde se inicializa chatInput (~2620-2640):
+typingDebounce = new javax.swing.Timer(3000, e -> { /* auto-stop */ });
+typingDebounce.setRepeats(false);
+chatInput.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+    public void insertUpdate(javax.swing.event.DocumentEvent e) { sendTypingEvent(); }
+    public void removeUpdate(javax.swing.event.DocumentEvent e) { sendTypingEvent(); }
+    public void changedUpdate(javax.swing.event.DocumentEvent e) {}
+});
+```
+```java
+private void sendTypingEvent() {
+    if (core == null) return;
+    if (!typingDebounce.isRunning()) {
+        publishCoreEvent(core.publishTypingEvent());
+    }
+    typingDebounce.restart();
+}
+```
+
+2. En `CoreApplicationService`, agregar factory method. Seguir el patrón de `publishPeerStatus()` (~línea 292) que ya crea eventos efímeros:
+```java
+public Event publishTypingEvent() {
+    requireSession();
+    return eventFactory.create(currentWorkspaceId, EventTypes.USER_TYPING,
+        currentMember.memberId(),
+        Map.of("user_name", currentMember.displayName()),
+        null);  // parents=null → List.of() en EventFactory
+    // NOTA: EventTypes.isPersistent("user.typing") retorna false automáticamente
+    // porque USER_TYPING está en EPHEMERAL set. No pasar boolean.
+}
+```
+**Importante:** `EventFactory.create` firma: `(String workspaceId, String type, String authorMemberId, Map<String,Object> payload, List<String> parents)`. El flag `persistent` se infiere de `EventTypes.isPersistent(type)`. NO pasar boolean.
+
+3. En el handler de efímeros. **Detalle arquitectural importante:** `P2PNetworkAdapter.onEphemeralCoreEvent` es un callback de un solo slot (single `Consumer<Event>`), y `P2PMeshService` ya lo registra en su constructor (línea 54: `p2p.onEphemeralCoreEvent(e -> applyEphemeralState(e))`). Controller NO puede registrar otro callback directamente sin sobrescribirlo.
+
+   **Solución:** Agregar un callback secundario en `P2PMeshService`:
+   ```java
+   // En P2PMeshService, agregar campo:
+   private Consumer<Event> ephemeralForwarder;
+   public void onEphemeralForwarded(Consumer<Event> callback) { this.ephemeralForwarder = callback; }
+   // En applyEphemeralState(), después de procesar:
+   if (ephemeralForwarder != null) ephemeralForwarder.accept(event);
+   ```
+   Luego en Controller, después de crear `p2pMesh`, registrar:
+   ```java
+   p2pMesh.onEphemeralForwarded(event -> { ... });
+   ```
+   Dentro de ese callback, agregar branch para `USER_TYPING`:
+```java
+if (EventTypes.USER_TYPING.equals(event.type())) {
+    String userName = String.valueOf(event.payload().getOrDefault("user_name", ""));
+    if (!userName.isBlank() && !userName.equals(user.getName())) {
+        SwingUtilities.invokeLater(() -> showTypingIndicator(userName));
+    }
+}
+```
+
+4. `showTypingIndicator()`: crear un `JLabel` debajo del chat area con auto-hide de 3 segundos:
+```java
+private JLabel typingLabel; // inicializar junto al chat panel
+private javax.swing.Timer typingHideTimer;
+private void showTypingIndicator(String userName) {
+    if (typingLabel == null) return;
+    typingLabel.setText(I18n.get("chat.typing", userName));
+    typingLabel.setVisible(true);
+    if (typingHideTimer != null) typingHideTimer.stop();
+    typingHideTimer = new javax.swing.Timer(3000, e -> typingLabel.setVisible(false));
+    typingHideTimer.setRepeats(false);
+    typingHideTimer.start();
+}
+```
+
+5. Keys i18n:
+```properties
+# messages.properties (español)
+chat.typing={0} está escribiendo...
+
+# messages_es.properties — verificar nombre correcto del archivo
+chat.typing={0} está escribiendo...
+```
+```properties
+# messages_en.properties (o messages.properties si es el inglés)
+chat.typing={0} is typing...
+```
+**Nota:** Verificar cuál archivo es español y cuál inglés revisando los archivos existentes en `p2p-client/src/main/resources/i18n/`.
+
+**Estimación:** 30 min
+
+---
+
+### UX-3: Progress y estado durante sync inicial (post-join)
+
+**Severidad:** Media
+**Impacto:** Después de unirse a un workspace, no hay feedback visible durante la sincronización de eventos. El usuario ve la pantalla de login hasta que el workspace se activa silenciosamente.
+
+**Archivos:**
+- `p2p-client/src/main/java/org/q3s/p2p/client/view/Controller.java`
+- `p2p-client/src/main/resources/i18n/messages.properties` y `messages_es.properties`
+
+**Implementación:**
+
+1. Mostrar progreso durante el join/sync en los labels de login:
+```java
+// En el handler de join exitoso (DirectBootstrap onWelcome):
+SwingUtilities.invokeLater(() -> {
+    mostrarErrorEnPantallaLogin(I18n.get("sync.inProgress"));
+});
+```
+
+2. Actualizar cuando el sync completa:
+```java
+// En activateWorkspaceFromCore:
+SwingUtilities.invokeLater(() -> {
+    mostrarErrorEnPantallaLogin(I18n.get("sync.complete"));
+});
+```
+
+3. Keys i18n:
+```properties
+sync.inProgress=Sincronizando workspace...
+sync.complete=Sincronización completada
+sync.waitingApproval=Esperando aprobación del workspace...
+```
+
+**Estimación:** 15 min
+
+---
+
+### UX-4: i18n — eliminar strings hardcodeados en español
+
+**Severidad:** Baja
+**Impacto:** Hay mensajes visibles al usuario en español hardcodeado que no usan i18n, causando inconsistencia cuando el idioma está en inglés.
+
+**Archivos:**
+- `p2p-client/src/main/java/org/q3s/p2p/client/view/Controller.java`
+- `p2p-client/src/main/java/org/q3s/p2p/adapters/network/CoreChunkTransferCoordinator.java`
+- `p2p-client/src/main/resources/i18n/messages.properties` y `messages_es.properties`
+
+**Implementación:**
+
+1. Buscar strings hardcodeados en Controller.java que son visibles al usuario:
+   - `"Error al iniciar el tunel..."` → key `tunnel.error`
+   - `"Las claves no coinciden"` → key `password.mismatch`
+   - `"Buscando chunks de..."` → key `transfer.searchingChunks`
+   - `"Descargando chunks de..."` → key `transfer.downloadingChunks`
+   - Cualquier otro string visible en UI que no use `I18n.get()`
+
+2. Para cada uno, crear key en `messages.properties` y `messages_es.properties`, y reemplazar el string por `I18n.get("key")`.
+
+3. Para `CoreChunkTransferCoordinator`, pasar las labels como parámetro desde Controller (que tiene acceso a i18n) en vez de hardcodear en el coordinator.
+
+**Estimación:** 20 min
+
+---
+
+## Resumen de prioridades
+
+### Inmediatas (impacto crítico, esfuerzo moderado)
+
+| ID | Área | Severidad | Estimación |
+|---|---|---|---|
+| SEC-1 | Validar membership en sync/chunks | **Crítica** | 30 min |
+| SEC-2 | Validar efímeros (membership check) | **Crítica** | 15 min |
+| SEC-4 | Límite tamaño mensajes WebSocket | **Alta** | 10 min |
+| SEC-3 | Path traversal en downloads | **Alta** | 15 min |
+| PERF-1 | Cache de WorkspaceState | **Crítica** | 45 min |
+| STAB-1 | Paginación de sync | **Crítica** | 45 min |
+
+### Corto plazo (mejora significativa)
+
+| ID | Área | Severidad | Estimación |
+|---|---|---|---|
+| PERF-2 | File indexing fuera del EDT | **Crítica** | 30 min |
+| PERF-3 | Debounce visual refresh | **Alta** | 20 min |
+| STAB-2 | Shutdown completo | **Alta** | 20 min |
+| UX-1 | Feedback conexión/reconexión | **Alta** | 25 min |
+
+### Medio plazo
+
+| ID | Área | Severidad | Estimación |
+|---|---|---|---|
+| PERF-4 | listEventsAfter optimizado | **Alta** | 20 min |
+| STAB-3 | Preservar catálogo en disconnect | **Media** | 15 min |
+| UX-2 | Typing indicator | **Media** | 30 min |
+| UX-3 | Progress durante sync/join | **Media** | 15 min |
+| UX-4 | Eliminar hardcoded español | **Baja** | 20 min |
+
+**Tiempo total estimado: ~5.5 horas**
