@@ -106,6 +106,7 @@ import org.java_websocket.WebSocket;
 import org.q3s.p2p.adapters.filesystem.QfolderLayout;
 import org.q3s.p2p.client.CloudflareInstaller;
 import org.q3s.p2p.client.Config;
+import org.q3s.p2p.client.SecureIdentityStore;
 import org.q3s.p2p.client.UpdateChecker;
 import org.q3s.p2p.client.exec.Executor;
 import org.q3s.p2p.client.exec.ExecutorFactoryBean;
@@ -407,39 +408,20 @@ public class Controller {
 
 	private void loadOrCreateLocalIdentity() {
 		File identityFile = qfolderLayout().identityFile().toFile();
-		Properties identity = new Properties();
 		try {
-			if (identityFile.exists()) {
-				try (FileInputStream in = new FileInputStream(identityFile)) {
-					identity.load(in);
-				}
-				String id = identity.getProperty("member.id");
-				if (id != null && !id.isBlank()) user.setId(id.trim());
-				localPublicKey = identity.getProperty("member.publicKey", "").trim();
-				localPrivateKey = identity.getProperty("member.privateKey", "").trim();
-				if (!localPublicKey.isBlank() && !localPrivateKey.isBlank()) return;
-			}
-			ensureLocalKeyPair(identity);
-			identity.setProperty("member.id", user.getId());
-			identity.setProperty("member.publicKey", localPublicKey);
-			identity.setProperty("member.privateKey", localPrivateKey);
-			File parent = identityFile.getParentFile();
-			if (parent != null) parent.mkdirs();
-			try (FileOutputStream out = new FileOutputStream(identityFile)) {
-				identity.store(out, "qfolder local identity");
-			}
+			SecureIdentityStore store = new SecureIdentityStore(identityFile, user.getId());
+			store.loadOrCreate();
+			localPublicKey = store.getPublicKeyBase64();
+			localPrivateKey = store.getPrivateKeyBase64();
+			if (!localPublicKey.isBlank() && !localPrivateKey.isBlank()) return;
 		} catch (Exception e) {
-			log.debug("No se pudo cargar identidad local persistente: " + e.getMessage());
+			log.debug("No se pudo cargar identidad local encriptada: " + e.getMessage());
 		}
 	}
 
-	private void ensureLocalKeyPair(Properties identity) throws Exception {
-		if (localPublicKey != null && !localPublicKey.isBlank() && localPrivateKey != null && !localPrivateKey.isBlank()) return;
-		KeyPair pair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-		localPublicKey = Base64.getEncoder().encodeToString(pair.getPublic().getEncoded());
-		localPrivateKey = Base64.getEncoder().encodeToString(pair.getPrivate().getEncoded());
-		identity.setProperty("member.publicKey", localPublicKey);
-		identity.setProperty("member.privateKey", localPrivateKey);
+	private void ensureLocalKeyPair() throws Exception {
+		// Legacy entrypoint. Mantenido por compatibilidad pero el flujo real va
+		// por SecureIdentityStore.loadOrCreate() en loadLocalIdentity().
 	}
 
 	private void installTransferStatusBar() {
@@ -1880,7 +1862,16 @@ public class Controller {
 				() -> wk != null ? wk.getId() : null,
 				core.eventStore(), this::handleDirectPeerEvent, message -> log.debug(message), true);
 		p2pNetwork.onCoreEventStored(e -> {
+			org.q3s.p2p.core.observability.PerformanceMetrics.increment(
+					org.q3s.p2p.core.observability.PerformanceMetrics.Events.RECEIVED);
 			applyCoreEventIncremental(e);
+			if (org.q3s.p2p.core.events.EventTypes.FILE_SHARED.equals(e.type())) {
+				try {
+					core.chunkReplicator().processEvents(e.workspaceId(), java.util.List.of(e));
+				} catch (Exception ex) {
+					log.debug("ChunkReplicator incremental no proceso file.shared: " + ex.getMessage());
+				}
+			}
 			applyCoreStateToVisuals(core.currentState());
 		});
 		p2pNetwork.onCoreSyncApplied(events -> applyCoreStateToVisuals(core.currentState()));
@@ -1919,6 +1910,10 @@ public class Controller {
 
 	private void publishCoreEvent(org.q3s.p2p.core.model.Event event) {
 		if (event != null) log.debug("[CORE PUBLISH] " + event.type() + " id=" + event.eventId());
+		if (event != null) {
+			org.q3s.p2p.core.observability.PerformanceMetrics.increment(
+					org.q3s.p2p.core.observability.PerformanceMetrics.Events.PUBLISHED);
+		}
 		if (p2pMesh != null) p2pMesh.publish(event);
 		if (event != null && "file.shared".equals(event.type())) {
 			WorkspaceState state = core.currentState();
@@ -4614,6 +4609,9 @@ public class Controller {
 		lastSentNotesState = null;
 		lastAppliedNotesState = null;
 		historySaved = false;
+		if (wk != null) {
+			try { org.q3s.p2p.core.state.MeshProjector.clearLiveCache(wk.getId()); } catch (Exception ignored) {}
+		}
 	}
 
 	private void refreshTables() {

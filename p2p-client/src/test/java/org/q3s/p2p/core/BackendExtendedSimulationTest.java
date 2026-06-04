@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.q3s.p2p.adapters.filesystem.FileSystemEventStore;
@@ -28,6 +29,7 @@ import org.q3s.p2p.core.state.SnapshotService;
 import org.q3s.p2p.core.state.WorkspaceState;
 import org.q3s.p2p.core.workspace.WorkspaceService;
 
+@Tag("performance")
 class BackendExtendedSimulationTest {
 	@TempDir java.nio.file.Path tempDir;
 

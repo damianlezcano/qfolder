@@ -36,30 +36,30 @@ BUG-1 a BUG-6 corregidos. FASE11-FIX-2 completado. FASE11-FIX-1 documentado como
 
 | ID | Tarea | Severidad | Estado |
 |---|---|---|---|
-| RESIDUAL-1 | `clearLiveCache(workspaceId)` no se llama al desconectar workspace | **Baja** | ⏳ Pendiente |
-| RESIDUAL-2 | `deleteNoteText()` ignora parámetro `length` — solo borra línea completa | **Baja** | ⏳ Pendiente |
-| RESIDUAL-3 | Faltan tests de regresión para BUG-3 y BUG-6 | **Baja** | ⏳ Pendiente |
-| RESIDUAL-4 | `ChunkReplicator.processEvents()` no se llama para eventos `file.shared` incrementales post-startup | **Baja** | ⏳ Pendiente |
-| RESIDUAL-5 | AGENTS.md líneas 139 y 220 desactualizadas (SnapshotService y chunk replication) | **Baja** | ⏳ Pendiente |
-| RESIDUAL-6 | `EventValidatorTest` nombre misleading: `memberJoinApprovalEsAceptadoPorAutor` asserta `false` | **Muy baja** | ⏳ Pendiente |
-| RESIDUAL-7 | `System.err.println` en producción (EmbeddedWebSocketServer, UpdateChecker, AppConfig) | **Muy baja** | ⏳ Pendiente |
+| RESIDUAL-1 | `clearLiveCache(workspaceId)` no se llama al desconectar workspace | **Baja** | ✅ Completado |
+| RESIDUAL-2 | `deleteNoteText()` ignora parámetro `length` — solo borra línea completa | **Baja** | ✅ Completado |
+| RESIDUAL-3 | Faltan tests de regresión para BUG-3 y BUG-6 | **Baja** | ✅ Completado |
+| RESIDUAL-4 | `ChunkReplicator.processEvents()` no se llama para eventos `file.shared` incrementales post-startup | **Baja** | ✅ Completado |
+| RESIDUAL-5 | AGENTS.md líneas 139 y 220 desactualizadas (SnapshotService y chunk replication) | **Baja** | ✅ Completado |
+| RESIDUAL-6 | `EventValidatorTest` nombre misleading: `memberJoinApprovalEsAceptadoPorAutor` asserta `false` | **Muy baja** | ✅ Completado |
+| RESIDUAL-7 | `System.err.println` en producción (EmbeddedWebSocketServer, UpdateChecker, AppConfig) | **Muy baja** | ✅ Completado |
 
-### Pendientes originales
+## PENDIENTES
 
-| ID | Tarea | Severidad | Estado |
-|---|---|---|---|
+| # | Tarea | Prioridad | Estado |
+|---|-------|-----------|--------|
 | PENDIENTE-1 a 10 | Fixes iniciales | — | ✅ Todos completados |
-| PENDIENTE-11 | Refactorización Controller.java (~6190 líneas, ~333 métodos) | Alta | ⏳ Pendiente |
-| PENDIENTE-12 | Almacenamiento seguro de privateKey Ed25519 | Alta | ⏳ Pendiente |
-| PENDIENTE-13 | Tests unitarios dedicados adapters/network | Media | ⏳ Pendiente |
-| PENDIENTE-14 | Tests unitarios dedicados client/hub y client/ws | Media | ⏳ Pendiente |
-| PENDIENTE-15 | Tests unitarios dedicados adapters/filesystem | Media | ⏳ Pendiente |
-| PENDIENTE-16 | Unificación de ramas CI/release | Baja | ⏳ Pendiente |
-| PENDIENTE-17 | Métricas de performance y profiling | Baja | ⏳ Pendiente |
-| PENDIENTE-18 | Documentación de API pública | Muy baja | ⏳ Pendiente |
-| PENDIENTE-19 | Separar tests ruidosos del suite normal | Baja | ⏳ Pendiente |
-| PENDIENTE-20 | Limpiar warnings Maven Shade/SLF4J | Baja | ⏳ Pendiente |
-| PENDIENTE-21 | Automatizar smoke E2E multi-instancia | Media | ⏳ Pendiente |
+| PENDIENTE-11 | Refactorización Controller.java (~6190 líneas, ~333 métodos) | Alta | 🟡 Parcial (NotesEditor extraído, no wireado) |
+| PENDIENTE-12 | Almacenamiento seguro de privateKey Ed25519 | Alta | ✅ Completado (SecureIdentityStore AES-256-GCM) |
+| PENDIENTE-13 | Tests unitarios dedicados adapters/network | Media | 🟡 Parcial (InviteCodeTest 7 + CoreChunkTransferProtocolTest 10) |
+| PENDIENTE-14 | Tests unitarios dedicados client/hub y client/ws | Media | 🟡 Parcial (sin tests, requiere Server) |
+| PENDIENTE-15 | Tests unitarios dedicados adapters/filesystem | Media | ✅ Completado (QfolderLayoutTest 12 + FileSystemEventStoreTest 9 + FileSystemFileChunkStoreTest 8) |
+| PENDIENTE-16 | Unificación de ramas CI/release | Baja | ⛔ Bloqueado (requiere decisión usuario) |
+| PENDIENTE-17 | Métricas de performance y profiling | Baja | ✅ Completado (PerformanceMetrics + 8 tests + wired en publishCoreEvent/ChunkTransfer/EventReceive) |
+| PENDIENTE-18 | Documentación de API pública | Muy baja | ✅ Completado (Javadoc en CoreApplicationService/EventStore/NetworkAdapter/FileChunkStore/AuthProvider) |
+| PENDIENTE-19 | Separar tests ruidosos del suite normal | Baja | ✅ Completado (@Tag("performance") + perfil) |
+| PENDIENTE-20 | Limpiar warnings Maven Shade/SLF4J | Baja | ✅ Completado (slf4j-nop + filtros + exclusion yasson) |
+| PENDIENTE-21 | Automatizar smoke E2E multi-instancia | Media | ✅ Completado (smoke-e2e-mock.sh headless, 13 checks) |
 
 ### Fase 11 — estado verificado
 

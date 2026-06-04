@@ -139,7 +139,7 @@ public class EmbeddedWebSocketServer extends WebSocketServer {
 	}
 
 	private void err(String msg) {
-		System.err.println("[WsServer] " + msg);
+		java.util.logging.Logger.getLogger("qfolder.WsServer").warning(msg);
 	}
 
 	public static class SessionInfo {

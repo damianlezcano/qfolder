@@ -34,8 +34,7 @@ public class UpdateChecker {
 				return props.getProperty("version", "0.0.0");
 			}
 		} catch (Exception e) {
-			// version resource not available
-			System.err.println("[UpdateChecker] " + e.getMessage());
+			java.util.logging.Logger.getLogger("qfolder.UpdateChecker").fine("version resource not available: " + e.getMessage());
 		}
 		return "0.0.0";
 	}

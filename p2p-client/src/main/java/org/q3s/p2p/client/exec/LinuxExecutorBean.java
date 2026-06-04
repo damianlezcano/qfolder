@@ -6,7 +6,7 @@ public class LinuxExecutorBean implements Executor {
 		try {
 			new ProcessBuilder("xdg-open", fullname).start();
 		} catch (Exception e) {
-			System.err.println("Error opening file: " + e.getMessage());
+			java.util.logging.Logger.getLogger("qfolder.exec").warning("Error opening file: " + e.getMessage());
 		}
 	}
 

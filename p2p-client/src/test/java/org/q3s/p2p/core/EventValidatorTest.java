@@ -117,7 +117,7 @@ class EventValidatorTest {
 		assertFalse(validator.isAcceptable(approval));
 	}
 
-	@Test void memberJoinApprovalEsAceptadoPorAutor() {
+	@Test void memberJoinApprovalConFirmaInvalidaEsRechazado() {
 		Event created = new Event("evt-1", "ws-1", EventTypes.WORKSPACE_CREATED, "creator-1",
 				Instant.now(), List.of(),
 				Map.of("name", "Test", "auth_mode", "ed25519", "required_approvals", 1,
@@ -133,7 +133,8 @@ class EventValidatorTest {
 		Event approval = new Event("appr-1", "ws-1", EventTypes.MEMBER_JOIN_APPROVAL, "creator-1",
 				Instant.now(), List.of(), approvalPayload,
 				new org.q3s.p2p.core.model.AuthInfo("ed25519"), "fake-sig", true);
-		assertFalse(validator.isAcceptable(approval));
+		assertFalse(validator.isAcceptable(approval),
+				"Aprobacion de un autor legitimo pero con firma invalida debe rechazarse");
 	}
 
 	@Test void eventoConFirmaInvalidaEsRechazado() {

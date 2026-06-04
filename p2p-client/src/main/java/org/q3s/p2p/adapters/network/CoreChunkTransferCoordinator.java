@@ -307,6 +307,8 @@ public class CoreChunkTransferCoordinator {
 				if (received.containsKey(response.chunkHash())) return;
 				core.storeChunk(metadata.fileId(), response.chunkHash(), response.bytes());
 				received.put(response.chunkHash(), response.bytes());
+				org.q3s.p2p.core.observability.PerformanceMetrics.increment(
+						org.q3s.p2p.core.observability.PerformanceMetrics.Chunks.TRANSFERRED);
 				debug.accept("[CHUNK] receiveChunk " + metadata.name(), "chunk=" + response.chunkHash() + " progreso=" + received.size() + "/" + metadata.chunks().size());
 				progress.update(response.transferId(), "Descargando chunks de " + metadata.name(), received.size(), metadata.chunks().size());
 				if (received.keySet().containsAll(metadata.chunks())) {

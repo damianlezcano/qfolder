@@ -199,6 +199,8 @@ public class P2PNetworkAdapter implements NetworkAdapter {
 							Event coreEvent = CoreEnvelopeCodec.decodeCoreEvent(envelope);
 							if (coreEvent != null) {
 								if (coreEvent.isEphemeral()) {
+									org.q3s.p2p.core.observability.PerformanceMetrics.increment(
+											org.q3s.p2p.core.observability.PerformanceMetrics.Events.EPHEMERAL);
 									if (onEphemeralCoreEvent != null) onEphemeralCoreEvent.accept(coreEvent);
 								} else if (sync.receiveEvent(coreEvent)) {
 									if (onCoreEventStored != null) onCoreEventStored.accept(coreEvent);

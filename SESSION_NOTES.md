@@ -2965,3 +2965,47 @@ Se actualizaron WORK_PLAN.md con 8 nuevos pendientes priorizados:
 - `mvn test` — **275 tests, 0 failures, 0 errors**
 - `mvn -Pstatic-analysis verify` — **0 bugs, 0 errors**
 - `./build.sh` — exitoso, `dist/qfolder.jar` (2.1M)
+
+---
+
+## Sesión: PENDIENTE-12, 13, 19, 20, 21
+
+### Cambios
+
+- **PENDIENTE-12 (SecureIdentityStore)**: nueva clase `org.q3s.p2p.client.SecureIdentityStore` que encripta par de claves Ed25519 con AES-256-GCM + PBKDF2-HMAC-SHA256 (100k iter) + passphrase derivada de `user.name` y salt aleatorio. Reemplaza el almacenamiento plaintext de `identity.properties` en `Controller.loadLocalIdentity`. Migracion: elimina `Properties identity.store()` con privateKey en Base64 visible. Tests: `SecureIdentityStoreTest` (7 tests): genera par, persiste+recupera, no plaintext en disco, claves distintas por miembro, archivo corrupto regenera, no contiene "member.privateKey" en disco, Base64 valido. Wired en `Controller.loadLocalIdentity()`.
+- **PENDIENTE-13 (parcial)**: nuevo `InviteCodeTest` con 7 tests (encode/decode, vacio, null, sin workspace, no padding, Unicode).
+- **PENDIENTE-19**: `@Tag("performance")` en `CoreResilienceTest` (35 tests) y `BackendExtendedSimulationTest` (10 tests). Maven Surefire excluye el grupo por default; nuevo perfil `-Pperformance-tests` los incluye (45 tests, <1s). Default: 255 tests rapidos, ~10s.
+- **PENDIENTE-20**: agregada dep `slf4j-nop` (silencia "No SLF4J providers were found"). Excluida `org.glassfish:jakarta.json` de yasson (resuelve overlapping entre -module y regular). Removido plugin duplicado maven-surefire-plugin del pom.xml. Agregados filtros Shade: `module-info.class`, `META-INF/versions/9/module-info.class`, `META-INF/MANIFEST.MF`, `META-INF/LICENSE.md`, `META-INF/LICENSE-notice.md`, `META-INF/NOTICE.md`, `META-INF/DEPENDENCIES`, `META-INF/INDEX.LIST`, `META-INF/maven/**`. Resultado: `mvn package` sin warnings.
+- **PENDIENTE-21**: nuevo `scripts/smoke-e2e-mock.sh` headless que valida el JAR generado (13 checks): existencia, tamano, manifest Main-Class, 7 clases criticas presentes, 2 recursos i18n, carga y generacion de claves via reflection. No requiere display X11.
+- **BugFix SpotBugs**: `SecureIdentityStore` usaba `new SecureRandom()` local (DMI_RANDOM_USED_ONLY_ONCE) — convertido a `static final SecureRandom RNG`. Tambien hubo `DE_MIGHT_IGNORE` en `Controller.loadOrCreateLocalIdentity()` — eliminada la llamada a `persistIdentityIdOnly` que tenia catch vacio.
+- **WORK_PLAN.md actualizado**: RESIDUAL-1..7 marcados como completados; PENDIENTE-12, 19, 20, 21 marcados como completados; PENDIENTE-11 y 13 marcados como parciales.
+
+### Validación
+
+- `mvn test` — **255 tests, 0 failures, 0 errors** (default; excluye @Tag("performance"))
+- `mvn test -Pperformance-tests` — **45 tests, 0 failures** (CoreResilienceTest 35 + BackendExtendedSimulationTest 10)
+- `mvn -Pstatic-analysis verify` — **0 bugs, 0 errors**
+- `./build.sh` — exitoso, `dist/qfolder.jar` (2.1M)
+- `./scripts/smoke-e2e-mock.sh` — **13 checks pasaron, 0 fallaron**
+- `mvn package -DskipTests` — sin warnings Shade ni SLF4J
+
+---
+
+## Sesión: PENDIENTE-13, 15, 17, 18 (cierre parcial)
+
+### Cambios
+
+- **PENDIENTE-15 (filesystem tests)**: nuevos tests para `QfolderLayout` (12 tests: paths userdata/systemdata, datePrefix, folderName, safeId, slug, createStructure, workspaceJson, findExistingWorkspaceFolder); `FileSystemEventStore` (9 tests: append+list, dedup, ignora efimeros, hasEvent, getMissingEvents, listEventIds, containsType, getEvent, listEvents vacio); `FileSystemFileChunkStore` (8 tests: put/get roundtrip, hasChunk, listChunks orden insercion, reconstructFile, chunks distintos fileIds, fileId vacio, dedup).
+- **PENDIENTE-13 (network tests, parcial)**: `CoreChunkTransferProtocol` con 10 tests (availabilityRequest/Response roundtrip, chunkRequest/Response, bytes vacios/null, version invalida lanza excepcion). Falta testear SimulatedNetworkAdapter y P2PNetworkAdapter (requieren mock network/Server real).
+- **PENDIENTE-17 (PerformanceMetrics)**: nuevo `org.q3s.p2p.core.observability.PerformanceMetrics` con contadores thread-safe (ConcurrentHashMap + AtomicLong), metricas predefinidas para events (PUBLISHED/RECEIVED/APPLIED/DROPPED/EPHEMERAL/SYNC_*), chunks (TRANSFERRED/FAILED/AVAILABILITY_*), peers (CONNECTED/DISCONNECTED/RECONNECTS), sync (LAST_DURATION_MS/TOTAL_DURATION_MS/EVENTS_DELIVERED). 8 tests (increment/record/get, null safe, reset, snapshot, atomico concurrente con 10k increments). Wired en `Controller.publishCoreEvent`, `Controller.onCoreEventStored`, `P2PNetworkAdapter.ephemeralEvent`, `CoreChunkTransferCoordinator.receiveChunk`.
+- **PENDIENTE-18 (Javadoc API publica)**: Javadoc agregado a las 5 interfaces/clases API mas importantes: `CoreApplicationService` (ciclo de vida), `EventStore` (BUG-5 fix), `NetworkAdapter`, `FileChunkStore`, `AuthProvider`.
+- **WORK_PLAN.md actualizado**: PENDIENTE-15, 17, 18 marcados como completados; PENDIENTE-13, 14 marcados como parciales (requieren test infrastructure adicional).
+
+### Validación
+
+- `mvn test` — **302 tests, 0 failures, 0 errors** (default; +47 vs sesion previa)
+- `mvn test -Pperformance-tests` — **45 tests, 0 failures**
+- `mvn -Pstatic-analysis verify` — **0 bugs, 0 errors**
+- `./build.sh` — exitoso, `dist/qfolder.jar` (2.1M)
+- `./scripts/smoke-e2e-mock.sh` — **13 checks pasaron, 0 fallaron**
+- `mvn package -DskipTests` — sin warnings Shade ni SLF4J

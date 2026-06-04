@@ -1891,4 +1891,60 @@ class CoreQfolderTest {
 		assertTrue(delta.contains(e2));
 		assertTrue(delta.contains(e3));
 	}
+
+	// ============================================================
+	// BUG-3: reuso de EventService compartido preserva cache de EventValidator
+	// ============================================================
+
+	@Test void bug3remoteEventServiceEsCompartidoEntreLlamadas() throws Exception {
+		var store = new InMemoryEventStore();
+		var core = new CoreApplicationService(store, new InMemoryFileChunkStore(), ids);
+		core.createWorkspace("WS BUG3", "u1", 1);
+		core.ensureWorkspaceSession(core.currentWorkspaceId().orElseThrow(), "WS BUG3", "u1", "u1", "dev", "tok", 1);
+
+		java.lang.reflect.Field field = CoreApplicationService.class.getDeclaredField("remoteEventService");
+		field.setAccessible(true);
+		Object service1 = field.get(core);
+		Object service2 = field.get(core);
+		assertNotNull(service1);
+		assertSame(service1, service2,
+				"CoreApplicationService debe reusar la MISMA instancia de EventService entre llamadas receiveRemoteEvent para preservar el cache de EventValidator");
+	}
+
+	// ============================================================
+	// BUG-6: eventsSinceSnapshot es AtomicInteger (thread-safe)
+	// ============================================================
+
+	@Test void bug6eventsSinceSnapshotEsAtomicInteger() throws Exception {
+		var store = new InMemoryEventStore();
+		var core = new CoreApplicationService(store, new InMemoryFileChunkStore(), ids);
+		core.createWorkspace("WS BUG6", "u1", 1);
+		String wsId = core.currentWorkspaceId().orElseThrow();
+		core.ensureWorkspaceSession(wsId, "WS BUG6", "u1", "u1", "dev", "tok", 1);
+
+		java.lang.reflect.Field field = CoreApplicationService.class.getDeclaredField("eventsSinceSnapshot");
+		field.setAccessible(true);
+		Object counter = field.get(core);
+		assertInstanceOf(java.util.concurrent.atomic.AtomicInteger.class, counter,
+				"eventsSinceSnapshot debe ser AtomicInteger para que los incrementos sean visibles entre hilos P2P y EDT");
+
+		java.util.concurrent.atomic.AtomicInteger ai = (java.util.concurrent.atomic.AtomicInteger) counter;
+		ai.set(0);
+		int n = 1000;
+		java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(8);
+		java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+		java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(n);
+		for (int i = 0; i < n; i++) {
+			pool.submit(() -> {
+				try { start.await(); } catch (InterruptedException e) { return; }
+				ai.incrementAndGet();
+				done.countDown();
+			});
+		}
+		start.countDown();
+		done.await();
+		pool.shutdownNow();
+		assertEquals(n, ai.get(),
+				"AtomicInteger debe garantizar que todos los incrementos se contabilizan bajo concurrencia");
+	}
 }

@@ -25,7 +25,7 @@ public class AppConfig {
 					props.load(is);
 					return;
 				} catch (Exception e) {
-					System.err.println("Error loading " + FILE_NAME + ": " + e.getMessage());
+					java.util.logging.Logger.getLogger("qfolder.AppConfig").warning("Error loading " + FILE_NAME + ": " + e.getMessage());
 				}
 			}
 		}

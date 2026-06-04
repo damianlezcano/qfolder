@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.IntStream;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.q3s.p2p.adapters.memory.InMemoryEventStore;
 import org.q3s.p2p.adapters.memory.InMemoryFileChunkStore;
@@ -36,6 +37,7 @@ import org.q3s.p2p.core.whiteboard.WhiteboardService;
 import org.q3s.p2p.core.workspace.WorkspaceService;
 import org.q3s.p2p.ports.FileChunkStore;
 
+@Tag("performance")
 class CoreResilienceTest {
 
 	private final UuidIdGenerator ids = new UuidIdGenerator();

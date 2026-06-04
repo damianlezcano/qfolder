@@ -37,6 +37,21 @@ import org.q3s.p2p.ports.IdGenerator;
 
 import java.time.Instant;
 
+/**
+ * Fachada de alto nivel que conecta la UI Swing con el core descentralizado
+ * event-sourced. Encapsula la creacion y activacion de workspaces, gestion
+ * de miembros, chat, archivos, pizarra, notas, replicacion de chunks y
+ * configuracion de snapshots. La UI consume esta clase a traves de sus
+ * metodos publicos; nunca toca los servicios internos directamente.
+ *
+ * El ciclo de vida tipico es:
+ *   1. Construir con dependencias (EventStore, FileChunkStore, IdGenerator, auth).
+ *   2. Configurar rutas de snapshot y retencion.
+ *   3. Activar workspace local ({@link #activateWorkspace(String, String, boolean)}).
+ *   4. Publicar eventos core desde la UI ({@link #sendChat}, {@link #shareFile}, etc.).
+ *   5. Reconstruir estado de UI desde {@link #currentState()} o aplicar eventos
+ *      incrementales con {@link #applyCoreEventIncremental}.
+ */
 public class CoreApplicationService {
 	private final EventStore eventStore;
 	private final FileChunkStore chunkStore;
@@ -242,6 +257,15 @@ public class CoreApplicationService {
 		return afterLocalEvent(noteService.insertLine(currentWorkspaceId, currentMember.memberId(), noteId, afterLineId, text));
 	}
 
+	/**
+	 * Elimina la linea CRDT completa que contiene la posicion de caracter indicada.
+	 * <p>
+	 * El parametro {@code length} se acepta por compatibilidad con la API basada en
+	 * offsets de caracter del DocumentListener de Swing, pero el CRDT de notas es
+	 * line-based: una operacion {@code note.deleteOp} elimina la linea entera (la
+	 * unidad atomica de la nota). Para borrar N lineas consecutivas, el caller debe
+	 * emitir N llamadas a este metodo con cada posicion de inicio de linea.
+	 */
 	public Event deleteNoteText(String noteId, int position, int length) {
 		requireSession();
 		String lineId = findLineIdAtPosition(noteId, position);
