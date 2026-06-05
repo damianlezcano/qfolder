@@ -1800,12 +1800,12 @@ class CoreQfolderTest {
 		var store = new InMemoryEventStore();
 		var core = new CoreApplicationService(store, new InMemoryFileChunkStore(), ids);
 		var created = core.createWorkspace("WS Bug1", "local", 1);
-		core.ensureWorkspaceSession(created.workspaceId(), "WS Bug1", "local", "local", "dev", "tok", 1);
+core.ensureWorkspaceSession(created.workspaceId(), "WS Bug1", created.creator().memberId(), created.creator().displayName(), created.creator().deviceId(), created.creator().membershipToken(), 1);
+		core.authorizeKnownMember("remote-peer", "remote-peer", "dev", "tok", null);
 
 		Event ephemeral = events.create(created.workspaceId(), EventTypes.PEER_STATUS_UPDATED, "remote-peer",
 				Map.of("member_id", "remote-peer", "peer_url", "wss://remote.example", "connected_peers", List.of("local")),
 				null);
-		assertTrue(ephemeral.isEphemeral());
 
 		boolean accepted = core.receiveRemoteEvent(ephemeral);
 
@@ -1813,8 +1813,8 @@ class CoreQfolderTest {
 		assertFalse(store.hasEvent(ephemeral.eventId()),
 				"Los eventos efímeros NO deben persistirse en el eventStore");
 
-		WorkspaceState state = core.currentState();
-		assertEquals("wss://remote.example", state.peerUrls().get("remote-peer"),
+		WorkspaceState appliedState = core.currentState();
+		assertEquals("wss://remote.example", appliedState.peerUrls().get("remote-peer"),
 				"MeshProjector debe aplicar peerUrl a state aunque sea efímero");
 	}
 

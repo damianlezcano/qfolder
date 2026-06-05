@@ -181,13 +181,13 @@ Verificar también que la lista de test files mencionados incluya los nuevos:
 
 ```
 cd p2p-client && mvn test
-  302 tests, 0 failures, 0 errors — BUILD SUCCESS (9s)
+  362 tests, 0 failures, 0 errors — BUILD SUCCESS (9s)
 
 cd p2p-client && mvn -Pperformance-tests test
-  347 tests total (incluye 45 performance)
+  407 tests total (incluye 45 performance)
 ```
 
-Test files (23):
+Test files (28):
 
 | File | Tests |
 |---|---|
@@ -195,18 +195,24 @@ Test files (23):
 | CoreResilienceTest | 35 |
 | CoreArchitectureTest | 24 |
 | CoreControllerIntegrationTest | 23 |
+| P2PNetworkAdapterTest | 15 |
+| P2PMeshServiceTest | 15 |
 | QfolderLayoutTest | 12 |
 | BackendExtendedSimulationTest | 10 |
 | CoreChunkTransferProtocolTest | 10 |
 | EventValidatorTest | 10 |
 | CoreWsClientTest | 9 |
 | FileSystemEventStoreTest | 9 |
+| WsClientTest | 9 |
 | FileSystemFileChunkStoreTest | 8 |
 | PerformanceMetricsTest | 8 |
 | ChunkReplicatorTest | 7 |
 | CoreWebSocketIntegrationTest | 7 |
+| DirectBootstrapTest | 7 |
+| EmbeddedWebSocketServerTest | 7 |
 | InviteCodeTest | 7 |
 | SecureIdentityStoreTest | 7 |
+| CloudflareTunnelTest | 7 |
 | AppConfigTest | 6 |
 | ClipboardImagePerformanceTest | 6 |
 | EventPipelineTest | 6 |
